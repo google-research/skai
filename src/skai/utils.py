@@ -1,0 +1,136 @@
+# Copyright 2021 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Utility functions for skai package."""
+
+import base64
+import io
+import struct
+from typing import Iterable, List, Tuple
+
+from absl import flags
+import numpy as np
+import PIL.Image
+import tensorflow as tf
+
+Example = tf.train.Example
+Image = PIL.Image.Image
+
+
+def serialize_image(image: Image, image_format: str) -> bytes:
+  """Serialize image using the specified format.
+
+  Args:
+    image: Input image.
+    image_format: Image format to use, e.g. "jpeg"
+
+  Returns:
+    Serialized bytes.
+  """
+  buffer = io.BytesIO()
+  image.save(buffer, format=image_format)
+  return buffer.getvalue()
+
+
+def deserialize_image(serialized_bytes: bytes, image_format: str) -> Image:
+  return PIL.Image.open(io.BytesIO(serialized_bytes), formats=[image_format])
+
+
+def rasterio_to_pil(image_data: np.ndarray) -> np.ndarray:
+  """Fixes Rasterio dimension ordering.
+
+  Rasterio's read function returns image data with dimensions
+  [channels, rows, cols]. Change it into PIL's [rows, cols, channels]
+  order.
+
+  Args:
+    image_data: Image array.
+
+  Returns:
+    Array with dimension order fixed.
+  """
+  assert len(image_data.shape) == 3 and image_data.shape[0] == 3
+  return np.moveaxis(image_data, 0, 2)
+
+
+def add_int64_feature(feature_name: str,
+                      value: int,
+                      example: Example) -> None:
+  """Add int64 feature to tensorflow Example."""
+  example.features.feature[feature_name].int64_list.value.append(value)
+
+
+def add_float_feature(feature_name: str,
+                      value: float,
+                      example: Example) -> None:
+  """Add float feature to tensorflow Example."""
+  example.features.feature[feature_name].float_list.value.append(value)
+
+
+def add_float_list_feature(feature_name: str,
+                           value: Iterable[float],
+                           example: Example) -> None:
+  """Add float list feature to tensorflow Example."""
+  example.features.feature[feature_name].float_list.value.extend(value)
+
+
+def add_bytes_feature(feature_name: str,
+                      value: bytes,
+                      example: Example) -> None:
+  """Add bytes feature to tensorflow Example."""
+  example.features.feature[feature_name].bytes_list.value.append(value)
+
+
+def get_test_file_path(relative_test_data_path: str) -> str:
+  """Returns path to a test data file.
+
+  Args:
+    relative_test_data_path: Relative data path, e.g. "test_data/blank.tif".
+
+  Returns:
+    Absolute path to test data.
+  """
+  import pathlib
+  current_dir = pathlib.Path(__file__).parent
+  return str(current_dir / relative_test_data_path)
+
+
+def reformat_flags(flags_list: List[flags.Flag]) -> List[str]:
+  """Converts Flag objects to strings formatted as command line arguments.
+
+  Args:
+    flags_list: List of Flag objects.
+  Returns:
+    List of strings, each representing a command line argument.
+  """
+  formatted_flags = []
+  for flag in flags_list:
+    if flag.value is not None:
+      formatted_flag = f"--{flag.name}="
+      if isinstance(flag.value, list):
+        formatted_flag += ",".join(flag.value)
+      else:
+        formatted_flag += f"{flag.value}"
+      formatted_flags.append(formatted_flag)
+  return formatted_flags
+
+
+def encode_coordinates(longitude: float, latitude: float) -> bytes:
+  packed = struct.pack("<ff", longitude, latitude)
+  return base64.b16encode(packed)
+
+
+def decode_coordinates(encoded_coords: bytes) -> Tuple[float, float]:
+  buffer = base64.b16decode(encoded_coords)
+  return struct.unpack("<ff", buffer)
