@@ -259,8 +259,13 @@ class GenerateExamplesFn(beam.DoFn):
     self._labeling_patch_size = labeling_patch_size
     self._resolution = resolution
     self._gdal_env = gdal_env
+
     self._example_count = Metrics.counter('skai', 'generated_examples_count')
     self._bad_example_count = Metrics.counter('skai', 'rejected_examples_count')
+    self._before_patch_blank_count = Metrics.counter(
+        'skai', 'before_patch_blank_count')
+    self._after_patch_blank_count = Metrics.counter(
+        'skai', 'after_patch_blank_count')
 
   def setup(self) -> None:
     """Open before and after image rasters.
@@ -300,7 +305,11 @@ class GenerateExamplesFn(beam.DoFn):
                                              after_patch_size,
                                              self._resolution)
 
-      if before_patch is None or after_patch is None:
+      if before_patch is None:
+        self._before_patch_blank_count.inc()
+        self._bad_example_count.inc()
+      elif after_patch is None:
+        self._after_patch_blank_count.inc()
         self._bad_example_count.inc()
       else:
         aligned_after_patch = align_after_image(before_patch, after_patch)

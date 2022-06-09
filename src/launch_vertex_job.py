@@ -74,11 +74,6 @@ _DISPLAY_NAME = flags.DEFINE_string(
     "display_name",
     default="ssl-train",
     help="Display name of this job.")
-_TENSORBOARD_RESOURCE_NAME = flags.DEFINE_string(
-    "tensorboard_resource_name",
-    default=None,
-    help="Name of the Tensorboard resource to visualize training. Example: "
-    "projects/<project-id>/locations/<region>/tensorboards/<id>")
 _SERVICE_ACCOUNT = flags.DEFINE_string(
     "service_account",
     default=None,
@@ -153,14 +148,7 @@ def main(unused_argv) -> None:
   if not _SERVICE_ACCOUNT.value:
     raise ValueError("Must specify a service account.")
 
-  if _JOB_TYPE.value == "train":
-    if not _TENSORBOARD_RESOURCE_NAME.value:
-      raise ValueError("Must specify a Tensorboard resource.")
-    job.run(
-        tensorboard=_TENSORBOARD_RESOURCE_NAME.value,
-        service_account=_SERVICE_ACCOUNT.value)
-  else:
-    job.run(service_account=_SERVICE_ACCOUNT.value)
+  job.run(service_account=_SERVICE_ACCOUNT.value)
 
 if __name__ == "__main__":
   flags.mark_flags_as_required(["dataset_name", "train_dir", "test_examples"])
