@@ -70,14 +70,13 @@ def _check_serialized_examples(expected_tiles: List[Tile]):
       margin_size = example.features.feature['margin_size'].int64_list.value[0]
 
       crs = example.features.feature['crs'].bytes_list.value[0].decode()
-      assert crs == 'EPSG:4326'
+      assert crs == 'EPSG:3857', crs
 
       transform = tuple(
           example.features.feature['affine_transform'].float_list.value[:])
       assert np.allclose(
           transform,
-          (4.491576419241028e-06, 0.0, 178.48226928710938,
-           0.0, -4.491576419241028e-06, -16.63225746154785))
+          (0.5, 0.0, 19868555.0, 0.0, -0.5, -1878059.3724)), transform
 
       # Check that the encoded image has the same dimensions as the image/width
       # and image/height features.
@@ -132,12 +131,12 @@ class ExtractTilesTest(absltest.TestCase):
         self.test_image_path, aoi, tile_size=100, margin=10, gdal_env={}))
 
     self.assertEqual(tiles, set([
-        Tile(21, 18, 120, 120, 10, 0, 0),
-        Tile(21, 118, 120, 120, 10, 0, 1),
-        Tile(121, 18, 120, 120, 10, 1, 0),
-        Tile(121, 118, 120, 120, 10, 1, 1),
-        Tile(221, 18, 120, 120, 10, 2, 0),
-        Tile(221, 118, 120, 120, 10, 2, 1)
+        Tile(21, 19, 120, 120, 10, 0, 0),
+        Tile(21, 119, 120, 120, 10, 0, 1),
+        Tile(121, 19, 120, 120, 10, 1, 0),
+        Tile(121, 119, 120, 120, 10, 1, 1),
+        Tile(221, 19, 120, 120, 10, 2, 0),
+        Tile(221, 119, 120, 120, 10, 2, 1)
     ]))
 
   def testExtractTilesAsExamplesFn(self):
