@@ -9,8 +9,8 @@ then
   # Setup for invoking from continuous integration test framework.
   VIRTUALENV_PATH="${KOKORO_ROOT}/skai_env"
   SKAI_DIR="${KOKORO_ARTIFACTS_DIR}/github/skai"
-  pyenv install --skip-existing 3.7.12  # Version used in Colab kernel VMs.
-  pyenv global 3.7.12
+  pyenv install --skip-existing 3.7.10  # Closest to version used in Colab (3.7.12).
+  pyenv global 3.7.10
   which python
   python --version
 else
