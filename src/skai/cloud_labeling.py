@@ -286,7 +286,7 @@ def create_cloud_labeling_job(
 
   logging.info('Waiting for dataset to be created.')
   dataset.wait()
-  # TODO: Add error checking for dataset creation.
+  # TODO(jzxu): Add error checking for dataset creation.
   logging.info('Dataset created: %s', dataset.resource_name)
 
   # Wait a while before using this dataset to create a labeling task. Otherwise
@@ -411,7 +411,7 @@ def _write_tfrecord(examples: Iterable[tf.train.Example], path: str) -> None:
 
 def _string_to_float_label(label: str) -> float:
   """Converts string labels supplied by labelers to binary float labels."""
-  # TODO: Make the mapping from string to float values configurable.
+  # TODO(jzxu): Make the mapping from string to float values configurable.
   if label in ['damaged_destroyed']:
     return 1.0
   return 0.0

@@ -16,6 +16,8 @@
 import dataclasses
 import os
 import pathlib
+import random
+import time
 from typing import Dict, Iterator, List, Optional, Tuple
 import apache_beam as beam
 import cv2
@@ -29,6 +31,7 @@ from skai import beam_utils
 from skai import cloud_labeling
 from skai import utils
 import tensorflow as tf
+
 
 Example = tf.train.Example
 Image = PIL.Image.Image
@@ -53,6 +56,10 @@ _LABELING_IMAGES = 'label_images'
 # Maximum number of dataflow workers to use.
 _MAX_DATAFLOW_WORKERS = 20
 
+# Maximum QPS for the Earth Engine API. Should be respected when using the EEDAI
+# interface (https://gdal.org/drivers/raster/eedai.html).
+_EARTH_ENGINE_QPS = 100
+
 
 @dataclasses.dataclass
 class _Coordinate:
@@ -66,6 +73,17 @@ class _Coordinate:
   longitude: float
   latitude: float
   label: float
+
+  def __post_init__(self):
+    # Check if the longitude and latitude are valid
+    if not -180 <= self.longitude <= 180:
+      raise ValueError(
+          f'Invalid longitude, got {self.longitude}'
+      )
+    if not -90 <= self.latitude <= 90:
+      raise ValueError(
+          f'Invalid latitude, got {self.latitude}'
+      )
 
 
 def _to_grayscale(image: np.ndarray) -> np.ndarray:
@@ -119,12 +137,64 @@ def _get_blank_fraction(data: np.ndarray) -> float:
   return (flattened.size - num_non_blank) / flattened.size
 
 
+def _get_raster_resolution_in_meters(raster) -> float:
+  """Covert different resolution unit into meters.
+
+  Args:
+    raster: Input raster.
+  Returns:
+    Resolution in meters.
+  Raises:
+    ValueError: CRS error
+  """
+  if not np.isclose(raster.res[0], raster.res[1], rtol=0.0001):
+    raise ValueError(
+        f'Expecting identical x and y resolutions, got {raster.res[0]}, {raster.res[1]}'
+    )
+  crs = raster.crs
+  try:
+    meter_conversion_factor = crs.linear_units_factor[1]
+  except rasterio.errors.CRSError as e:
+    if crs.to_epsg() == 4326:
+      # Raster resolution is expressed in degrees lon/lat. Convert to
+      # meters with approximation that 1 degree ~ 111km.
+      meter_conversion_factor = 111000
+    else:
+      raise ValueError(
+          f'No linear units factor or unsupported EPSG code, got {e}') from e
+  return raster.res[0] * meter_conversion_factor
+
+
+def _convert_to_uint8(image: np.ndarray) -> np.ndarray:
+  """Converts an image to uint8.
+
+  This function currently only handles converting from various integer types to
+  uint8, with range checks to make sure the casting is safe. If needed, this
+  function can be adapted to handle float types.
+
+  Args:
+    image: Input image array.
+
+  Returns:
+    uint8 array.
+
+  """
+  if not np.issubdtype(image.dtype, np.integer):
+    raise TypeError(f'Image type {image.dtype} not supported.')
+  if np.min(image) < 0 or np.max(image) > 255:
+    raise ValueError(
+        f'Pixel values have a range of {np.min(image)}-{np.max(image)}. '
+        'Only 0-255 is supported.')
+  return image.astype(np.uint8)
+
+
 def _get_patch_at_coordinate(
     raster,
     longitude: float,
     latitude: float,
     patch_size: int,
-    resolution: float) -> Optional[np.ndarray]:
+    resolution: float,
+    wait_seconds: float) -> Optional[np.ndarray]:
   """Extracts image patch from a raster.
 
   Args:
@@ -133,6 +203,7 @@ def _get_patch_at_coordinate(
     latitude: Latitude of center of patch to extract.
     patch_size: Patch size.
     resolution: Desired resolution of output patch.
+    wait_seconds: Seconds to wait after reads to avoid exceeding QPS limits.
 
   Returns:
     The image patch, or None if the coordinates are out of the bounds of the
@@ -145,11 +216,7 @@ def _get_patch_at_coordinate(
   x, y = transformer.transform(longitude, latitude, errcheck=True)
   row, col = raster.index(x, y)
 
-  if raster.res[0] != raster.res[1]:
-    raise ValueError(
-        'Rasters with different x and y resolutions are not supported.')
-
-  raster_res = raster.res[0]
+  raster_res = _get_raster_resolution_in_meters(raster)
   scale_factor = resolution / raster_res
   input_size = int(patch_size * scale_factor)
 
@@ -162,10 +229,13 @@ def _get_patch_at_coordinate(
   window_data = raster.read(
       indexes=[1, 2, 3], window=window, boundless=True, fill_value=-1,
       out_shape=(3, patch_size, patch_size))
+  time.sleep(wait_seconds)
+
   if _get_blank_fraction(window_data) > _BLANK_THRESHOLD:
     return None
   window_data = np.clip(window_data, 0, None)
-  return rasterio.plot.reshape_as_image(window_data)
+  window_data = rasterio.plot.reshape_as_image(window_data)
+  return _convert_to_uint8(window_data)
 
 
 def _create_example(before_image: Image, after_image: Image,
@@ -183,7 +253,7 @@ def _create_example(before_image: Image, after_image: Image,
     Tensorflow Example.
   """
   example = tf.train.Example()
-  # TODO: Use constants for these feature name strings.
+  # TODO(jzxu): Use constants for these feature name strings.
   utils.add_bytes_feature('pre_image_png',
                           utils.serialize_image(before_image, 'png'), example)
   utils.add_bytes_feature('post_image_png',
@@ -229,6 +299,7 @@ class GenerateExamplesFn(beam.DoFn):
   Attributes:
     _before_path: Path to before disaster image.
     _after_path: Path to after disaster image.
+    _labeling_image_sample_rate: Rate at which to sample labeling images.
     _example_patch_size: Size in pixels of the before and after image patches
       included in the examples.
     _alignment_patch_size: Size in pixels of the before and after image patches
@@ -245,7 +316,7 @@ class GenerateExamplesFn(beam.DoFn):
   def __init__(self,
                before_path: str,
                after_path: str,
-               generate_labeling_images: bool,
+               labeling_image_sample_rate: float,
                example_patch_size: int,
                alignment_patch_size: int,
                labeling_patch_size: int,
@@ -253,7 +324,7 @@ class GenerateExamplesFn(beam.DoFn):
                gdal_env: Dict[str, str]) -> None:
     self._before_path = before_path
     self._after_path = after_path
-    self._generate_labeling_images = generate_labeling_images
+    self._labeling_image_sample_rate = labeling_image_sample_rate
     self._example_patch_size = example_patch_size
     self._alignment_patch_size = alignment_patch_size
     self._labeling_patch_size = labeling_patch_size
@@ -287,23 +358,27 @@ class GenerateExamplesFn(beam.DoFn):
     Yields:
       Serialized Tensorflow Example.
     """
+
+    if (self._before_path.startswith('EEDAI:') or
+        self._after_path.startswith('EEDAI:')):
+      qps_per_worker = _EARTH_ENGINE_QPS / _MAX_DATAFLOW_WORKERS
+      seconds_between_reads = 1.0 / qps_per_worker
+    else:
+      seconds_between_reads = 0
+
     with rasterio.Env(**self._gdal_env):
-      before_patch = _get_patch_at_coordinate(self._before_raster,
-                                              coordinate.longitude,
-                                              coordinate.latitude,
-                                              self._alignment_patch_size,
-                                              self._resolution)
+      before_patch = _get_patch_at_coordinate(
+          self._before_raster, coordinate.longitude, coordinate.latitude,
+          self._alignment_patch_size, self._resolution, seconds_between_reads)
 
       # Make the after image patch larger than the before image patch by giving
       # it a border of _MAX_DISPLACEMENT pixels. This gives the alignment
       # algorithm at most +/-_MAX_DISPLACEMENT pixels of movement in either
       # dimension to find the best alignment.
       after_patch_size = self._alignment_patch_size + 2 * _MAX_DISPLACEMENT
-      after_patch = _get_patch_at_coordinate(self._after_raster,
-                                             coordinate.longitude,
-                                             coordinate.latitude,
-                                             after_patch_size,
-                                             self._resolution)
+      after_patch = _get_patch_at_coordinate(
+          self._after_raster, coordinate.longitude, coordinate.latitude,
+          after_patch_size, self._resolution, seconds_between_reads)
 
       if before_patch is None:
         self._before_patch_blank_count.inc()
@@ -321,7 +396,7 @@ class GenerateExamplesFn(beam.DoFn):
         self._example_count.inc()
         yield beam.pvalue.TaggedOutput(_EXAMPLES, example.SerializeToString())
 
-        if self._generate_labeling_images:
+        if random.random() < self._labeling_image_sample_rate:
           labeling_image = cloud_labeling.create_labeling_image(
               _center_crop(before_patch, self._labeling_patch_size),
               _center_crop(aligned_after_patch, self._labeling_patch_size))
@@ -374,9 +449,7 @@ def _get_dataflow_pipeline_options(
 
 def _get_local_pipeline_options() -> PipelineOptions:
   return PipelineOptions.from_dictionary({
-      'runner': 'DirectRunner',
-      'direct_num_workers': 10,
-      'direct_running_mode': 'multi_processing',
+      'runner': 'DirectRunner'
   })
 
 
@@ -387,7 +460,7 @@ def _generate_examples(
     alignment_patch_size: int,
     labeling_patch_size: int,
     resolution: float,
-    num_labeling_images: int,
+    labeling_image_sample_rate: float,
     gdal_env: Dict[str, str],
     coordinates: beam.PCollection,
     stage_prefix: str) -> Tuple[beam.PCollection, beam.PCollection]:
@@ -403,7 +476,7 @@ def _generate_examples(
     labeling_patch_size: Size in pixels of before and after image patches for
       labeling.
     resolution: Desired resolution of image patches.
-    num_labeling_images: Number of labeling images to generate, or 0 to disable.
+    labeling_image_sample_rate: Rate at which to sample labeling images.
     gdal_env: GDAL environment configuration.
     coordinates: Collection of coordinates (longitude, latitude, label) to
       extract examples for.
@@ -413,24 +486,15 @@ def _generate_examples(
     PCollection of examples and PCollection of labeling images.
   """
 
-  generate_labeling_images = (num_labeling_images > 0)
   results = (
       coordinates
       | stage_prefix + '_generate_examples' >> beam.ParDo(
           GenerateExamplesFn(
-              before_image_path, after_image_path, generate_labeling_images,
+              before_image_path, after_image_path, labeling_image_sample_rate,
               example_patch_size, alignment_patch_size, labeling_patch_size,
               resolution, gdal_env)).with_outputs(_EXAMPLES, _LABELING_IMAGES))
   examples = results[_EXAMPLES]
   labeling_images = results[_LABELING_IMAGES]
-
-  if generate_labeling_images:
-    labeling_images = (
-        labeling_images
-        | stage_prefix + '_sample_labeling_images' >>
-        beam.combiners.Sample.FixedSizeGlobally(num_labeling_images)
-        | stage_prefix + '_flatten' >> beam.FlatMap(lambda x: x))
-
   return examples, labeling_images
 
 
@@ -521,6 +585,8 @@ def generate_examples_pipeline(
 
   with beam.Pipeline(options=pipeline_options) as pipeline:
     if unlabeled_coordinates:
+      labeling_image_sample_rate = (
+          num_labeling_images / len(unlabeled_coordinates))
       unlabeled_coordinates_pcollection = (
           pipeline
           | 'create_unlabeled_coordinates' >> beam.Create([
@@ -530,8 +596,8 @@ def generate_examples_pipeline(
       unlabeled_examples, labeling_images = _generate_examples(
           before_image_path, after_image_path, example_patch_size,
           alignment_patch_size, labeling_patch_size, resolution,
-          num_labeling_images, gdal_env, unlabeled_coordinates_pcollection,
-          'unlabeled')
+          labeling_image_sample_rate, gdal_env,
+          unlabeled_coordinates_pcollection, 'unlabeled')
 
       unlabeled_examples_output_prefix = (
           os.path.join(output_dir, 'examples', 'unlabeled', 'unlabeled'))

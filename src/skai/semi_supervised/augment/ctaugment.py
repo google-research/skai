@@ -85,7 +85,7 @@ def apply(x: np.ndarray,
 
   if use_pre_disaster_image:
     y_channels = [_image_to_array(y_pre), _image_to_array(y_post)]
-    # TODO: Support augmenting mask channels in single image case
+    # TODO(jlee24): Support augmenting mask channels in single image case
     if _has_building_mask_channels(x):
       y_channels.append(x[:, :, 6:8])
     y = np.concatenate(y_channels, axis=-1)

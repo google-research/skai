@@ -66,7 +66,7 @@ def _check_serialized_examples(expected_patch_size: int,
       example = tf.train.Example()
       example.ParseFromString(serialized)
       feature_names = set(example.features.feature.keys())
-      # TODO: Use constants for these feature name strings.
+      # TODO(jzxu): Use constants for these feature name strings.
       assert feature_names == set([
           'pre_image_png', 'post_image_png', 'coordinates',
           'encoded_coordinates', 'label'
@@ -135,7 +135,7 @@ class GenerateExamplesTest(absltest.TestCase):
   def setUp(self):
     super().setUp()
     current_dir = pathlib.Path(__file__).parent
-    self.test_image_path = current_dir / TEST_IMAGE_PATH
+    self.test_image_path = str(current_dir / TEST_IMAGE_PATH)
 
   def testGenerateExamplesFn(self):
     """Tests GenerateExamplesFn class."""
