@@ -39,10 +39,6 @@ from skai.semi_supervised import ssl_train_library
 from skai.semi_supervised import train
 import tensorflow.compat.v1 as tf
 
-# BEGIN GOOGLE-INTERNAL
-import google3.learning.deepmind.xmanager2.client.google as xm
-# END GOOGLE-INTERNAL
-
 flags.adopt_module_key_flags(ssl_flags)
 FLAGS = flags.FLAGS
 
@@ -285,9 +281,6 @@ def _FindCheckpoints(checkpoint_dir: str) -> Set[str]:
 
 
 def main(_):
-  # BEGIN GOOGLE-INTERNAL
-  xm.setup_work_unit()
-  # END GOOGLE-INTERNAL
 
   # Create dataset with only validation data
   dataset = ssl_train_library.create_dataset(
