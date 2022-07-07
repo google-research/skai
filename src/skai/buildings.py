@@ -102,7 +102,7 @@ def read_aois(path: str) -> List[Polygon]:
   df = gpd.read_file(path).to_crs(epsg=4326)
   geometries = list(df.geometry.values)
   for g in geometries:
-    if g.geometryType() != 'Polygon':
+    if g.geometryType() not in ['Polygon', 'MultiPolygon']:
       raise ValueError(
           f'Unexpected geometry for area of interest: "{g.geometryType()}"')
   return geometries

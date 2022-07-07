@@ -11,7 +11,7 @@ pandas
 pillow
 pyproj
 pytest
-rasterio>=1.3b3
+rasterio
 requests
 rio-cogeo
 shapely
