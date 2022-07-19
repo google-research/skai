@@ -4,28 +4,36 @@
 # this script on Linux as long as you have a recent Python version (>=3.7) and
 # virtualenv installed.
 
+set -e
+set -x
+
 if [ -n "$KOKORO_ROOT" ]
 then
   # Setup for invoking from continuous integration test framework.
   VIRTUALENV_PATH="${KOKORO_ROOT}/skai_env"
   SKAI_DIR="${KOKORO_ARTIFACTS_DIR}/github/skai"
-  pyenv install --skip-existing 3.7.10  # Closest to version used in Colab (3.7.12).
-  pyenv global 3.7.10
-  which python
-  python --version
+
+  PY_VERSION=3.9.5
+  pyenv uninstall -f $PY_VERSION
+  # Have to install lzma library first, otherwise will get an error
+  # "ModuleNotFoundError: No module named '_lzma'".
+  sudo apt-get install liblzma-dev
+  pyenv install -f $PY_VERSION
+  pyenv global $PY_VERSION
 else
   # Setup for manually triggered runs.
   VIRTUALENV_PATH=/tmp/skai_env
   SKAI_DIR=`dirname $0`/..
 fi
 
-set -e
-set -x
-
 function setup {
-  virtualenv "${VIRTUALENV_PATH}"
+  which python
+  python --version
+  python -m venv "${VIRTUALENV_PATH}"
   source "${VIRTUALENV_PATH}/bin/activate"
   pushd "${SKAI_DIR}"
+  which pip
+  pip --version
   pip install -r requirements.txt
 }
 

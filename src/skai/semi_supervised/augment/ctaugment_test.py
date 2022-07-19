@@ -40,7 +40,7 @@ class CTAugmentTest(parameterized.TestCase, tf.test.TestCase):
   def test_apply_policy(self):
     augmenter = ctaugment.CTAugment(depth=2)
     policy = augmenter.policy(True)
-    # TODO: Make cutout size a flag to specify
+    # TODO(jlee24): Make cutout size a flag to specify
     image = np.ones((64, 64, 6)) * 128
     augmented_image = ctaugment.apply(image, policy)
     self.assertEqual(augmented_image.shape, (64, 64, 6))

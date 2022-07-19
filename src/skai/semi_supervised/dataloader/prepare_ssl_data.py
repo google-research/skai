@@ -179,7 +179,7 @@ def _parse_record(
   if use_pre_disaster_image:
     pre_png = tf.image.decode_image(features[PRE_IMAGE_PNG_KEY])
     image_channels = [pre_png, post_png]
-    # TODO: use enum constants to define order and indices of
+    # TODO(jlee24): use enum constants to define order and indices of
     # channels.
     # Expectations about the order of channels are hardcoded into fixmatch.py
     # (for summary images) and ctaugment.py (for only augmenting the pre and
@@ -366,7 +366,7 @@ def _weak_augment(train_label: tf.data.Dataset, train_unlabel: tf.data.Dataset,
   """
   num_parallel_calls = max(1, len(
       utils.get_available_gpus())) * PARALLEL_AUGMENT
-  # TODO: Consider allowing user to specify augmentations by dict
+  # TODO(jlee24): Consider allowing user to specify augmentations by dict
   # that maps augmentation string name to function
   for augment_function in AUGMENTATIONS:
     train_label = train_label.map(
@@ -387,7 +387,7 @@ def _weak_augment(train_label: tf.data.Dataset, train_unlabel: tf.data.Dataset,
   return train_label, train_unlabel
 
 
-# TODO: Create multi-class version that selects arbitrary number of
+# TODO(jlee24): Create multi-class version that selects arbitrary number of
 # labeled examples
 def take_balanced(input_ds: tf.data.Dataset, num_positives: int,
                   num_negatives: int, buffer_size: int):
@@ -426,7 +426,7 @@ def take_balanced(input_ds: tf.data.Dataset, num_positives: int,
   return input_ds.batch(buffer_size).take(1).map(sample_balanced).unbatch()
 
 
-# TODO: Allow taking specific number of labeled examples in
+# TODO(jlee24): Allow taking specific number of labeled examples in
 # multi-class case
 def create_dataset(name: str,
                    train_label_filepatterns: List[str],

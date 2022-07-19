@@ -113,7 +113,7 @@ flags.DEFINE_bool('create_cloud_labeling_task', False,
                   'subset of examples.')
 flags.DEFINE_integer('labeling_patch_size', 256,
                      'Patch size used for labeling.')
-flags.DEFINE_integer('num_labeling_examples', 500,
+flags.DEFINE_integer('num_labeling_examples', 1000,
                      'Number of examples to label.')
 flags.DEFINE_string('cloud_labeler_pool', None, 'Existing labeler pool.')
 flags.DEFINE_list('cloud_labeler_emails', None,

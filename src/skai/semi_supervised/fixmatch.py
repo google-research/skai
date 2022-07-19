@@ -119,14 +119,14 @@ class FixMatch(train.ClassifySemi):
                           'y')  # Training unlabeled (weak, strong)
     l_in = tf.placeholder(tf.int32, [params.batch], 'labels')  # Labels
 
-    # TODO: Replace channel indices with enum constants.
+    # TODO(jlee24): Replace channel indices with enum constants.
     if self._dataset.use_pre_disaster_image:
       pre_weak = 0.5 * (1 + y_in[:, 0, :, :, :3])
       post_weak = 0.5 * (1 + y_in[:, 0, :, :, 3:6])
       pre_strong = 0.5 * (1 + y_in[:, 1, :, :, :3])
       post_strong = 0.5 * (1 + y_in[:, 1, :, :, 3:6])
       # Mask is unaugmented, so it is same across weak and strong.
-      # TODO: Update mask functionality such that it is compatible
+      # TODO(jlee24): Update mask functionality such that it is compatible
       # with the case of using only a single image in training.
       if y_in.shape[4] > 6:
         pre_mask = y_in[:, 0, :, :, 7]
