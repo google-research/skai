@@ -14,6 +14,7 @@
 """Pipeline for generating tensorflow examples from satellite images."""
 
 import dataclasses
+import logging
 import os
 import pathlib
 import random
@@ -224,14 +225,25 @@ def _get_patch_at_coordinate(
   col_off = col - half_size
   row_off = row - half_size
   window = rasterio.windows.Window(col_off, row_off, input_size, input_size)
-  # Currently assumes that bands [1, 2, 3] of the input image are the RGB
-  # channels.
-  window_data = raster.read(
-      indexes=[1, 2, 3], window=window, boundless=True, fill_value=-1,
-      out_shape=(3, patch_size, patch_size))
+  start_time = time.time()
+  try:
+    # Currently assumes that bands [1, 2, 3] of the input image are the RGB
+    # channels.
+    window_data = raster.read(
+        indexes=[1, 2, 3], window=window, boundless=True, fill_value=0,
+        out_shape=(3, patch_size, patch_size))
+  except rasterio.errors.RasterioError:
+    logging.exception('Rasterio read error in _get_patch_at_coordinate')
+    Metrics.counter('skai', 'rasterio_error').inc()
+    return None
+  finally:
+    elapsed_time = time.time() - start_time
+    Metrics.distribution('skai', 'raster_read_time_secs').update(elapsed_time)
+
   time.sleep(wait_seconds)
 
   if _get_blank_fraction(window_data) > _BLANK_THRESHOLD:
+    Metrics.counter('skai', 'blank_patches').inc()
     return None
   window_data = np.clip(window_data, 0, None)
   window_data = rasterio.plot.reshape_as_image(window_data)
