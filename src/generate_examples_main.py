@@ -63,8 +63,7 @@ flags.DEFINE_string(
 
 # Example generation flags.
 flags.DEFINE_string('dataset_name', None, 'Dataset name.')
-flags.DEFINE_string(
-    'before_image_path', None, 'Path of pre-disaster GeoTIFF.', required=True)
+flags.DEFINE_string('before_image_path', '', 'Path of pre-disaster GeoTIFF.')
 flags.DEFINE_string(
     'after_image_path', None, 'Path of post-disaster GeoTIFF.', required=True)
 flags.DEFINE_string(

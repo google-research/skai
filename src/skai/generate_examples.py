@@ -345,7 +345,9 @@ class GenerateExamplesFn(beam.DoFn):
     the raster data from disk.
     """
     with rasterio.Env(**self._gdal_env):
-      self._before_raster = rasterio.open(self._before_path)
+      self._before_raster = None
+      if self._before_path:
+        self._before_raster = rasterio.open(self._before_path)
       self._after_raster = rasterio.open(self._after_path)
 
   def process(
@@ -367,47 +369,60 @@ class GenerateExamplesFn(beam.DoFn):
       seconds_between_reads = 0
 
     with rasterio.Env(**self._gdal_env):
-      before_patch = _get_patch_at_coordinate(
-          self._before_raster, coordinate.longitude, coordinate.latitude,
-          self._alignment_patch_size, self._resolution, seconds_between_reads)
+      if self._before_raster is None:
+        patch_size = max(self._example_patch_size, self._labeling_patch_size)
+        # No before image, so just set the before patch to all zeros.
+        before_patch = np.zeros((patch_size, patch_size, 3), dtype=np.uint8)
+        after_patch = _get_patch_at_coordinate(
+            self._after_raster, coordinate.longitude, coordinate.latitude,
+            patch_size, self._resolution, seconds_between_reads)
+      else:
+        before_patch = _get_patch_at_coordinate(
+            self._before_raster, coordinate.longitude, coordinate.latitude,
+            self._alignment_patch_size, self._resolution, seconds_between_reads)
 
-      # Make the after image patch larger than the before image patch by giving
-      # it a border of _MAX_DISPLACEMENT pixels. This gives the alignment
-      # algorithm at most +/-_MAX_DISPLACEMENT pixels of movement in either
-      # dimension to find the best alignment.
-      after_patch_size = self._alignment_patch_size + 2 * _MAX_DISPLACEMENT
-      after_patch = _get_patch_at_coordinate(
-          self._after_raster, coordinate.longitude, coordinate.latitude,
-          after_patch_size, self._resolution, seconds_between_reads)
+        if before_patch is None:
+          self._before_patch_blank_count.inc()
+          self._bad_example_count.inc()
+          return
 
-      if before_patch is None:
-        self._before_patch_blank_count.inc()
-        self._bad_example_count.inc()
-      elif after_patch is None:
+        # Make the after image patch larger than the before image patch by
+        # giving it a border of _MAX_DISPLACEMENT pixels. This gives the
+        # alignment algorithm at most +/-_MAX_DISPLACEMENT pixels of movement in
+        # either dimension to find the best alignment.
+        after_patch_size = self._alignment_patch_size + 2 * _MAX_DISPLACEMENT
+        after_patch = _get_patch_at_coordinate(
+            self._after_raster, coordinate.longitude, coordinate.latitude,
+            after_patch_size, self._resolution, seconds_between_reads)
+        if after_patch is not None:
+          # Try to align after image to before image.
+          after_patch = align_after_image(before_patch, after_patch)
+
+      if after_patch is None:
         self._after_patch_blank_count.inc()
         self._bad_example_count.inc()
-      else:
-        aligned_after_patch = align_after_image(before_patch, after_patch)
-        example = _create_example(
-            _center_crop(before_patch, self._example_patch_size),
-            _center_crop(aligned_after_patch, self._example_patch_size),
-            coordinate.longitude, coordinate.latitude, coordinate.label)
+        return
 
-        self._example_count.inc()
-        yield beam.pvalue.TaggedOutput(_EXAMPLES, example.SerializeToString())
+      example = _create_example(
+          _center_crop(before_patch, self._example_patch_size),
+          _center_crop(after_patch, self._example_patch_size),
+          coordinate.longitude, coordinate.latitude, coordinate.label)
 
-        if random.random() < self._labeling_image_sample_rate:
-          labeling_image = cloud_labeling.create_labeling_image(
-              _center_crop(before_patch, self._labeling_patch_size),
-              _center_crop(aligned_after_patch, self._labeling_patch_size))
-          serialized_labeling_image = utils.serialize_image(
-              labeling_image, 'png')
-          encoded_coords = utils.encode_coordinates(
-              coordinate.longitude, coordinate.latitude).decode()
-          labeling_image_name = f'{encoded_coords}.png'
-          yield beam.pvalue.TaggedOutput(
-              _LABELING_IMAGES,
-              (labeling_image_name, serialized_labeling_image))
+      self._example_count.inc()
+      yield beam.pvalue.TaggedOutput(_EXAMPLES, example.SerializeToString())
+
+      if random.random() < self._labeling_image_sample_rate:
+        labeling_image = cloud_labeling.create_labeling_image(
+            _center_crop(before_patch, self._labeling_patch_size),
+            _center_crop(after_patch, self._labeling_patch_size))
+        serialized_labeling_image = utils.serialize_image(
+            labeling_image, 'png')
+        encoded_coords = utils.encode_coordinates(
+            coordinate.longitude, coordinate.latitude).decode()
+        labeling_image_name = f'{encoded_coords}.png'
+        yield beam.pvalue.TaggedOutput(
+            _LABELING_IMAGES,
+            (labeling_image_name, serialized_labeling_image))
 
 
 def _get_setup_file_path():
@@ -449,7 +464,9 @@ def _get_dataflow_pipeline_options(
 
 def _get_local_pipeline_options() -> PipelineOptions:
   return PipelineOptions.from_dictionary({
-      'runner': 'DirectRunner'
+      'runner': 'DirectRunner',
+      'direct_num_workers': 10,
+      'direct_running_mode': 'multi_processing',
   })
 
 
