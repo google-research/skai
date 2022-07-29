@@ -29,6 +29,7 @@ labeler pools using the REST API documented at [2]:
 
 """
 
+import os
 import time
 
 from absl import app
@@ -40,7 +41,9 @@ from skai import cloud_labeling
 FLAGS = flags.FLAGS
 flags.DEFINE_string('cloud_project', 'disaster-assessment', 'GCP project name.')
 flags.DEFINE_string('cloud_location', 'us-central1', 'Project location.')
-flags.DEFINE_string('import_file', '', 'Pattern for input TFRecords.')
+flags.DEFINE_string('images_dir', '', 'Directory containing images.')
+flags.DEFINE_integer('max_images', 1000, 'Maximum number of images to label.')
+flags.DEFINE_bool('randomize', True, 'If true, randomly sample images.')
 flags.DEFINE_string('dataset_name', None, 'Dataset name')
 flags.DEFINE_string(
     'cloud_labeler_pool', None, 'Labeler pool. Format is '
@@ -83,6 +86,13 @@ def _get_labeling_dataset_region(project_region: str) -> str:
 def main(unused_argv):
   timestamp = time.strftime('%Y%m%d_%H%M%S')
   timestamped_dataset = f'{FLAGS.dataset_name}_{timestamp}'
+
+  import_file_path = os.path.join(
+      FLAGS.images_dir, f'import_file_{timestamped_dataset}.csv')
+  cloud_labeling.write_import_file(
+      FLAGS.images_dir, FLAGS.max_images, FLAGS.randomize, import_file_path)
+  print(f'Successfully wrote import file {import_file_path}.')
+
   if FLAGS.cloud_labeler_pool is not None:
     labeler_pool = FLAGS.cloud_labeler_pool
   else:
@@ -101,7 +111,7 @@ def main(unused_argv):
       _get_labeling_dataset_region(FLAGS.cloud_location),
       timestamped_dataset,
       labeler_pool,
-      FLAGS.import_file,
+      import_file_path,
       FLAGS.labeler_instructions_uri,
       FLAGS.label_inputs_schema_uri)
 

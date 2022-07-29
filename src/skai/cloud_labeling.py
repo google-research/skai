@@ -14,12 +14,11 @@
 
 """Functions for performing data labeling in GCP Vertex AI."""
 
-import io
 import json
 import os
 import random
 import time
-from typing import Any, Dict, Iterable, List, Tuple
+from typing import Dict, Iterable, List, Tuple
 
 from absl import logging
 
@@ -118,140 +117,32 @@ def create_labeling_image(before_image: Image, after_image: Image) -> Image:
   return combined
 
 
-def create_labeling_image_from_example(example: tf.train.Example) -> Image:
-  """Creates an image used for labeling.
-
-  The image is composed of the before and after images from the input example
-  side-by-side.
-
-  Args:
-    example: Input example. Should contain pre_image_png and post_image_png
-      features.
-
-  Returns:
-    Combined image.
-
-  """
-  before_image = PIL.Image.open(io.BytesIO(
-      example.features.feature['pre_image_png'].bytes_list.value[0]))
-  after_image = PIL.Image.open(io.BytesIO(
-      example.features.feature['post_image_png'].bytes_list.value[0]))
-
-  return create_labeling_image(before_image, after_image)
-
-
-def _float_to_e8(value: float) -> str:
-  """Converts a float value into "e8" format.
-
-  The "e8" format is simply the float value multiplied by 10^8 and cast into an
-  integer. This avoids any kind of inconsistency in string -> float conversion
-  when recovering the value from a file, and also removes the decimal point,
-  which is illegal in the import file.
-
-  Args:
-    value: Input value.
-
-  Returns:
-    e8 representation of the float value as a string.
-  """
-  return str(int(value * 1e8))
-
-
-def _sanitize_path(path: str):
-  """Converts path to a value that's legal for the import file."""
-  return os.path.basename(path).replace('.', '__')
-
-
-def get_labeling_image_annotations(
-    example: tf.train.Example,
-    path: str,
-    origin: str,
-    index: int) -> Dict[str, Any]:
-  """Returns the annotations for this example.
-
-  Args:
-    example: Input example.
-    path: Path to example PNG file.
-    origin: Path of TFRecord this example came from.
-    index: Record index inside the TFRecord for this example.
-  """
-  longitude = example.features.feature['coordinates'].float_list.value[0]
-  latitude = example.features.feature['coordinates'].float_list.value[1]
-  return {
-      'imageGcsUri': path,
-      'dataItemResourceLabels': {
-          'origin': _sanitize_path(origin),
-          'index': index,
-          'longitude_e8': _float_to_e8(longitude),
-          'latitude_e8': _float_to_e8(latitude),
-      }
-  }
-
-
-def _write_import_file(annotations: List[Dict[str, Any]],
-                       output_path: str) -> None:
+def write_import_file(
+    images_dir: str,
+    max_images: int,
+    randomize: bool,
+    output_path: str) -> None:
   """Writes import file.
 
   This file tells Vertex AI how to import the generated dataset.
 
   Args:
-    annotations: List of annotations for each generated example image.
-    output_path: Path of output file.
+    images_dir: Directory containing images.
+    max_images: Maximum number of images to include in import file.
+    randomize: If true, randomly sample images. Otherwise just take the
+        first ones by file sort order.
+    output_path: Path to write import file to.
   """
+  images_pattern = os.path.join(images_dir, '*.png')
+  image_files = list(tf.gfile.Glob(images_pattern))
+  if not image_files:
+    raise ValueError(f'Pattern "{images_pattern}" did not match any images.')
+  if randomize:
+    image_files = random.sample(image_files, max_images)
+  else:
+    image_files = image_files[:max_images]
   with tf.gfile.Open(output_path, 'w') as f:
-    f.write('\n'.join(json.dumps(a) for a in annotations))
-
-
-def create_labeling_images_for_examples(
-    record_pattern: str,
-    output_dir: str,
-    max_images: int) -> str:
-  """Generates labeling images from a set of TFRecords.
-
-  Args:
-    record_pattern: File pattern for input TFRecords.
-    output_dir: Output directory.
-    max_images: Maximum number of images to generate.
-
-  Returns:
-    Path to generated import file.
-  """
-  record_files = tf.gfile.Glob(record_pattern)
-  if not record_files:
-    raise ValueError(
-        f'record_pattern "{record_pattern}" did not match any files')
-
-  annotations = []
-  for record_file in tf.gfile.Glob(record_pattern):
-    print(record_file)
-    for record_index, record in enumerate(
-        tf.python_io.tf_record_iterator(record_file)):
-      example = tf.train.Example()
-      example.ParseFromString(record)
-      file_prefix = (
-          example.features.feature['encoded_coordinates'].bytes_list.value[0]
-          .decode())
-      output_path = os.path.join(output_dir, f'{file_prefix}.png')
-      if tf.gfile.Exists(output_path):
-        raise ValueError(f'Duplicate filename: {output_path}')
-
-      if not tf.gfile.Exists(output_dir):
-        tf.gfile.MakeDirs(output_dir)
-
-      with tf.gfile.Open(output_path, 'wb') as output_file:
-        labeling_image = create_labeling_image_from_example(example)
-        labeling_image.save(output_file)
-
-      annotations.append(get_labeling_image_annotations(
-          example, output_path, record_file, record_index))
-      if len(annotations) >= max_images:
-        break
-    if len(annotations) >= max_images:
-      break
-
-  import_file_path = os.path.join(output_dir, IMPORT_FILE_NAME)
-  _write_import_file(annotations, import_file_path)
-  return import_file_path
+    f.write('\n'.join(image_files))
 
 
 def create_cloud_labeling_job(
@@ -274,7 +165,6 @@ def create_cloud_labeling_job(
     instruction_uri: URI to labeling instructions PDF.
     label_inputs_schema_uri: Label inputs schema URI.
   """
-
   aiplatform.init(project=project, location=location)
   import_schema_uri = (
       aiplatform.schema.dataset.ioformat.image.single_label_classification)
