@@ -527,33 +527,6 @@ def _generate_examples(
   return examples, labeling_images
 
 
-def _write_import_file(output_dir: str,
-                       labeling_images: beam.PCollection) -> None:
-  """Creates a beam stage to write an import file for the labeling images.
-
-  The import file contains the paths of all the generated labeling images, one
-  file per line. It is needed to import the images into a Cloud dataset.
-
-  See https://cloud.google.com/vertex-ai/docs/datasets/prepare-image.
-
-  Args:
-    output_dir: Output directory. The import file will be written here.
-    labeling_images: PCollection of images. Assumes that each record is a tuple
-      whose first element is the name of the file relative to the output_dir.
-
-  """
-  import_file_path = os.path.join(output_dir, 'import_file')
-  _ = (
-      labeling_images
-      | 'get_path_name' >> beam.Map(
-          lambda record: os.path.join(output_dir, record[0]))
-      | 'write_import_file' >> beam.io.textio.WriteToText(
-          import_file_path,
-          file_name_suffix='.csv',
-          num_shards=1,
-          shard_name_template=''))
-
-
 def generate_examples_pipeline(
     before_image_path: str,
     after_image_path: str,
@@ -643,7 +616,6 @@ def generate_examples_pipeline(
             os.path.join(output_dir, 'examples', 'labeling_images'))
         beam_utils.write_records_as_files(labeling_images, labeling_images_dir,
                                           temp_dir, 'write_labeling_images')
-        _write_import_file(labeling_images_dir, labeling_images)
 
     if labeled_coordinates:
       labeled_coordinates_pcollection = (
