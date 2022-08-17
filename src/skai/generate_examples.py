@@ -230,15 +230,15 @@ def _get_patch_at_coordinate(
     # Currently assumes that bands [1, 2, 3] of the input image are the RGB
     # channels.
     window_data = raster.read(
-        indexes=[1, 2, 3], window=window, boundless=True, fill_value=0,
+        indexes=[1, 2, 3], window=window, boundless=True, fill_value=-1,
         out_shape=(3, patch_size, patch_size))
   except rasterio.errors.RasterioError:
     logging.exception('Rasterio read error in _get_patch_at_coordinate')
     Metrics.counter('skai', 'rasterio_error').inc()
     return None
   finally:
-    elapsed_time = time.time() - start_time
-    Metrics.distribution('skai', 'raster_read_time_secs').update(elapsed_time)
+    elapsed_millis = (time.time() - start_time) * 1000
+    Metrics.distribution('skai', 'raster_read_time_msec').update(elapsed_millis)
 
   time.sleep(wait_seconds)
 
