@@ -527,6 +527,11 @@ def _generate_examples(
   return examples, labeling_images
 
 
+def _parse_coords_from_csv_line(line: str) -> _Coordinate:
+  x, y = [float(w.strip()) for w in line.split(',')]
+  return _Coordinate(x, y, -1.0)
+
+
 def generate_examples_pipeline(
     before_image_path: str,
     after_image_path: str,
@@ -589,11 +594,23 @@ def generate_examples_pipeline(
     if unlabeled_coordinates:
       labeling_image_sample_rate = (
           num_labeling_images / len(unlabeled_coordinates))
-      unlabeled_coordinates_pcollection = (
-          pipeline
-          | 'create_unlabeled_coordinates' >> beam.Create([
-              _Coordinate(lng, lat, -1.0) for lng, lat in unlabeled_coordinates
-          ]))
+      if use_dataflow:
+        unlabeled_coordinates_path = os.path.join(temp_dir,
+                                                  'unlabeled_coordinates.csv')
+        with tf.io.gfile.GFile(unlabeled_coordinates_path, 'w') as f:
+          for x, y in unlabeled_coordinates:
+            f.write(f'{x:.12f},{y:.12f}\n')
+        unlabeled_coordinates_pcollection = (
+            pipeline
+            | beam.io.ReadFromText(unlabeled_coordinates_path)
+            | beam.Map(_parse_coords_from_csv_line))
+      else:
+        unlabeled_coordinates_pcollection = (
+            pipeline
+            | 'create_unlabeled_coordinates' >> beam.Create([
+                _Coordinate(lng, lat, -1.0)
+                for lng, lat in unlabeled_coordinates
+            ]))
 
       unlabeled_examples, labeling_images = _generate_examples(
           before_image_path, after_image_path, example_patch_size,
