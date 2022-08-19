@@ -138,7 +138,7 @@ def write_import_file(
   if not image_files:
     raise ValueError(f'Pattern "{images_pattern}" did not match any images.')
   if randomize:
-    image_files = random.sample(image_files, max_images)
+    image_files = random.sample(image_files, min(max_images, len(image_files)))
   else:
     image_files = image_files[:max_images]
   with tf.gfile.Open(output_path, 'w') as f:
