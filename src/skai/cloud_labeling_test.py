@@ -14,10 +14,12 @@
 
 """Tests for cloud_labeling."""
 
-from skai import cloud_labeling
-from absl.testing import absltest
+import os
+import tempfile
 
+from absl.testing import absltest
 import PIL.Image
+from skai import cloud_labeling
 
 
 class CloudLabelingTest(absltest.TestCase):
@@ -29,6 +31,32 @@ class CloudLabelingTest(absltest.TestCase):
         before_image, after_image)
     self.assertEqual(labeling_image.width, 158)
     self.assertEqual(labeling_image.height, 116)
+
+  def testWriteImportFile(self):
+    images_dir = tempfile.mkdtemp(dir=absltest.TEST_TMPDIR.value)
+    image_files = [
+        os.path.join(images_dir, f) for f in ['a.png', 'b.png', 'c.png']
+    ]
+    for filename in image_files:
+      open(filename, 'w').close()
+    output_path = os.path.join(absltest.TEST_TMPDIR.value, 'import_file.csv')
+    cloud_labeling.write_import_file(images_dir, 2, False, output_path)
+    with open(output_path, 'r') as f:
+      contents = [line.strip() for line in f.readlines()]
+    self.assertEqual(contents, image_files[:2])
+
+  def testWriteImportFileMaxImages(self):
+    images_dir = tempfile.mkdtemp(dir=absltest.TEST_TMPDIR.value)
+    image_files = [
+        os.path.join(images_dir, f) for f in ['a.png', 'b.png', 'c.png']
+    ]
+    for filename in image_files:
+      open(filename, 'w').close()
+    output_path = os.path.join(absltest.TEST_TMPDIR.value, 'import_file.csv')
+    cloud_labeling.write_import_file(images_dir, 5, False, output_path)
+    with open(output_path, 'r') as f:
+      contents = [line.strip() for line in f.readlines()]
+    self.assertEqual(contents, image_files)
 
 
 if __name__ == '__main__':
