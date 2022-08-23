@@ -14,7 +14,9 @@
 
 """Tests for generate_examples.py."""
 
+import os
 import pathlib
+import tempfile
 from typing import List, Tuple
 from absl.testing import absltest
 
@@ -191,6 +193,32 @@ class GenerateExamplesTest(absltest.TestCase):
           _check_labeling_images(expected_width, expected_height,
                                  [(178.482925, -16.632893)]),
           label='assert_labeling_images')
+
+  def testGenerateExamplesPipeline(self):
+    output_dir = tempfile.mkdtemp(dir=absltest.TEST_TMPDIR.value)
+    coordinates = [(178.482925, -16.632893), (178.482283, -16.632279)]
+    generate_examples.generate_examples_pipeline(
+        before_image_path=self.test_image_path,
+        after_image_path=self.test_image_path,
+        example_patch_size=32,
+        alignment_patch_size=32,
+        labeling_patch_size=32,
+        resolution=0.5,
+        output_dir=output_dir,
+        num_output_shards=1,
+        unlabeled_coordinates=coordinates,
+        labeled_coordinates=[],
+        use_dataflow=False,
+        num_labeling_images=0,
+        gdal_env={},
+        dataflow_container_image=None,
+        cloud_project=None,
+        cloud_region=None,
+        worker_service_account=None)
+
+    files = os.listdir(os.path.join(output_dir, 'examples', 'unlabeled'))
+    assert files == ['unlabeled-00000-of-00001.tfrecord']
+
 
 if __name__ == '__main__':
   absltest.main()
