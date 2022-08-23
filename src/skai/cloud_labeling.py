@@ -134,7 +134,7 @@ def write_import_file(
     output_path: Path to write import file to.
   """
   images_pattern = os.path.join(images_dir, '*.png')
-  image_files = list(tf.gfile.Glob(images_pattern))
+  image_files = sorted(tf.gfile.Glob(images_pattern))
   if not image_files:
     raise ValueError(f'Pattern "{images_pattern}" did not match any images.')
   if randomize:
