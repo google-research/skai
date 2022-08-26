@@ -38,8 +38,10 @@ python generate_examples_main.py \
 
 import os
 import platform
+import sys
 import time
 from typing import Dict, List, Tuple
+
 from absl import app
 from absl import flags
 from absl import logging
@@ -47,6 +49,7 @@ import geopandas as gpd
 import shapely.geometry
 from skai import buildings
 from skai import cloud_labeling
+from skai import earth_engine
 from skai import generate_examples
 from skai import open_street_map
 
@@ -87,14 +90,24 @@ flags.DEFINE_list('gdal_env', [],
 
 # Building discovery flags.
 flags.DEFINE_enum('buildings_method', 'file',
-                  ['file', 'open_street_map', 'none'],
-                  'Building detection method')
+                  ['file', 'open_street_map', 'open_buildings', 'none'],
+                  'Building detection method.')
 flags.DEFINE_string(
     'buildings_file', None, 'Path to file containing building locations. '
     'Supports CSV, shapefile, and GeoJSON.')
 flags.DEFINE_string('overpass_url',
                     'https://lz4.overpass-api.de/api/interpreter',
                     'OpenStreetMap Overpass server URL.')
+
+# Flags controlling Earth Engine authentication.
+flags.DEFINE_string(
+    'earth_engine_service_account', '',
+    'Service account to use for authenticating with Earth Engine. If empty, authenticate as user.'
+)
+flags.DEFINE_string(
+    'earth_engine_private_key', None,
+    'Private key for Earth Engine service account. Not needed if authenticating as user.'
+)
 
 # Flags controlling the ingestion of user-provided labels.
 flags.DEFINE_string('labels_file', None,
@@ -151,6 +164,15 @@ def get_building_centroids(regions: List[Polygon]) -> List[Tuple[float, float]]:
   elif FLAGS.buildings_method == 'open_street_map':
     return open_street_map.get_building_centroids_in_regions(
         regions, FLAGS.overpass_url)
+  elif FLAGS.buildings_method == 'open_buildings':
+    if not earth_engine.initialize(FLAGS.earth_engine_service_account,
+                                   FLAGS.earth_engine_private_key):
+      sys.exit(1)
+    logging.info('Querying Open Buildings centroids. This may take a while.')
+    output_path = os.path.join(FLAGS.output_dir, 'open_buildings_centroids.csv')
+    centroids = earth_engine.get_open_buildings_centroids(regions, output_path)
+    logging.info('Open Buildings centroids saved to %s', output_path)
+    return centroids
 
   raise ValueError('Invalid value for "buildings_method" flag.')
 
