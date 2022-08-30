@@ -22,6 +22,7 @@ import time
 from typing import Dict, Iterator, List, Optional, Tuple
 import apache_beam as beam
 import cv2
+import geopandas as gpd
 import numpy as np
 import PIL
 import PIL.Image
@@ -530,6 +531,92 @@ def _generate_examples(
 def _parse_coords_from_csv_line(line: str) -> _Coordinate:
   x, y = [float(w.strip()) for w in line.split(',')]
   return _Coordinate(x, y, -1.0)
+
+
+def read_labels_file(
+    path: str, label_property: str, class_names: List[str],
+    max_points: int) -> List[Tuple[float, float, float]]:
+  """Reads labels from a GIS file.
+
+  If the label is a string, then it is assumed to be the name of a class,
+  e.g. "damaged". The example's float-value label is
+  assigdataflow_container_imagened to the index of
+  that class name in the "class_names" argument. If the name is not in
+  "class_names", the example is dropped.
+
+  If the label is a float or integer, it is read as-is.
+
+  Args:
+    path: Path to the file to be read.
+    label_property: The property to use as the label, e.g. "Main_Damag".
+    class_names: List of classes to be used as examples, e.g. ["undamaged",
+      "damaged", "destroyed"].
+    max_points: Number of labeled examples to keep
+
+  Returns:
+    List of tuples of the form (longitude, latitude, float label).
+  """
+
+  df = gpd.read_file(path).to_crs(epsg=4326)
+  coordinates = []
+  for _, row in df.iterrows():
+    centroid = row.geometry.centroid
+    label = row[label_property]
+    if isinstance(label, str):
+      try:
+        float_label = float(class_names.index(label))
+      except ValueError:
+        # Class is not recognized, so skip this coordinate.
+        continue
+    elif isinstance(label, (int, float)):
+      float_label = float(label)
+    else:
+      raise ValueError(f'Unrecognized label property type {type(label)}')
+
+    coordinates.append((centroid.x, centroid.y, float_label))
+
+  if max_points:
+    coordinates = coordinates[:max_points]
+
+  # logging.info('Read %d labeled coordinates.', len(coordinates))
+  return coordinates
+
+
+def get_dataflow_container_image(py_version: str) -> str:
+  """Gets default dataflow image based on Python version.
+
+  Args:
+    py_version: Python version
+  Returns:
+    Dataflow container image path.
+  """
+  if py_version == '3.7':
+    return 'gcr.io/disaster-assessment/dataflow_3.7_image:latest'
+  elif py_version == '3.8':
+    return 'gcr.io/disaster-assessment/dataflow_3.8_image:latest'
+  elif py_version == '3.9':
+    return 'gcr.io/disaster-assessment/dataflow_3.9_image:latest'
+  else:
+    return None
+
+
+def parse_gdal_env(gdal_env: list[str]) -> Dict[str, str]:
+  """Parses a list of GDAL environment variable settings into a dictionary.
+
+  Args:
+    gdal_env: Environment configuration for GDAL in "var=value" format
+
+  Returns:
+    Dictionary with variable as key and assigned value.
+  """
+  gdal_env = {}
+  for setting in gdal_env:
+    if '=' not in setting:
+      raise ValueError(
+          'Each element in the gdal_env flag should have the form "var=value".')
+    var, _, value = setting.partition('=')
+    gdal_env[var] = value
+  return gdal_env
 
 
 def generate_examples_pipeline(
