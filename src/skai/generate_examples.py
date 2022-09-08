@@ -190,7 +190,7 @@ def _convert_to_uint8(image: np.ndarray) -> np.ndarray:
   return image.astype(np.uint8)
 
 
-def _get_patch_at_coordinate(
+def get_patch_at_coordinate(
     raster,
     longitude: float,
     latitude: float,
@@ -386,11 +386,11 @@ class GenerateExamplesFn(beam.DoFn):
         patch_size = max(self._example_patch_size, self._labeling_patch_size)
         # No before image, so just set the before patch to all zeros.
         before_patch = np.zeros((patch_size, patch_size, 3), dtype=np.uint8)
-        after_patch = _get_patch_at_coordinate(
+        after_patch = get_patch_at_coordinate(
             self._after_raster, coordinate.longitude, coordinate.latitude,
             patch_size, self._resolution, seconds_between_reads)
       else:
-        before_patch = _get_patch_at_coordinate(
+        before_patch = get_patch_at_coordinate(
             self._before_raster, coordinate.longitude, coordinate.latitude,
             self._alignment_patch_size, self._resolution, seconds_between_reads)
 
@@ -404,7 +404,7 @@ class GenerateExamplesFn(beam.DoFn):
         # alignment algorithm at most +/-_MAX_DISPLACEMENT pixels of movement in
         # either dimension to find the best alignment.
         after_patch_size = self._alignment_patch_size + 2 * _MAX_DISPLACEMENT
-        after_patch = _get_patch_at_coordinate(
+        after_patch = get_patch_at_coordinate(
             self._after_raster, coordinate.longitude, coordinate.latitude,
             after_patch_size, self._resolution, seconds_between_reads)
         if after_patch is not None:
