@@ -40,12 +40,11 @@ import os
 import platform
 import sys
 import time
-from typing import Dict, List, Tuple
+from typing import List, Tuple
 
 from absl import app
 from absl import flags
 from absl import logging
-import geopandas as gpd
 import shapely.geometry
 from skai import buildings
 from skai import cloud_labeling
@@ -177,53 +176,6 @@ def get_building_centroids(regions: List[Polygon]) -> List[Tuple[float, float]]:
   raise ValueError('Invalid value for "buildings_method" flag.')
 
 
-def _read_labels_file(
-    path: str, label_property: str,
-    class_names: List[str]) -> List[Tuple[float, float, float]]:
-  """Reads labels from a GIS file.
-
-  If the label is a string, then it is assumed to be the name of a class,
-  e.g. "damaged". The example's float-value label is assigned to the index of
-  that class name in the "class_names" argument. If the name is not in
-  "class_names", the example is dropped.
-
-  If the label is a float or integer, it is read as-is.
-
-  Args:
-    path: Path to the file to be read.
-    label_property: The property to use as the label, e.g. "Main_Damag".
-    class_names: List of classes to be used as examples, e.g.
-        ["undamaged", "damaged", "destroyed"].
-
-  Returns:
-    List of tuples of the form (longitude, latitude, float label).
-  """
-
-  df = gpd.read_file(path).to_crs(epsg=4326)
-  coordinates = []
-  for _, row in df.iterrows():
-    centroid = row.geometry.centroid
-    label = row[label_property]
-    if isinstance(label, str):
-      try:
-        float_label = float(class_names.index(label))
-      except ValueError:
-        # Class is not recognized, so skip this coordinate.
-        continue
-    elif isinstance(label, (int, float)):
-      float_label = float(label)
-    else:
-      raise ValueError(f'Unrecognized label property type {type(label)}')
-
-    coordinates.append((centroid.x, centroid.y, float_label))
-
-  if FLAGS.num_keep_labeled_examples:
-    coordinates = coordinates[:FLAGS.num_keep_labeled_examples]
-
-  logging.info('Read %d labeled coordinates.', len(coordinates))
-  return coordinates
-
-
 def _get_labeling_dataset_region(project_region: str) -> str:
   """Choose where to host a labeling dataset.
 
@@ -243,17 +195,6 @@ def _get_labeling_dataset_region(project_region: str) -> str:
   return 'us-central1'
 
 
-def _get_gdal_env() -> Dict[str, str]:
-  gdal_env = {}
-  for setting in FLAGS.gdal_env:
-    if '=' not in setting:
-      raise ValueError(
-          'Each element in the gdal_env flag should have the form "var=value".')
-    var, _, value = setting.partition('=')
-    gdal_env[var] = value
-  return gdal_env
-
-
 def main(args):
   del args  # unused
 
@@ -261,15 +202,11 @@ def main(args):
   dataflow_container_image = FLAGS.dataflow_container_image
   py_version = platform.python_version()[:3]
   if FLAGS.use_dataflow and dataflow_container_image is None:
-    if py_version == '3.7':
-      dataflow_container_image = 'gcr.io/disaster-assessment/dataflow_3.7_image:latest'
-    elif py_version == '3.8':
-      dataflow_container_image = 'gcr.io/disaster-assessment/dataflow_3.8_image:latest'
-    elif py_version == '3.9':
-      dataflow_container_image = 'gcr.io/disaster-assessment/dataflow_3.9_image:latest'
-    else:
-      raise ValueError('dataflow_container_image must be specified when using '
-                       'Dataflow and your Python version != 3.7, 3.8, or 3.9.')
+    dataflow_container_image = generate_examples.get_dataflow_container_image(
+        py_version)
+  if dataflow_container_image is None:
+    raise ValueError('dataflow_container_image must be specified when using '
+                     'Dataflow and your Python version != 3.7, 3.8, or 3.9.')
 
   if not FLAGS.labels_file and FLAGS.buildings_method == 'none':
     raise ValueError('At least labels_file (for labeled examples extraction) '
@@ -285,13 +222,12 @@ def main(args):
     building_centroids = []
 
   if FLAGS.labels_file:
-    labeled_coordinates = _read_labels_file(FLAGS.labels_file,
-                                            FLAGS.label_property,
-                                            FLAGS.label_classes)
+    labeled_coordinates = generate_examples.read_labels_file(
+        FLAGS.labels_file, FLAGS.label_property, FLAGS.label_classes)
   else:
     labeled_coordinates = []
 
-  gdal_env = _get_gdal_env()
+  gdal_env = generate_examples.parse_gdal_env(FLAGS.gdal_env)
   generate_examples.generate_examples_pipeline(
       FLAGS.before_image_path,
       FLAGS.after_image_path,
