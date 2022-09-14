@@ -232,7 +232,8 @@ def get_patch_at_coordinate(
     # channels.
     window_data = raster.read(
         indexes=[1, 2, 3], window=window, boundless=True, fill_value=-1,
-        out_shape=(3, patch_size, patch_size))
+        out_shape=(3, patch_size, patch_size),
+        resampling=rasterio.enums.Resampling.lanczos)
   except rasterio.errors.RasterioError:
     logging.exception('Rasterio read error in _get_patch_at_coordinate')
     Metrics.counter('skai', 'rasterio_error').inc()
