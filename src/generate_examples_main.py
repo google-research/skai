@@ -97,6 +97,11 @@ flags.DEFINE_string(
 flags.DEFINE_string('overpass_url',
                     'https://lz4.overpass-api.de/api/interpreter',
                     'OpenStreetMap Overpass server URL.')
+flags.DEFINE_string(
+    'open_buildings_feature_collection',
+    'GOOGLE/Research/open-buildings/v1/polygons',
+    'Name of Earth Engine feature collection containing Open Buildings '
+    'footprints.')
 
 # Flags controlling Earth Engine authentication.
 flags.DEFINE_string(
@@ -169,7 +174,8 @@ def get_building_centroids(regions: List[Polygon]) -> List[Tuple[float, float]]:
       sys.exit(1)
     logging.info('Querying Open Buildings centroids. This may take a while.')
     output_path = os.path.join(FLAGS.output_dir, 'open_buildings_centroids.csv')
-    centroids = earth_engine.get_open_buildings_centroids(regions, output_path)
+    centroids = earth_engine.get_open_buildings_centroids(
+        regions, FLAGS.open_buildings_feature_collection, output_path)
     logging.info('Open Buildings centroids saved to %s', output_path)
     return centroids
 
