@@ -15,6 +15,7 @@
 """
 
 import json
+import shutil
 from typing import List, Optional, Tuple
 import urllib.request
 
@@ -23,6 +24,7 @@ import ee
 import geopandas as gpd
 import pandas as pd
 import shapely.geometry
+import tensorflow as tf
 
 ShapelyGeometry = shapely.geometry.base.BaseGeometry
 
@@ -54,8 +56,11 @@ def _download_feature_collection(
     FeatureCollection data as a GeoDataFrame.
   """
   url = collection.getDownloadURL('csv', properties)
-  urllib.request.urlretrieve(url, output_path)
-  df = pd.read_csv(output_path)
+  with urllib.request.urlopen(url) as url_file, tf.io.gfile.GFile(
+      output_path, 'wb') as output:
+    shutil.copyfileobj(url_file, output)
+  with tf.io.gfile.GFile(output_path, 'r') as f:
+    df = pd.read_csv(f)
   if '.geo' in df.columns:
     geometry = df['.geo'].apply(json.loads).apply(shapely.geometry.shape)
     properties = df.drop(columns=['.geo'])
@@ -69,12 +74,14 @@ def _download_feature_collection(
 
 
 def get_open_buildings(regions: List[ShapelyGeometry],
+                       collection: str,
                        as_centroids: bool,
                        output_path: str) -> gpd.GeoDataFrame:
   """Downloads Open Buildings footprints for the Area of Interest from EE.
 
   Args:
     regions: List of shapely Geometries to extract buildings from.
+    collection: Name of Earth Engine FeatureCollection containing footprints.
     as_centroids: If true, download centroids instead of full footprints.
     output_path: Save footprints to this file in addition to returning the
       GeoDataFrame.
@@ -83,8 +90,7 @@ def get_open_buildings(regions: List[ShapelyGeometry],
     GeoDataFrame of building footprints.
   """
   bounds = ee.FeatureCollection([_shapely_to_ee_feature(r) for r in regions])
-  open_buildings = ee.FeatureCollection(
-      'GOOGLE/Research/open-buildings/v1/polygons')
+  open_buildings = ee.FeatureCollection(collection)
   aoi_buildings = open_buildings.filterBounds(bounds)
   if as_centroids:
     centroids = aoi_buildings.map(_get_open_building_feature_centroid)
@@ -96,18 +102,20 @@ def get_open_buildings(regions: List[ShapelyGeometry],
 
 def get_open_buildings_centroids(
     regions: List[ShapelyGeometry],
+    collection: str,
     output_path: str) -> List[Tuple[float, float]]:
   """Downloads Open Buildings footprints as centroids of regions of interest.
 
   Args:
     regions: List of regions as shapely geometries.
+    collection: Name of Earth Engine FeatureCollection containing footprints.
     output_path: Save footprints to this file in addition to returning the
       GeoDataFrame.
 
   Returns:
     List of (longitude, latitude) building centroids.
   """
-  gdf = get_open_buildings(regions, True, output_path)
+  gdf = get_open_buildings(regions, collection, True, output_path)
   return list(zip(gdf['geometry'].x, gdf['geometry'].y))
 
 
