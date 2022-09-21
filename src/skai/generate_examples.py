@@ -601,20 +601,20 @@ def get_dataflow_container_image(py_version: str) -> str:
     return None
 
 
-def parse_gdal_env(gdal_env: list[str]) -> Dict[str, str]:
+def parse_gdal_env(settings: list[str]) -> Dict[str, str]:
   """Parses a list of GDAL environment variable settings into a dictionary.
 
   Args:
-    gdal_env: Environment configuration for GDAL in "var=value" format
+    settings: A list of environment variable settings in "var=value" format.
 
   Returns:
     Dictionary with variable as key and assigned value.
   """
   gdal_env = {}
-  for setting in gdal_env:
+  for setting in settings:
     if '=' not in setting:
       raise ValueError(
-          'Each element in the gdal_env flag should have the form "var=value".')
+          'Each GDAL environment setting should have the form "var=value".')
     var, _, value = setting.partition('=')
     gdal_env[var] = value
   return gdal_env
