@@ -601,7 +601,7 @@ def get_dataflow_container_image(py_version: str) -> str:
     return None
 
 
-def parse_gdal_env(settings: list[str]) -> Dict[str, str]:
+def parse_gdal_env(settings: List[str]) -> Dict[str, str]:
   """Parses a list of GDAL environment variable settings into a dictionary.
 
   Args:
