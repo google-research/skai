@@ -64,7 +64,11 @@ flags.DEFINE_string(
     'run with the project\'s default Compute Engine service account.')
 
 # Example generation flags.
-flags.DEFINE_string('dataset_name', None, 'Dataset name.')
+flags.DEFINE_string(
+    'dataset_name',
+    None,
+    'Identifier for the generated dataset.',
+    required=True)
 flags.DEFINE_string('before_image_path', '', 'Path of pre-disaster GeoTIFF.')
 flags.DEFINE_string(
     'after_image_path', None, 'Path of post-disaster GeoTIFF.', required=True)
@@ -204,6 +208,11 @@ def _get_labeling_dataset_region(project_region: str) -> str:
 def main(args):
   del args  # unused
 
+  if not FLAGS.dataset_name:
+    raise ValueError('Dataset name must be specified with "--dataset_name"')
+  timestamp = time.strftime('%Y%m%d-%H%M%S')
+  timestamped_dataset = f'{FLAGS.dataset_name}-{timestamp}'
+
   # If using Dataflow, check that the container image is valid.
   dataflow_container_image = FLAGS.dataflow_container_image
   py_version = platform.python_version()[:3]
@@ -234,6 +243,7 @@ def main(args):
     labeled_coordinates = []
 
   gdal_env = generate_examples.parse_gdal_env(FLAGS.gdal_env)
+
   generate_examples.generate_examples_pipeline(
       FLAGS.before_image_path,
       FLAGS.after_image_path,
@@ -248,16 +258,13 @@ def main(args):
       FLAGS.use_dataflow,
       FLAGS.num_labeling_examples,
       gdal_env,
+      timestamped_dataset,
       dataflow_container_image,
       FLAGS.cloud_project,
       FLAGS.cloud_region,
       FLAGS.worker_service_account)
 
   if FLAGS.create_cloud_labeling_task:
-    if not FLAGS.dataset_name:
-      raise ValueError('Dataset name must be specified with "--dataset_name"')
-    timestamp = time.strftime('%Y%m%d_%H%M%S')
-    timestamped_dataset = f'{FLAGS.dataset_name}_{timestamp}'
     if FLAGS.cloud_labeler_pool is not None:
       labeler_pool = FLAGS.cloud_labeler_pool
     else:
