@@ -20,7 +20,7 @@ from typing import List, Optional, Tuple
 import urllib.request
 
 from absl import logging
-import ee
+import ee  # pytype: disable=import-error  # mapping-is-not-sequence
 import geopandas as gpd
 import pandas as pd
 import shapely.geometry
