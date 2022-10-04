@@ -20,7 +20,6 @@ import struct
 from typing import Iterable, List, Tuple
 
 from absl import flags
-import numpy as np
 import PIL.Image
 import tensorflow as tf
 
@@ -45,23 +44,6 @@ def serialize_image(image: Image, image_format: str) -> bytes:
 
 def deserialize_image(serialized_bytes: bytes, image_format: str) -> Image:
   return PIL.Image.open(io.BytesIO(serialized_bytes), formats=[image_format])
-
-
-def rasterio_to_pil(image_data: np.ndarray) -> np.ndarray:
-  """Fixes Rasterio dimension ordering.
-
-  Rasterio's read function returns image data with dimensions
-  [channels, rows, cols]. Change it into PIL's [rows, cols, channels]
-  order.
-
-  Args:
-    image_data: Image array.
-
-  Returns:
-    Array with dimension order fixed.
-  """
-  assert len(image_data.shape) == 3 and image_data.shape[0] == 3
-  return np.moveaxis(image_data, 0, 2)
 
 
 def add_int64_feature(feature_name: str,
@@ -117,20 +99,20 @@ def reformat_flags(flags_list: List[flags.Flag]) -> List[str]:
   formatted_flags = []
   for flag in flags_list:
     if flag.value is not None:
-      formatted_flag = f"--{flag.name}="
+      formatted_flag = f'--{flag.name}='
       if isinstance(flag.value, list):
-        formatted_flag += ",".join(flag.value)
+        formatted_flag += ','.join(flag.value)
       else:
-        formatted_flag += f"{flag.value}"
+        formatted_flag += f'{flag.value}'
       formatted_flags.append(formatted_flag)
   return formatted_flags
 
 
-def encode_coordinates(longitude: float, latitude: float) -> bytes:
-  packed = struct.pack("<ff", longitude, latitude)
-  return base64.b16encode(packed)
+def encode_coordinates(longitude: float, latitude: float) -> str:
+  packed = struct.pack('<ff', longitude, latitude)
+  return base64.b16encode(packed).decode('ascii')
 
 
-def decode_coordinates(encoded_coords: bytes) -> Tuple[float, float]:
-  buffer = base64.b16decode(encoded_coords)
-  return struct.unpack("<ff", buffer)
+def decode_coordinates(encoded_coords: str) -> Tuple[float, float]:
+  buffer = base64.b16decode(encoded_coords.encode('ascii'))
+  return struct.unpack('<ff', buffer)

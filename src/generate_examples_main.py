@@ -76,8 +76,8 @@ flags.DEFINE_string(
     'aoi_path', None, 'Path to file containing area of interest')
 flags.DEFINE_string('output_dir', None, 'Output directory.', required=True)
 flags.DEFINE_integer('example_patch_size', 64, 'Image patch size.')
-flags.DEFINE_integer('alignment_patch_size', 256,
-                     'Patch size used during alignment.')
+flags.DEFINE_integer('large_patch_size', 256,
+                     'Patch size used for labeling and alignment.')
 flags.DEFINE_float(
     'resolution', 0.5,
     'The desired resolution (in m/pixel) of the image patches. If this is '
@@ -122,8 +122,8 @@ flags.DEFINE_string('labels_file', None,
                     'If specified, read labels for dataset from this file.')
 flags.DEFINE_string('label_property', None,
                     'Property to use as label, e.g. "Main_Damag".')
-flags.DEFINE_list('label_classes', ['undamaged', 'damaged'],
-                  'Names of the label classes.')
+flags.DEFINE_list('label_to_class', ['undamaged=0', 'damaged=1'],
+                  'Mapping of label from dataset and class for model.')
 flags.DEFINE_integer('num_keep_labeled_examples', 1000, 'Number of labeled '
                      'examples to keep (keeps all if None or 0).')
 
@@ -131,8 +131,6 @@ flags.DEFINE_integer('num_keep_labeled_examples', 1000, 'Number of labeled '
 flags.DEFINE_bool('create_cloud_labeling_task', False,
                   'If true, create Vertex AI labeling task to label random '
                   'subset of examples.')
-flags.DEFINE_integer('labeling_patch_size', 256,
-                     'Patch size used for labeling.')
 flags.DEFINE_integer('num_labeling_examples', 1000,
                      'Number of examples to label.')
 flags.DEFINE_string('cloud_labeler_pool', None, 'Existing labeler pool.')
@@ -219,9 +217,9 @@ def main(args):
   if FLAGS.use_dataflow and dataflow_container_image is None:
     dataflow_container_image = generate_examples.get_dataflow_container_image(
         py_version)
-  if dataflow_container_image is None:
-    raise ValueError('dataflow_container_image must be specified when using '
-                     'Dataflow and your Python version != 3.7, 3.8, or 3.9.')
+    if dataflow_container_image is None:
+      raise ValueError('dataflow_container_image must be specified when using '
+                       'Dataflow and your Python version != 3.7, 3.8, or 3.9.')
 
   if not FLAGS.labels_file and FLAGS.buildings_method == 'none':
     raise ValueError('At least labels_file (for labeled examples extraction) '
@@ -238,7 +236,7 @@ def main(args):
 
   if FLAGS.labels_file:
     labeled_coordinates = generate_examples.read_labels_file(
-        FLAGS.labels_file, FLAGS.label_property, FLAGS.label_classes)
+        FLAGS.labels_file, FLAGS.label_property, FLAGS.label_to_class)
   else:
     labeled_coordinates = []
 
@@ -247,9 +245,8 @@ def main(args):
   generate_examples.generate_examples_pipeline(
       FLAGS.before_image_path,
       FLAGS.after_image_path,
+      FLAGS.large_patch_size,
       FLAGS.example_patch_size,
-      FLAGS.alignment_patch_size,
-      FLAGS.labeling_patch_size,
       FLAGS.resolution,
       FLAGS.output_dir,
       FLAGS.output_shards,
