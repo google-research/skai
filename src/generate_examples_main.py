@@ -122,8 +122,8 @@ flags.DEFINE_string('labels_file', None,
                     'If specified, read labels for dataset from this file.')
 flags.DEFINE_string('label_property', None,
                     'Property to use as label, e.g. "Main_Damag".')
-flags.DEFINE_list('label_classes', ['undamaged', 'damaged'],
-                  'Names of the label classes.')
+flags.DEFINE_list('label_to_class', ['undamaged=0', 'damaged=1'],
+                  'Mapping of label from dataset and class for model.')
 flags.DEFINE_integer('num_keep_labeled_examples', 1000, 'Number of labeled '
                      'examples to keep (keeps all if None or 0).')
 
@@ -238,7 +238,7 @@ def main(args):
 
   if FLAGS.labels_file:
     labeled_coordinates = generate_examples.read_labels_file(
-        FLAGS.labels_file, FLAGS.label_property, FLAGS.label_classes)
+        FLAGS.labels_file, FLAGS.label_property, FLAGS.label_to_class)
   else:
     labeled_coordinates = []
 

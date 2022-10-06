@@ -537,29 +537,42 @@ def _parse_coords_from_csv_line(line: str) -> _Coordinate:
 
 
 def read_labels_file(
-    path: str, label_property: str, class_names: List[str],
+    path: str, label_property: str, labels_to_classes: List[str],
     max_points: int) -> List[Tuple[float, float, float]]:
   """Reads labels from a GIS file.
 
-  If the label is a string, then it is assumed to be the name of a class,
-  e.g. "damaged". The example's float-value label is
-  assigdataflow_container_imagened to the index of
-  that class name in the "class_names" argument. If the name is not in
-  "class_names", the example is dropped.
+  If the "label_property" is a string, then it is assumed to be the name of a
+  class, e.g. "damaged". In labels_to_classes, user can specify the mapping of
+  the class and label, e.g. "damaged=1". If the name is not in
+  "labels_to_classes", the example is dropped.
 
   If the label is a float or integer, it is read as-is.
 
   Args:
     path: Path to the file to be read.
     label_property: The property to use as the label, e.g. "Main_Damag".
-    class_names: List of classes to be used as examples, e.g. ["undamaged",
-      "damaged", "destroyed"].
+    labels_to_classes: List of string in "class=label" format, e.g.
+      ["undamaged=0", "damaged=1", "destroyed=1"].
     max_points: Number of labeled examples to keep
 
   Returns:
     List of tuples of the form (longitude, latitude, float label).
   """
+  # Parse labels_to_classes into dictionary format
+  label_to_class_dict = {}
+  for label_to_class in labels_to_classes:
+    if '=' not in label_to_class:
+      raise ValueError(
+          f'Invalid label to class mapping "{label_to_class}",'
+          f'should have form "label=class".')
+    label, _, numeric_class = label_to_class.partition('=')
+    try:
+      label_to_class_dict[label] = float(numeric_class)
+    except TypeError:
+      logging.error('Class %s is not numeric.', numeric_class)
+      raise
 
+  # Generate coordinates from label file
   df = gpd.read_file(path).to_crs(epsg=4326)
   coordinates = []
   for _, row in df.iterrows():
@@ -567,10 +580,9 @@ def read_labels_file(
     label = row[label_property]
     if isinstance(label, str):
       try:
-        float_label = float(class_names.index(label))
-      except ValueError:
-        # Class is not recognized, so skip this coordinate.
-        continue
+        float_label = label_to_class_dict[label]
+      except KeyError:
+        logging.warning('Label %s is not recognized.', label)
     elif isinstance(label, (int, float)):
       float_label = float(label)
     else:
