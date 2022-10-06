@@ -444,12 +444,13 @@ def _get_setup_file_path():
 
 
 def _get_dataflow_pipeline_options(
-    project: str, region: str, temp_dir: str,
+    job_name: str, project: str, region: str, temp_dir: str,
     dataflow_container_image: str,
     worker_service_account: Optional[str]) -> PipelineOptions:
   """Returns dataflow pipeline options.
 
   Args:
+    job_name: Name of Dataflow job.
     project: GCP project.
     region: GCP region.
     temp_dir: Temporary data location.
@@ -462,6 +463,7 @@ def _get_dataflow_pipeline_options(
     Dataflow options.
   """
   options = {
+      'job_name': job_name,
       'project': project,
       'region': region,
       'temp_location': temp_dir,
@@ -634,6 +636,7 @@ def generate_examples_pipeline(
     use_dataflow: bool,
     num_labeling_images: int,
     gdal_env: Dict[str, str],
+    dataflow_job_name: Optional[str],
     dataflow_container_image: Optional[str],
     cloud_project: Optional[str],
     cloud_region: Optional[str],
@@ -659,6 +662,7 @@ def generate_examples_pipeline(
     use_dataflow: If true, run pipeline on GCP Dataflow.
     num_labeling_images: Number of labeling images to generate, or 0 to disable.
     gdal_env: GDAL environment configuration.
+    dataflow_job_name: Name of dataflow job.
     dataflow_container_image: Container image to use when running Dataflow.
     cloud_project: Cloud project name.
     cloud_region: Cloud region, e.g. us-central1.
@@ -671,7 +675,8 @@ def generate_examples_pipeline(
       raise ValueError(
           'cloud_project and cloud_region must be specified when using '
           'Dataflow.')
-    pipeline_options = _get_dataflow_pipeline_options(cloud_project,
+    pipeline_options = _get_dataflow_pipeline_options(dataflow_job_name,
+                                                      cloud_project,
                                                       cloud_region, temp_dir,
                                                       dataflow_container_image,
                                                       worker_service_account)
