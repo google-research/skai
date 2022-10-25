@@ -62,6 +62,8 @@ flags.DEFINE_string(
     'worker_service_account', None,
     'Service account that will launch Dataflow workers. If unset, workers will '
     'run with the project\'s default Compute Engine service account.')
+flags.DEFINE_integer('max_dataflow_workers', 20,
+                     'Maximum number of dataflow workers')
 
 # Example generation flags.
 flags.DEFINE_string(
@@ -259,7 +261,8 @@ def main(args):
       dataflow_container_image,
       FLAGS.cloud_project,
       FLAGS.cloud_region,
-      FLAGS.worker_service_account)
+      FLAGS.worker_service_account,
+      FLAGS.max_dataflow_workers)
 
   if FLAGS.create_cloud_labeling_task:
     if FLAGS.cloud_labeler_pool is not None:
