@@ -28,12 +28,6 @@ import rtree
 
 Metrics = beam.metrics.Metrics
 
-# Maximum QPS for the Earth Engine API. Should be respected when using the EEDAI
-# interface (https://gdal.org/drivers/raster/eedai.html).
-_EARTH_ENGINE_QPS = 100
-
-_MAX_DATAFLOW_WORKERS = 20
-
 # Maximum size of a single patch read.
 _MAX_PATCH_SIZE = 2048
 
@@ -237,13 +231,6 @@ def _resample_image(image: np.ndarray, patch_size: int) -> np.ndarray:
       image, (patch_size, patch_size), interpolation=cv2.INTER_CUBIC)
 
 
-def _compute_wait_seconds(image_path: str) -> float:
-  if image_path.startswith('EEDAI:'):
-    qps_per_worker = _EARTH_ENGINE_QPS / _MAX_DATAFLOW_WORKERS
-    return 1.0 / qps_per_worker
-  return 0.0
-
-
 class ReadRasterWindowGroupFn(beam.DoFn):
   """A beam function that reads window groups from a raster image.
 
@@ -253,7 +240,6 @@ class ReadRasterWindowGroupFn(beam.DoFn):
     _target_patch_size: Desired size of output patches.
     _tag: String identifier for output patches.
     _gdal_env: GDAL environment configuration.
-    _wait_seconds: Seconds to wait after reads to avoid exceeding QPS limits.
   """
 
   def __init__(self,
@@ -267,7 +253,6 @@ class ReadRasterWindowGroupFn(beam.DoFn):
     self._tag = tag
     self._gdal_env = gdal_env
 
-    self._wait_seconds = _compute_wait_seconds(self._raster_path)
     self._num_groups_read = Metrics.counter('skai', 'num_groups_read')
     self._num_windows_read = Metrics.counter('skai', 'num_windows_read')
     self._num_errors = Metrics.counter('skai', 'rasterio_error')
@@ -305,7 +290,6 @@ class ReadRasterWindowGroupFn(beam.DoFn):
       self._read_time.update(elapsed_millis)
 
     self._num_groups_read.inc()
-    time.sleep(max(0, self._wait_seconds - elapsed_millis / 1000.0))
 
     window_data = np.clip(window_data, 0, None)
     window_data = rasterio.plot.reshape_as_image(window_data)

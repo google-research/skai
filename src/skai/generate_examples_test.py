@@ -221,7 +221,8 @@ class GenerateExamplesTest(absltest.TestCase):
         dataflow_container_image=None,
         cloud_project=None,
         cloud_region=None,
-        worker_service_account=None)
+        worker_service_account=None,
+        max_workers=0)
 
     tfrecords = os.listdir(os.path.join(output_dir, 'examples', 'unlabeled'))
     self.assertSameElements(tfrecords, ['unlabeled-00000-of-00001.tfrecord'])

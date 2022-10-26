@@ -52,9 +52,6 @@ _MAX_DISPLACEMENT = 30
 _EXAMPLES = 'examples'
 _LABELING_IMAGES = 'label_images'
 
-# Maximum number of dataflow workers to use.
-_MAX_DATAFLOW_WORKERS = 20
-
 
 @dataclasses.dataclass
 class _Coordinate:
@@ -278,7 +275,7 @@ def _get_setup_file_path():
 def _get_dataflow_pipeline_options(
     job_name: str, project: str, region: str, temp_dir: str,
     dataflow_container_image: str,
-    worker_service_account: Optional[str]) -> PipelineOptions:
+    worker_service_account: Optional[str], max_workers: int) -> PipelineOptions:
   """Returns dataflow pipeline options.
 
   Args:
@@ -290,6 +287,7 @@ def _get_dataflow_pipeline_options(
     worker_service_account: Email of the service account will launch workers.
         If None, uses the project's default Compute Engine service account
         (<project-number>-compute@developer.gserviceaccount.com).
+    max_workers: Maximum number of Dataflow workers.
 
   Returns:
     Dataflow options.
@@ -303,7 +301,7 @@ def _get_dataflow_pipeline_options(
       'experiment': 'use_runner_v2',
       'sdk_container_image': dataflow_container_image,
       'setup_file': _get_setup_file_path(),
-      'max_num_workers': _MAX_DATAFLOW_WORKERS
+      'max_num_workers': max_workers
   }
   if worker_service_account:
     options['service_account_email'] = worker_service_account
@@ -533,7 +531,8 @@ def generate_examples_pipeline(
     dataflow_container_image: Optional[str],
     cloud_project: Optional[str],
     cloud_region: Optional[str],
-    worker_service_account: Optional[str]) -> None:
+    worker_service_account: Optional[str],
+    max_workers: int) -> None:
   """Runs example generation pipeline.
 
   Args:
@@ -557,6 +556,7 @@ def generate_examples_pipeline(
     cloud_project: Cloud project name.
     cloud_region: Cloud region, e.g. us-central1.
     worker_service_account: Email of service account that will launch workers.
+    max_workers: Maximum number of workers to use.
   """
 
   temp_dir = os.path.join(output_dir, 'temp')
@@ -569,7 +569,8 @@ def generate_examples_pipeline(
                                                       cloud_project,
                                                       cloud_region, temp_dir,
                                                       dataflow_container_image,
-                                                      worker_service_account)
+                                                      worker_service_account,
+                                                      max_workers)
   else:
     pipeline_options = _get_local_pipeline_options()
 
