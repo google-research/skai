@@ -17,10 +17,9 @@
 import os
 import pathlib
 import tempfile
-from typing import List, Tuple
+from typing import Any, List, Tuple
 from absl.testing import absltest
 
-import apache_beam as beam
 from apache_beam.testing import test_pipeline
 from apache_beam.testing.util import assert_that
 import numpy as np
@@ -35,8 +34,7 @@ def _deserialize_image(serialized_image: bytes) -> np.ndarray:
   return tf.io.decode_image(serialized_image).numpy()
 
 
-def _unordered_all_close(list1: List[Tuple[float, float]],
-                         list2: List[Tuple[float, float]]) -> bool:
+def _unordered_all_close(list1: List[Any], list2: List[Any]) -> bool:
   """Return that two lists of coordinates are close to each other."""
   if len(list1) != len(list2):
     return False
@@ -46,9 +44,10 @@ def _unordered_all_close(list1: List[Tuple[float, float]],
   return np.allclose(sorted_list1, sorted_list2)
 
 
-def _check_serialized_examples(expected_patch_size: int,
-                               expected_coordinates: List[Tuple[float, float]],
-                               expect_blank_before: bool):
+def _check_serialized_examples(
+    expected_patch_size: int,
+    expected_coordinates: List[Tuple[float, float, float]],
+    expect_blank_before: bool):
   """Validates examples generated from beam pipeline.
 
   Args:
@@ -72,10 +71,11 @@ def _check_serialized_examples(expected_patch_size: int,
       assert feature_names == set([
           'pre_image_png', 'post_image_png', 'coordinates',
           'encoded_coordinates', 'label'
-      ])
+      ]), f'Feature set does not match. Got: {" ".join(feature_names)}'
 
       longitude, latitude = (
           example.features.feature['coordinates'].float_list.value)
+      label = example.features.feature['label'].float_list.value[0]
 
       before_image = _deserialize_image(
           example.features.feature['pre_image_png'].bytes_list.value[0])
@@ -93,7 +93,7 @@ def _check_serialized_examples(expected_patch_size: int,
           f'Expected after image shape = {expected_shape}, '
           f'actual = {after_image.shape}')
 
-      actual_coordinates.add((longitude, latitude))
+      actual_coordinates.add((longitude, latitude, label))
 
     assert _unordered_all_close(expected_coordinates, actual_coordinates)
 
@@ -117,14 +117,17 @@ def _check_labeling_images(expected_width: int,
   def _check_images(actual_serialized_images):
     actual_coordinates = set()
     for name, serialized_image in actual_serialized_images:
-      assert name.endswith('.png'), name
+      assert name.endswith('.png'), f'File {name} does not end with .png'
       encoded_coords = name[:-4]  # Remove ".png" suffix.
       longitude, latitude = utils.decode_coordinates(encoded_coords)
       actual_coordinates.add((longitude, latitude))
       image = _deserialize_image(serialized_image)
-      assert image.shape == (expected_height, expected_width, 3)
+      assert image.shape == (expected_height, expected_width,
+                             3), f'Unexpected shape {image.shape}'
 
-    assert _unordered_all_close(expected_coordinates, actual_coordinates)
+    assert _unordered_all_close(expected_coordinates, actual_coordinates), (
+        f'Coordinates different. Expected "{expected_coordinates}", '
+        f'Actual "{actual_coordinates}".')
 
   return _check_images
 
@@ -139,23 +142,18 @@ class GenerateExamplesTest(absltest.TestCase):
   def testGenerateExamplesFn(self):
     """Tests GenerateExamplesFn class."""
 
-    coordinates = [
-        generate_examples._Coordinate(178.482925, -16.632893, -1),
-        generate_examples._Coordinate(178.482283, -16.632279, -1)]
+    unlabeled_coordinates = [(178.482925, -16.632893),
+                             (178.482283, -16.632279)]
 
     with test_pipeline.TestPipeline() as pipeline:
-      coordinates_pcollection = (
-          pipeline
-          | beam.Create(coordinates))
-
       examples, labeling_images = generate_examples._generate_examples(
-          self.test_image_path, self.test_image_path, 32, 64, 62, 0.5, 1, {},
-          coordinates_pcollection, 'unlabeled')
+          pipeline, self.test_image_path, self.test_image_path, 62, 32, 0.5,
+          unlabeled_coordinates, [], 1, {}, 'unlabeled')
 
       # Example at second input coordinate should be dropped because its patch
       # falls mostly outside the before and after image bounds.
       assert_that(examples, _check_serialized_examples(
-          32, [(178.482925, -16.632893)], False), label='assert_examples')
+          32, [(178.482925, -16.632893, -1.0)], False), label='assert_examples')
 
       expected_width = 154   # 62 + 62 + 10 * 3
       expected_height = 114  # 62 + 2 * 10 + height for caption
@@ -165,26 +163,35 @@ class GenerateExamplesTest(absltest.TestCase):
                                  [(178.482925, -16.632893)]),
           label='assert_labeling_images')
 
+  def testGenerateExamplesFnLabeled(self):
+    """Tests GenerateExamplesFn class."""
+
+    labeled_coordinates = [(178.482925, -16.632893, 0),
+                           (178.482924, -16.632894, 1)]
+
+    with test_pipeline.TestPipeline() as pipeline:
+      examples, _ = generate_examples._generate_examples(
+          pipeline, self.test_image_path, self.test_image_path, 62, 32, 0.5,
+          [], labeled_coordinates, 0.0, {}, 'labeled')
+
+      assert_that(examples, _check_serialized_examples(
+          32, [(178.482925, -16.632893, 0.0), (178.482924, -16.632894, 1.0)],
+          False), label='assert_examples')
+
   def testGenerateExamplesFnNoBefore(self):
     """Tests GenerateExamplesFn class without before image."""
 
-    coordinates = [
-        generate_examples._Coordinate(178.482925, -16.632893, -1),
-        generate_examples._Coordinate(178.482283, -16.632279, -1)]
+    coordinates = [(178.482925, -16.632893), (178.482283, -16.632279)]
 
     with test_pipeline.TestPipeline() as pipeline:
-      coordinates_pcollection = (
-          pipeline
-          | beam.Create(coordinates))
-
       examples, labeling_images = generate_examples._generate_examples(
-          '', self.test_image_path, 32, 64, 62, 0.5, 1, {},
-          coordinates_pcollection, 'unlabeled')
+          pipeline, '', self.test_image_path, 62, 32, 0.5, coordinates, [], 1,
+          {}, 'unlabeled')
 
       # Example at second input coordinate should be dropped because its patch
       # falls mostly outside the before and after image bounds.
       assert_that(examples, _check_serialized_examples(
-          32, [(178.482925, -16.632893)], True), label='assert_examples')
+          32, [(178.482925, -16.632893, -1.0)], True), label='assert_examples')
 
       expected_width = 154   # 62 + 62 + 10 * 3
       expected_height = 114  # 62 + 2 * 10 + height for caption
@@ -200,9 +207,8 @@ class GenerateExamplesTest(absltest.TestCase):
     generate_examples.generate_examples_pipeline(
         before_image_path=self.test_image_path,
         after_image_path=self.test_image_path,
+        large_patch_size=32,
         example_patch_size=32,
-        alignment_patch_size=32,
-        labeling_patch_size=32,
         resolution=0.5,
         output_dir=output_dir,
         num_output_shards=1,
@@ -211,13 +217,15 @@ class GenerateExamplesTest(absltest.TestCase):
         use_dataflow=False,
         num_labeling_images=0,
         gdal_env={},
+        dataflow_job_name='test',
         dataflow_container_image=None,
         cloud_project=None,
         cloud_region=None,
-        worker_service_account=None)
+        worker_service_account=None,
+        max_workers=0)
 
-    files = os.listdir(os.path.join(output_dir, 'examples', 'unlabeled'))
-    assert files == ['unlabeled-00000-of-00001.tfrecord']
+    tfrecords = os.listdir(os.path.join(output_dir, 'examples', 'unlabeled'))
+    self.assertSameElements(tfrecords, ['unlabeled-00000-of-00001.tfrecord'])
 
 
 if __name__ == '__main__':

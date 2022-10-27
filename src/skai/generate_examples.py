@@ -18,7 +18,6 @@ import logging
 import os
 import pathlib
 import random
-import time
 from typing import Dict, Iterator, List, Optional, Tuple
 import apache_beam as beam
 import cv2
@@ -26,17 +25,15 @@ import geopandas as gpd
 import numpy as np
 import PIL
 import PIL.Image
-import pyproj
-import rasterio
-import rasterio.plot
+
 from skai import beam_utils
 from skai import cloud_labeling
+from skai import read_raster
 from skai import utils
 import tensorflow as tf
 
 
 Example = tf.train.Example
-Image = PIL.Image.Image
 Metrics = beam.metrics.Metrics
 PipelineOptions = beam.options.pipeline_options.PipelineOptions
 
@@ -54,13 +51,6 @@ _MAX_DISPLACEMENT = 30
 # Multi-output tags for GenerateExamplesFn.
 _EXAMPLES = 'examples'
 _LABELING_IMAGES = 'label_images'
-
-# Maximum number of dataflow workers to use.
-_MAX_DATAFLOW_WORKERS = 20
-
-# Maximum QPS for the Earth Engine API. Should be respected when using the EEDAI
-# interface (https://gdal.org/drivers/raster/eedai.html).
-_EARTH_ENGINE_QPS = 100
 
 
 @dataclasses.dataclass
@@ -119,170 +109,57 @@ def align_after_image(before_image: np.ndarray, after_image: np.ndarray):
   return aligned_after
 
 
-def _get_blank_fraction(data: np.ndarray) -> float:
-  """Get the fraction of blank elements in an array.
+def _mostly_blank(image: np.ndarray) -> bool:
+  """Determines if an image is mostly blank.
 
   Assumes that the first dimension of the input data is the channel dimension. A
   pixel is considered blank if it has 0s in all channels.
 
   Args:
-    data: Input array.
+    image: Input image.
 
   Returns:
-    Fraction of data that is all 0s.
+    Whether the image has too many blank pixels.
   """
-  if data.size == 0:
+  if image.size == 0:
     return 0
 
-  flattened = data.max(axis=0)
+  flattened = image.max(axis=0)
   num_non_blank = np.count_nonzero(flattened)
-  return (flattened.size - num_non_blank) / flattened.size
+  blank_fraction = (flattened.size - num_non_blank) / flattened.size
+  return blank_fraction >= _BLANK_THRESHOLD
 
 
-def _get_raster_resolution_in_meters(raster) -> float:
-  """Covert different resolution unit into meters.
-
-  Args:
-    raster: Input raster.
-  Returns:
-    Resolution in meters.
-  Raises:
-    ValueError: CRS error
-  """
-  if not np.isclose(raster.res[0], raster.res[1], rtol=0.0001):
-    raise ValueError(
-        f'Expecting identical x and y resolutions, got {raster.res[0]}, {raster.res[1]}'
-    )
-  crs = raster.crs
-  try:
-    meter_conversion_factor = crs.linear_units_factor[1]
-  except rasterio.errors.CRSError as e:
-    if crs.to_epsg() == 4326:
-      # Raster resolution is expressed in degrees lon/lat. Convert to
-      # meters with approximation that 1 degree ~ 111km.
-      meter_conversion_factor = 111000
-    else:
-      raise ValueError(
-          f'No linear units factor or unsupported EPSG code, got {e}') from e
-  return raster.res[0] * meter_conversion_factor
-
-
-def _convert_to_uint8(image: np.ndarray) -> np.ndarray:
-  """Converts an image to uint8.
-
-  This function currently only handles converting from various integer types to
-  uint8, with range checks to make sure the casting is safe. If needed, this
-  function can be adapted to handle float types.
-
-  Args:
-    image: Input image array.
-
-  Returns:
-    uint8 array.
-
-  """
-  if not np.issubdtype(image.dtype, np.integer):
-    raise TypeError(f'Image type {image.dtype} not supported.')
-  if np.min(image) < 0 or np.max(image) > 255:
-    raise ValueError(
-        f'Pixel values have a range of {np.min(image)}-{np.max(image)}. '
-        'Only 0-255 is supported.')
-  return image.astype(np.uint8)
-
-
-def get_patch_at_coordinate(
-    raster,
-    longitude: float,
-    latitude: float,
-    patch_size: int,
-    resolution: float,
-    wait_seconds: float) -> Optional[np.ndarray]:
-  """Extracts image patch from a raster.
-
-  Args:
-    raster: Input raster.
-    longitude: Longitude of center of patch to extract.
-    latitude: Latitude of center of patch to extract.
-    patch_size: Patch size.
-    resolution: Desired resolution of output patch.
-    wait_seconds: Seconds to wait after reads to avoid exceeding QPS limits.
-
-  Returns:
-    The image patch, or None if the coordinates are out of the bounds of the
-    raster.
-  """
-  # Set always_xy=True so that transformer always expects longitude, latitude in
-  # that order.
-  transformer = pyproj.Transformer.from_crs(
-      'epsg:4326', raster.crs, always_xy=True)
-  x, y = transformer.transform(longitude, latitude, errcheck=True)
-  row, col = raster.index(x, y)
-
-  raster_res = _get_raster_resolution_in_meters(raster)
-  scale_factor = resolution / raster_res
-  input_size = int(patch_size * scale_factor)
-
-  half_size = input_size // 2
-  col_off = col - half_size
-  row_off = row - half_size
-  window = rasterio.windows.Window(col_off, row_off, input_size, input_size)
-  start_time = time.time()
-  try:
-    # Currently assumes that bands [1, 2, 3] of the input image are the RGB
-    # channels.
-    window_data = raster.read(
-        indexes=[1, 2, 3], window=window, boundless=True, fill_value=-1,
-        out_shape=(3, patch_size, patch_size),
-        resampling=rasterio.enums.Resampling.lanczos)
-  except rasterio.errors.RasterioError:
-    logging.exception('Rasterio read error in _get_patch_at_coordinate')
-    Metrics.counter('skai', 'rasterio_error').inc()
-    return None
-  finally:
-    elapsed_millis = (time.time() - start_time) * 1000
-    Metrics.distribution('skai', 'raster_read_time_msec').update(elapsed_millis)
-
-  time.sleep(wait_seconds)
-
-  if _get_blank_fraction(window_data) > _BLANK_THRESHOLD:
-    Metrics.counter('skai', 'blank_patches').inc()
-    return None
-  window_data = np.clip(window_data, 0, None)
-  window_data = rasterio.plot.reshape_as_image(window_data)
-  return _convert_to_uint8(window_data)
-
-
-def _create_example(before_image: Image, after_image: Image,
-                    longitude: float, latitude: float, label: float) -> Example:
+def _create_example(example_id: str,
+                    before_image: np.ndarray, after_image: np.ndarray,
+                    scalar_features: Dict[str, List[float]]) -> Example:
   """Create Tensorflow Example from inputs.
 
   Args:
+    example_id: Example id.
     before_image: Before disaster image.
     after_image: After disaster image.
-    longitude: Longitude of center of image.
-    latitude: Latitude of center of image.
-    label: Label for this example.
+    scalar_features: Dict mapping scalar feature names to values.
 
   Returns:
     Tensorflow Example.
   """
   example = tf.train.Example()
   # TODO(jzxu): Use constants for these feature name strings.
-  utils.add_bytes_feature('pre_image_png',
-                          utils.serialize_image(before_image, 'png'), example)
-  utils.add_bytes_feature('post_image_png',
-                          utils.serialize_image(after_image, 'png'), example)
-  utils.add_float_feature('coordinates', longitude, example)
-  utils.add_float_feature('coordinates', latitude, example)
-  utils.add_bytes_feature('encoded_coordinates',
-                          utils.encode_coordinates(longitude, latitude),
-                          example)
-  utils.add_float_feature('label', label, example)
 
+  # For legacy reasons, the example id feature is named "encoded_coordinates".
+  # Should change this in the future.
+  utils.add_bytes_feature('encoded_coordinates', example_id.encode(), example)
+  utils.add_bytes_feature('pre_image_png',
+                          tf.io.encode_png(before_image).numpy(), example)
+  utils.add_bytes_feature('post_image_png',
+                          tf.io.encode_png(after_image).numpy(), example)
+  for name, value in scalar_features.items():
+    utils.add_float_list_feature(name, value, example)
   return example
 
 
-def _center_crop(image: np.ndarray, crop_size: int) -> Image:
+def _center_crop(image: np.ndarray, crop_size: int) -> np.ndarray:
   """Crops an image into a square of a specified size.
 
   Args:
@@ -296,8 +173,7 @@ def _center_crop(image: np.ndarray, crop_size: int) -> Image:
   cols = image.shape[1]
   i = rows // 2 - crop_size // 2
   j = cols // 2 - crop_size // 2
-  crop = image[i:i + crop_size, j:j + crop_size, :]
-  return PIL.Image.fromarray(crop)
+  return image[i:i + crop_size, j:j + crop_size, :]
 
 
 class GenerateExamplesFn(beam.DoFn):
@@ -311,39 +187,23 @@ class GenerateExamplesFn(beam.DoFn):
   maximum displacement that can occur in alignment is _MAX_DISPLACEMENT pixels.
 
   Attributes:
-    _before_path: Path to before disaster image.
-    _after_path: Path to after disaster image.
+    _large_patch_size: Size in pixels of the before and after image patches.
+      Typically 256.
+    _example_patch_size: Size in pixels of the smaller before and after image
+      patches used in TF Examples. This is typically 64.
+    _use_before_image: Whether to include before images in the examples.
     _labeling_image_sample_rate: Rate at which to sample labeling images.
-    _example_patch_size: Size in pixels of the before and after image patches
-      included in the examples.
-    _alignment_patch_size: Size in pixels of the before and after image patches
-      used during alignment. Must be larger than _patch_size. The reasoning for
-      this is that more context is needed to perform a good alignment.
-    _labeling_patch_size: Size in pixels of before and after image patches for
-      labeling.
-    _resolution: The desired resolution (in m/pixel) of the image patches. If
-      this is different from the image's native resolution, patches will be
-      upsampled or downsampled.
-    _gdal_env: GDAL environment configuration.
   """
 
   def __init__(self,
-               before_path: str,
-               after_path: str,
-               labeling_image_sample_rate: float,
+               large_patch_size: int,
                example_patch_size: int,
-               alignment_patch_size: int,
-               labeling_patch_size: int,
-               resolution: float,
-               gdal_env: Dict[str, str]) -> None:
-    self._before_path = before_path
-    self._after_path = after_path
-    self._labeling_image_sample_rate = labeling_image_sample_rate
+               use_before_image: bool,
+               labeling_image_sample_rate: float) -> None:
+    self._large_patch_size = large_patch_size
     self._example_patch_size = example_patch_size
-    self._alignment_patch_size = alignment_patch_size
-    self._labeling_patch_size = labeling_patch_size
-    self._resolution = resolution
-    self._gdal_env = gdal_env
+    self._use_before_image = use_before_image
+    self._labeling_image_sample_rate = labeling_image_sample_rate
 
     self._example_count = Metrics.counter('skai', 'generated_examples_count')
     self._bad_example_count = Metrics.counter('skai', 'rejected_examples_count')
@@ -352,91 +212,60 @@ class GenerateExamplesFn(beam.DoFn):
     self._after_patch_blank_count = Metrics.counter(
         'skai', 'after_patch_blank_count')
 
-  def setup(self) -> None:
-    """Open before and after image rasters.
-
-    This simply creates raster placeholders in memory. It doesn't actually read
-    the raster data from disk.
-    """
-    with rasterio.Env(**self._gdal_env):
-      self._before_raster = None
-      if self._before_path:
-        self._before_raster = rasterio.open(self._before_path)
-      self._after_raster = rasterio.open(self._after_path)
-
-  def process(
-      self, coordinate: _Coordinate) -> Iterator[beam.pvalue.TaggedOutput]:
+  def process(self, grouped_features) -> Iterator[beam.pvalue.TaggedOutput]:
     """Extract patches from before and after images and output as tf Example.
 
     Args:
-      coordinate: Longitude and latitude of the center the of patch.
+      grouped_features: All features for an example.
 
     Yields:
       Serialized Tensorflow Example.
     """
+    example_id, features = grouped_features
+    features = dict(features)
+    scalar_features = features.get('scalar_features', {})
 
-    if (self._before_path.startswith('EEDAI:') or
-        self._after_path.startswith('EEDAI:')):
-      qps_per_worker = _EARTH_ENGINE_QPS / _MAX_DATAFLOW_WORKERS
-      seconds_between_reads = 1.0 / qps_per_worker
-    else:
-      seconds_between_reads = 0
+    after_image = features.get('after', None)
+    if after_image is None:
+      self._after_patch_blank_count.inc()
+      self._bad_example_count.inc()
+      return
 
-    with rasterio.Env(**self._gdal_env):
-      if self._before_raster is None:
-        patch_size = max(self._example_patch_size, self._labeling_patch_size)
-        # No before image, so just set the before patch to all zeros.
-        before_patch = np.zeros((patch_size, patch_size, 3), dtype=np.uint8)
-        after_patch = get_patch_at_coordinate(
-            self._after_raster, coordinate.longitude, coordinate.latitude,
-            patch_size, self._resolution, seconds_between_reads)
-      else:
-        before_patch = get_patch_at_coordinate(
-            self._before_raster, coordinate.longitude, coordinate.latitude,
-            self._alignment_patch_size, self._resolution, seconds_between_reads)
-
-        if before_patch is None:
-          self._before_patch_blank_count.inc()
-          self._bad_example_count.inc()
-          return
-
-        # Make the after image patch larger than the before image patch by
-        # giving it a border of _MAX_DISPLACEMENT pixels. This gives the
-        # alignment algorithm at most +/-_MAX_DISPLACEMENT pixels of movement in
-        # either dimension to find the best alignment.
-        after_patch_size = self._alignment_patch_size + 2 * _MAX_DISPLACEMENT
-        after_patch = get_patch_at_coordinate(
-            self._after_raster, coordinate.longitude, coordinate.latitude,
-            after_patch_size, self._resolution, seconds_between_reads)
-        if after_patch is not None:
-          # Try to align after image to before image.
-          after_patch = align_after_image(before_patch, after_patch)
-
-      if after_patch is None:
-        self._after_patch_blank_count.inc()
+    if self._use_before_image:
+      before_image = features.get('before', None)
+      if before_image is None:
+        self._before_patch_blank_count.inc()
         self._bad_example_count.inc()
         return
+      # Align after image to before image.
+      after_image = align_after_image(before_image, after_image)
+    else:
+      before_image = np.zeros(
+          (self._large_patch_size, self._large_patch_size, 3), dtype=np.uint8)
 
-      example = _create_example(
-          _center_crop(before_patch, self._example_patch_size),
-          _center_crop(after_patch, self._example_patch_size),
-          coordinate.longitude, coordinate.latitude, coordinate.label)
+    before_crop = _center_crop(before_image, self._example_patch_size)
+    if self._use_before_image and _mostly_blank(before_crop):
+      self._before_patch_blank_count.inc()
+      self._bad_example_count.inc()
+      return
+    after_crop = _center_crop(after_image, self._example_patch_size)
+    if _mostly_blank(after_crop):
+      self._after_patch_blank_count.inc()
+      self._bad_example_count.inc()
+      return
+    example = _create_example(example_id, before_crop, after_crop,
+                              scalar_features)
+    self._example_count.inc()
+    yield beam.pvalue.TaggedOutput(_EXAMPLES, example.SerializeToString())
 
-      self._example_count.inc()
-      yield beam.pvalue.TaggedOutput(_EXAMPLES, example.SerializeToString())
-
-      if random.random() < self._labeling_image_sample_rate:
-        labeling_image = cloud_labeling.create_labeling_image(
-            _center_crop(before_patch, self._labeling_patch_size),
-            _center_crop(after_patch, self._labeling_patch_size))
-        serialized_labeling_image = utils.serialize_image(
-            labeling_image, 'png')
-        encoded_coords = utils.encode_coordinates(
-            coordinate.longitude, coordinate.latitude).decode()
-        labeling_image_name = f'{encoded_coords}.png'
-        yield beam.pvalue.TaggedOutput(
-            _LABELING_IMAGES,
-            (labeling_image_name, serialized_labeling_image))
+    if random.random() < self._labeling_image_sample_rate:
+      labeling_image = cloud_labeling.create_labeling_image(
+          PIL.Image.fromarray(before_image), PIL.Image.fromarray(after_image))
+      serialized_labeling_image = utils.serialize_image(labeling_image, 'png')
+      labeling_image_name = f'{example_id}.png'
+      yield beam.pvalue.TaggedOutput(
+          _LABELING_IMAGES,
+          (labeling_image_name, serialized_labeling_image))
 
 
 def _get_setup_file_path():
@@ -446,7 +275,7 @@ def _get_setup_file_path():
 def _get_dataflow_pipeline_options(
     job_name: str, project: str, region: str, temp_dir: str,
     dataflow_container_image: str,
-    worker_service_account: Optional[str]) -> PipelineOptions:
+    worker_service_account: Optional[str], max_workers: int) -> PipelineOptions:
   """Returns dataflow pipeline options.
 
   Args:
@@ -458,6 +287,7 @@ def _get_dataflow_pipeline_options(
     worker_service_account: Email of the service account will launch workers.
         If None, uses the project's default Compute Engine service account
         (<project-number>-compute@developer.gserviceaccount.com).
+    max_workers: Maximum number of Dataflow workers.
 
   Returns:
     Dataflow options.
@@ -471,7 +301,7 @@ def _get_dataflow_pipeline_options(
       'experiment': 'use_runner_v2',
       'sdk_container_image': dataflow_container_image,
       'setup_file': _get_setup_file_path(),
-      'max_num_workers': _MAX_DATAFLOW_WORKERS
+      'max_num_workers': max_workers
   }
   if worker_service_account:
     options['service_account_email'] = worker_service_account
@@ -486,46 +316,96 @@ def _get_local_pipeline_options() -> PipelineOptions:
   })
 
 
+def _coordinates_to_scalar_features(longitude: float, latitude: float,
+                                    label: float):
+  example_id = utils.encode_coordinates(longitude, latitude)
+  return (example_id, ('scalar_features', {
+      'coordinates': [longitude, latitude],
+      'label': [label]
+  }))
+
+
 def _generate_examples(
+    pipeline,
     before_image_path: str,
     after_image_path: str,
+    large_patch_size: int,
     example_patch_size: int,
-    alignment_patch_size: int,
-    labeling_patch_size: int,
     resolution: float,
+    unlabeled_coordinates: List[Tuple[float, float]],
+    labeled_coordinates: List[Tuple[float, float, float]],
     labeling_image_sample_rate: float,
     gdal_env: Dict[str, str],
-    coordinates: beam.PCollection,
     stage_prefix: str) -> Tuple[beam.PCollection, beam.PCollection]:
   """Generates examples and labeling images from source images.
 
   Args:
+    pipeline: Beam pipeline.
     before_image_path: Before image path.
     after_image_path: After image path.
+    large_patch_size: Size in pixels of before and after image patches for
+      labeling and alignment. Typically 256.
     example_patch_size: Size of patches to extract into examples. Typically 64.
-    alignment_patch_size: Size of patches used for alignment. Setting this to a
-      larger value will result in more context being considered during
-      before/after image alignment, and may improve the alignment result.
-    labeling_patch_size: Size in pixels of before and after image patches for
-      labeling.
     resolution: Desired resolution of image patches.
+    unlabeled_coordinates: List of coordinates (longitude, latitude) to extract
+      unlabeled examples for.
+    labeled_coordinates: List of coordinates (longitude, latitude, label) to
+      extract labeled examples for.
     labeling_image_sample_rate: Rate at which to sample labeling images.
     gdal_env: GDAL environment configuration.
-    coordinates: Collection of coordinates (longitude, latitude, label) to
-      extract examples for.
     stage_prefix: Beam stage name prefix.
 
   Returns:
     PCollection of examples and PCollection of labeling images.
   """
 
-  results = (
-      coordinates
-      | stage_prefix + '_generate_examples' >> beam.ParDo(
-          GenerateExamplesFn(
-              before_image_path, after_image_path, labeling_image_sample_rate,
-              example_patch_size, alignment_patch_size, labeling_patch_size,
-              resolution, gdal_env)).with_outputs(_EXAMPLES, _LABELING_IMAGES))
+  if unlabeled_coordinates:
+    coords_with_ids = [
+        (utils.encode_coordinates(x, y), x, y) for x, y in unlabeled_coordinates
+    ]
+    scalar_features = [
+        _coordinates_to_scalar_features(x, y, -1.0)
+        for x, y in unlabeled_coordinates
+    ]
+  elif labeled_coordinates:
+    coords_with_ids = [(utils.encode_coordinates(x, y), x, y)
+                       for x, y, _ in labeled_coordinates]
+    scalar_features = [
+        _coordinates_to_scalar_features(x, y, label)
+        for x, y, label in labeled_coordinates
+    ]
+
+  scalar_features_collection = (
+      pipeline
+      | stage_prefix + '_make_scalar_features' >> beam.Create(scalar_features))
+
+  input_collections = [scalar_features_collection]
+  after_image_size = large_patch_size
+  use_before_image = bool(before_image_path)
+  if use_before_image:
+    before_images = read_raster.extract_patches_from_raster(
+        pipeline, before_image_path, 'before', large_patch_size, resolution,
+        coords_with_ids, gdal_env, 'before')
+    input_collections.append(before_images)
+    # Make the after image patch larger than the before image patch by
+    # giving it a border of _MAX_DISPLACEMENT pixels. This gives the
+    # alignment algorithm at most +/-_MAX_DISPLACEMENT pixels of movement in
+    # either dimension to find the best alignment.
+    after_image_size += 2 * _MAX_DISPLACEMENT
+
+  after_images = read_raster.extract_patches_from_raster(
+      pipeline, after_image_path, 'after', after_image_size, resolution,
+      coords_with_ids, gdal_env, 'after')
+  input_collections.append(after_images)
+
+  results = (input_collections
+             | stage_prefix + '_merge_features' >> beam.Flatten()
+             | stage_prefix + '_group_by_example_id' >> beam.GroupByKey()
+             | stage_prefix + '_generate_examples' >> beam.ParDo(
+                 GenerateExamplesFn(large_patch_size, example_patch_size,
+                                    use_before_image,
+                                    labeling_image_sample_rate)).with_outputs(
+                                        _EXAMPLES, _LABELING_IMAGES))
   examples = results[_EXAMPLES]
   labeling_images = results[_LABELING_IMAGES]
   return examples, labeling_images
@@ -637,9 +517,8 @@ def parse_gdal_env(settings: List[str]) -> Dict[str, str]:
 def generate_examples_pipeline(
     before_image_path: str,
     after_image_path: str,
+    large_patch_size: int,
     example_patch_size: int,
-    alignment_patch_size: int,
-    labeling_patch_size: int,
     resolution: float,
     output_dir: str,
     num_output_shards: int,
@@ -652,18 +531,16 @@ def generate_examples_pipeline(
     dataflow_container_image: Optional[str],
     cloud_project: Optional[str],
     cloud_region: Optional[str],
-    worker_service_account: Optional[str]) -> None:
+    worker_service_account: Optional[str],
+    max_workers: int) -> None:
   """Runs example generation pipeline.
 
   Args:
     before_image_path: Before image path.
     after_image_path: After image path.
+    large_patch_size: Size in pixels of before and after image patches for
+      labeling and alignment. Typically 256.
     example_patch_size: Size of patches to extract into examples. Typically 64.
-    alignment_patch_size: Size of patches used for alignment. Setting this to a
-      larger value will result in more context being considered during
-      before/after image alignment, and may improve the alignment result.
-    labeling_patch_size: Size in pixels of before and after image patches for
-      labeling.
     resolution: Desired resolution of image patches.
     output_dir: Parent output directory.
     num_output_shards: Number of output shards.
@@ -679,6 +556,7 @@ def generate_examples_pipeline(
     cloud_project: Cloud project name.
     cloud_region: Cloud region, e.g. us-central1.
     worker_service_account: Email of service account that will launch workers.
+    max_workers: Maximum number of workers to use.
   """
 
   temp_dir = os.path.join(output_dir, 'temp')
@@ -691,73 +569,38 @@ def generate_examples_pipeline(
                                                       cloud_project,
                                                       cloud_region, temp_dir,
                                                       dataflow_container_image,
-                                                      worker_service_account)
+                                                      worker_service_account,
+                                                      max_workers)
   else:
     pipeline_options = _get_local_pipeline_options()
 
   with beam.Pipeline(options=pipeline_options) as pipeline:
     if unlabeled_coordinates:
+      examples_output_prefix = (
+          os.path.join(output_dir, 'examples', 'unlabeled', 'unlabeled'))
       labeling_image_sample_rate = (
           num_labeling_images / len(unlabeled_coordinates))
-      if use_dataflow:
-        unlabeled_coordinates_path = os.path.join(temp_dir,
-                                                  'unlabeled_coordinates.csv')
-        with tf.io.gfile.GFile(unlabeled_coordinates_path, 'w') as f:
-          for x, y in unlabeled_coordinates:
-            f.write(f'{x:.12f},{y:.12f}\n')
-        unlabeled_coordinates_pcollection = (
-            pipeline
-            | beam.io.ReadFromText(unlabeled_coordinates_path)
-            | beam.Map(_parse_coords_from_csv_line))
-      else:
-        unlabeled_coordinates_pcollection = (
-            pipeline
-            | 'create_unlabeled_coordinates' >> beam.Create([
-                _Coordinate(lng, lat, -1.0)
-                for lng, lat in unlabeled_coordinates
-            ]))
 
-      unlabeled_examples, labeling_images = _generate_examples(
-          before_image_path, after_image_path, example_patch_size,
-          alignment_patch_size, labeling_patch_size, resolution,
-          labeling_image_sample_rate, gdal_env,
-          unlabeled_coordinates_pcollection, 'unlabeled')
-
-      unlabeled_examples_output_prefix = (
-          os.path.join(output_dir, 'examples', 'unlabeled', 'unlabeled'))
-
-      _ = (
-          unlabeled_examples
-          | 'write_unlabeled_examples' >> beam.io.tfrecordio.WriteToTFRecord(
-              unlabeled_examples_output_prefix,
-              file_name_suffix='.tfrecord',
-              num_shards=num_output_shards))
-
-      if num_labeling_images > 0:
-        labeling_images_dir = (
-            os.path.join(output_dir, 'examples', 'labeling_images'))
-        beam_utils.write_records_as_files(labeling_images, labeling_images_dir,
-                                          temp_dir, 'write_labeling_images')
-
-    if labeled_coordinates:
-      labeled_coordinates_pcollection = (
-          pipeline
-          | 'create_labeled_coordinates' >> beam.Create([
-              _Coordinate(lng, lat, label)
-              for lng, lat, label in labeled_coordinates
-          ]))
-
-      labeled_examples, _ = _generate_examples(
-          before_image_path, after_image_path, example_patch_size,
-          alignment_patch_size, labeling_patch_size, resolution, 0,
-          gdal_env, labeled_coordinates_pcollection, 'labeled')
-
-      labeled_examples_output_prefix = (
+    elif labeled_coordinates:
+      examples_output_prefix = (
           os.path.join(output_dir, 'examples', 'labeled', 'labeled'))
+      labeling_image_sample_rate = 0
 
-      _ = (
-          labeled_examples
-          | 'write_labeled_examples' >> beam.io.tfrecordio.WriteToTFRecord(
-              labeled_examples_output_prefix,
-              file_name_suffix='.tfrecord',
-              num_shards=num_output_shards))
+    examples, labeling_images = _generate_examples(
+        pipeline, before_image_path, after_image_path, large_patch_size,
+        example_patch_size, resolution, unlabeled_coordinates,
+        labeled_coordinates, labeling_image_sample_rate, gdal_env,
+        'generate_examples')
+
+    _ = (
+        examples
+        | 'write_examples' >> beam.io.tfrecordio.WriteToTFRecord(
+            examples_output_prefix,
+            file_name_suffix='.tfrecord',
+            num_shards=num_output_shards))
+
+    if num_labeling_images > 0:
+      labeling_images_dir = (
+          os.path.join(output_dir, 'examples', 'labeling_images'))
+      beam_utils.write_records_as_files(labeling_images, labeling_images_dir,
+                                        temp_dir, 'write_labeling_images')
