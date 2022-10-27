@@ -18,6 +18,7 @@ rtree
 shapely
 sklearn
 tensorflow
+tensorflow-addons
+tensorflow-datasets
 tensorflow_probability
 tqdm
-tensorflow-addons
