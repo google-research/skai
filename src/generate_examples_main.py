@@ -133,8 +133,6 @@ flags.DEFINE_integer('num_keep_labeled_examples', 1000, 'Number of labeled '
 flags.DEFINE_bool('create_cloud_labeling_task', False,
                   'If true, create Vertex AI labeling task to label random '
                   'subset of examples.')
-flags.DEFINE_integer('num_labeling_examples', 1000,
-                     'Number of examples to label.')
 flags.DEFINE_string('cloud_labeler_pool', None, 'Existing labeler pool.')
 flags.DEFINE_list('cloud_labeler_emails', None,
                   'Emails of workers of new labeler pool. '
@@ -255,7 +253,6 @@ def main(args):
       building_centroids,
       labeled_coordinates,
       FLAGS.use_dataflow,
-      FLAGS.num_labeling_examples,
       gdal_env,
       timestamped_dataset,
       dataflow_container_image,
