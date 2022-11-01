@@ -12,24 +12,33 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Creates a labeling task on Vertex AI.
+# pylint: disable=line-too-long
+
+r"""Creates a labeling task on Vertex AI.
 
 This script converts a subset of unlabeled TF examples into labeling image
 format (before and after images of each building juxtaposed side-by-side),
 uploads them to Vertex AI as a dataset, and creates a labeling job for it. [1]
 It will assign the job to the labeler pool that you specify. You can create
-labeler pools using the REST API documented at [2]:
+labeler pools using the REST API documented at [2].
 
-# pylint: disable=line-too-long
+Example invocation:
+
+python create_cloud_labeling_task.py \
+  --cloud_project=my-cloud-project \
+  --cloud_location=us-central1 \
+  --dataset_name=some_dataset_name \
+  --examples_pattern=gs://bucket/disaster/examples/unlabeled-large/*.tfrecord \
+  --images_dir=gs://bucket/disaster/examples/labeling-images \
+  --max_images=1000 \
+  --cloud_labeler_emails=user1@gmail.com,user2@gmail.com
 
 [1] https://cloud.google.com/vertex-ai/docs/datasets/data-labeling-job
 [2] https://cloud.google.com/vertex-ai/docs/reference/rest/v1/projects.locations.specialistPools
-
+"""
 # pylint: enable=line-too-long
 
-"""
 
-import os
 import time
 
 from absl import app
@@ -41,7 +50,8 @@ from skai import cloud_labeling
 FLAGS = flags.FLAGS
 flags.DEFINE_string('cloud_project', 'disaster-assessment', 'GCP project name.')
 flags.DEFINE_string('cloud_location', 'us-central1', 'Project location.')
-flags.DEFINE_string('images_dir', '', 'Directory containing images.')
+flags.DEFINE_string('examples_pattern', '', 'Pattern matching TFRecords.')
+flags.DEFINE_string('images_dir', '', 'Directory to write images to.')
 flags.DEFINE_integer('max_images', 1000, 'Maximum number of images to label.')
 flags.DEFINE_bool('randomize', True, 'If true, randomly sample images.')
 flags.DEFINE_string('dataset_name', None, 'Dataset name')
@@ -87,11 +97,10 @@ def main(unused_argv):
   timestamp = time.strftime('%Y%m%d_%H%M%S')
   timestamped_dataset = f'{FLAGS.dataset_name}_{timestamp}'
 
-  import_file_path = os.path.join(
-      FLAGS.images_dir, f'import_file_{timestamped_dataset}.csv')
-  cloud_labeling.write_import_file(
-      FLAGS.images_dir, FLAGS.max_images, FLAGS.randomize, import_file_path)
-  print(f'Successfully wrote import file {import_file_path}.')
+  num_images, import_file_path = cloud_labeling.create_labeling_images(
+      FLAGS.examples_pattern, FLAGS.max_images, FLAGS.images_dir)
+  logging.info('Wrote %d labeling images.', num_images)
+  logging.info('Wrote import file %s.', import_file_path)
 
   if FLAGS.cloud_labeler_pool is not None:
     labeler_pool = FLAGS.cloud_labeler_pool

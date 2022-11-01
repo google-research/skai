@@ -27,7 +27,8 @@ from google.cloud import aiplatform_v1
 import PIL.Image
 import PIL.ImageDraw
 import PIL.ImageFont
-import tensorflow.compat.v1 as tf
+from skai import utils
+import tensorflow as tf
 
 from google.protobuf import struct_pb2
 from google.protobuf import json_format
@@ -117,6 +118,52 @@ def create_labeling_image(before_image: Image, after_image: Image) -> Image:
   return combined
 
 
+def create_labeling_images(
+    examples_pattern: str,
+    max_images: int,
+    output_dir: str) -> Tuple[int, str]:
+  """Creates PNGs used for labeling from TFRecords.
+
+  Also writes an import file in CSV format that is used to upload the images
+  into the VertexAI labeling tool.
+
+  Args:
+    examples_pattern: File pattern for input TFRecords.
+    max_images: Maximum number of images to create.
+    output_dir: Output directory.
+
+  Returns:
+    Tuple of number of images written and file path for the import file.
+  """
+  example_files = tf.io.gfile.glob(examples_pattern)
+  image_paths = []
+  for record in tf.data.TFRecordDataset(example_files):
+    example = Example()
+    example.ParseFromString(record.numpy())
+    example_id = (
+        example.features.feature['encoded_coordinates'].bytes_list.value[0]
+        .decode())
+    before_image = utils.deserialize_image(
+        example.features.feature['pre_image_png_large'].bytes_list.value[0],
+        'png')
+    after_image = utils.deserialize_image(
+        example.features.feature['post_image_png_large'].bytes_list.value[0],
+        'png')
+    labeling_image = create_labeling_image(before_image, after_image)
+    labeling_image_bytes = utils.serialize_image(labeling_image, 'png')
+    path = os.path.join(output_dir, f'{example_id}.png')
+    with tf.io.gfile.GFile(path, 'w') as writer:
+      writer.write(labeling_image_bytes)
+    image_paths.append(path)
+    if len(image_paths) >= max_images:
+      break
+
+  import_file_path = os.path.join(output_dir, 'import_file.csv')
+  with tf.io.gfile.GFile(import_file_path, 'w') as f:
+    f.write('\n'.join(image_paths))
+  return len(image_paths), import_file_path
+
+
 def write_import_file(
     images_dir: str,
     max_images: int,
@@ -134,14 +181,14 @@ def write_import_file(
     output_path: Path to write import file to.
   """
   images_pattern = os.path.join(images_dir, '*.png')
-  image_files = sorted(tf.gfile.Glob(images_pattern))
+  image_files = sorted(tf.io.gfile.glob(images_pattern))
   if not image_files:
     raise ValueError(f'Pattern "{images_pattern}" did not match any images.')
   if randomize:
     image_files = random.sample(image_files, min(max_images, len(image_files)))
   else:
     image_files = image_files[:max_images]
-  with tf.gfile.Open(output_path, 'w') as f:
+  with tf.io.gfile.GFile(output_path, 'w') as f:
     f.write('\n'.join(image_files))
 
 
@@ -276,7 +323,7 @@ def _read_label_annotations_file(path: str) -> Dict[str, str]:
     Dictionary of example ids to float label.
   """
   labels = {}
-  with tf.gfile.Open(path, 'r') as f:
+  with tf.io.gfile.GFile(path, 'r') as f:
     for line in f:
       record = json.loads(line.strip())
       if 'classificationAnnotation' not in record:
@@ -289,14 +336,14 @@ def _read_label_annotations_file(path: str) -> Dict[str, str]:
   return labels
 
 
-def _write_tfrecord(examples: Iterable[tf.train.Example], path: str) -> None:
+def _write_tfrecord(examples: Iterable[Example], path: str) -> None:
   """Writes a list of examples to a TFRecord file."""
   output_dir = os.path.dirname(path)
-  if not tf.gfile.Exists(output_dir):
-    tf.gfile.MkDir(output_dir)
-  writer = tf.python_io.TFRecordWriter(path)
-  for example in examples:
-    writer.write(example.SerializeToString())
+  if not tf.io.gfile.exists(output_dir):
+    tf.io.gfile.makedirs(output_dir)
+  with tf.io.TFRecordWriter(path) as writer:
+    for example in examples:
+      writer.write(example.SerializeToString())
 
 
 def _string_to_float_label(label: str) -> float:
@@ -340,13 +387,13 @@ def _merge_examples_and_labels(examples_pattern: str,
     train_output_path: Path to training examples TFRecord output.
     test_output_path: Path to test examples TFRecord output.
   """
-  example_files = tf.gfile.Glob(examples_pattern)
+  example_files = tf.io.gfile.glob(examples_pattern)
   labeled_examples = []
   for example_file in example_files:
     logging.info('Processing unlabeled example file "%s".', example_file)
-    for record in tf.python_io.tf_record_iterator(example_file):
-      example = tf.train.Example()
-      example.ParseFromString(record)
+    for record in tf.data.TFRecordDataset([example_file]):
+      example = Example()
+      example.ParseFromString(record.numpy())
       example_id = (
           example.features.feature['encoded_coordinates'].bytes_list.value[0]
           .decode())

@@ -17,17 +17,12 @@ import dataclasses
 import logging
 import os
 import pathlib
-import random
 from typing import Dict, Iterator, List, Optional, Tuple
 import apache_beam as beam
 import cv2
 import geopandas as gpd
 import numpy as np
-import PIL
-import PIL.Image
 
-from skai import beam_utils
-from skai import cloud_labeling
 from skai import read_raster
 from skai import utils
 import tensorflow as tf
@@ -47,10 +42,6 @@ _ALIGNMENT_METHOD = cv2.TM_CCOEFF_NORMED
 
 # Maximum number of pixels that an image can be displaced during alignment.
 _MAX_DISPLACEMENT = 30
-
-# Multi-output tags for GenerateExamplesFn.
-_EXAMPLES = 'examples'
-_LABELING_IMAGES = 'label_images'
 
 
 @dataclasses.dataclass
@@ -132,6 +123,7 @@ def _mostly_blank(image: np.ndarray) -> bool:
 
 def _create_example(example_id: str,
                     before_image: np.ndarray, after_image: np.ndarray,
+                    before_crop: np.ndarray, after_crop: np.ndarray,
                     scalar_features: Dict[str, List[float]]) -> Example:
   """Create Tensorflow Example from inputs.
 
@@ -139,6 +131,8 @@ def _create_example(example_id: str,
     example_id: Example id.
     before_image: Before disaster image.
     after_image: After disaster image.
+    before_crop: Small before disaster image.
+    after_crop: Small after disaster image.
     scalar_features: Dict mapping scalar feature names to values.
 
   Returns:
@@ -150,10 +144,14 @@ def _create_example(example_id: str,
   # For legacy reasons, the example id feature is named "encoded_coordinates".
   # Should change this in the future.
   utils.add_bytes_feature('encoded_coordinates', example_id.encode(), example)
-  utils.add_bytes_feature('pre_image_png',
+  utils.add_bytes_feature('pre_image_png_large',
                           tf.io.encode_png(before_image).numpy(), example)
-  utils.add_bytes_feature('post_image_png',
+  utils.add_bytes_feature('post_image_png_large',
                           tf.io.encode_png(after_image).numpy(), example)
+  utils.add_bytes_feature('pre_image_png',
+                          tf.io.encode_png(before_crop).numpy(), example)
+  utils.add_bytes_feature('post_image_png',
+                          tf.io.encode_png(after_crop).numpy(), example)
   for name, value in scalar_features.items():
     utils.add_float_list_feature(name, value, example)
   return example
@@ -192,18 +190,15 @@ class GenerateExamplesFn(beam.DoFn):
     _example_patch_size: Size in pixels of the smaller before and after image
       patches used in TF Examples. This is typically 64.
     _use_before_image: Whether to include before images in the examples.
-    _labeling_image_sample_rate: Rate at which to sample labeling images.
   """
 
   def __init__(self,
                large_patch_size: int,
                example_patch_size: int,
-               use_before_image: bool,
-               labeling_image_sample_rate: float) -> None:
+               use_before_image: bool) -> None:
     self._large_patch_size = large_patch_size
     self._example_patch_size = example_patch_size
     self._use_before_image = use_before_image
-    self._labeling_image_sample_rate = labeling_image_sample_rate
 
     self._example_count = Metrics.counter('skai', 'generated_examples_count')
     self._bad_example_count = Metrics.counter('skai', 'rejected_examples_count')
@@ -212,7 +207,7 @@ class GenerateExamplesFn(beam.DoFn):
     self._after_patch_blank_count = Metrics.counter(
         'skai', 'after_patch_blank_count')
 
-  def process(self, grouped_features) -> Iterator[beam.pvalue.TaggedOutput]:
+  def process(self, grouped_features) -> Iterator[Example]:
     """Extract patches from before and after images and output as tf Example.
 
     Args:
@@ -253,19 +248,10 @@ class GenerateExamplesFn(beam.DoFn):
       self._after_patch_blank_count.inc()
       self._bad_example_count.inc()
       return
-    example = _create_example(example_id, before_crop, after_crop,
-                              scalar_features)
+    example = _create_example(example_id, before_image, after_image,
+                              before_crop, after_crop, scalar_features)
     self._example_count.inc()
-    yield beam.pvalue.TaggedOutput(_EXAMPLES, example.SerializeToString())
-
-    if random.random() < self._labeling_image_sample_rate:
-      labeling_image = cloud_labeling.create_labeling_image(
-          PIL.Image.fromarray(before_image), PIL.Image.fromarray(after_image))
-      serialized_labeling_image = utils.serialize_image(labeling_image, 'png')
-      labeling_image_name = f'{example_id}.png'
-      yield beam.pvalue.TaggedOutput(
-          _LABELING_IMAGES,
-          (labeling_image_name, serialized_labeling_image))
+    yield example
 
 
 def _get_setup_file_path():
@@ -325,6 +311,14 @@ def _coordinates_to_scalar_features(longitude: float, latitude: float,
   }))
 
 
+def _remove_large_images(example: Example) -> Example:
+  new_example = Example()
+  new_example.CopyFrom(example)
+  del new_example.features.feature['pre_image_png_large']
+  del new_example.features.feature['post_image_png_large']
+  return new_example
+
+
 def _generate_examples(
     pipeline,
     before_image_path: str,
@@ -334,7 +328,6 @@ def _generate_examples(
     resolution: float,
     unlabeled_coordinates: List[Tuple[float, float]],
     labeled_coordinates: List[Tuple[float, float, float]],
-    labeling_image_sample_rate: float,
     gdal_env: Dict[str, str],
     stage_prefix: str) -> Tuple[beam.PCollection, beam.PCollection]:
   """Generates examples and labeling images from source images.
@@ -351,7 +344,6 @@ def _generate_examples(
       unlabeled examples for.
     labeled_coordinates: List of coordinates (longitude, latitude, label) to
       extract labeled examples for.
-    labeling_image_sample_rate: Rate at which to sample labeling images.
     gdal_env: GDAL environment configuration.
     stage_prefix: Beam stage name prefix.
 
@@ -398,17 +390,20 @@ def _generate_examples(
       coords_with_ids, gdal_env, 'after')
   input_collections.append(after_images)
 
-  results = (input_collections
-             | stage_prefix + '_merge_features' >> beam.Flatten()
-             | stage_prefix + '_group_by_example_id' >> beam.GroupByKey()
-             | stage_prefix + '_generate_examples' >> beam.ParDo(
-                 GenerateExamplesFn(large_patch_size, example_patch_size,
-                                    use_before_image,
-                                    labeling_image_sample_rate)).with_outputs(
-                                        _EXAMPLES, _LABELING_IMAGES))
-  examples = results[_EXAMPLES]
-  labeling_images = results[_LABELING_IMAGES]
-  return examples, labeling_images
+  large_examples = (
+      input_collections
+      | stage_prefix + '_merge_features' >> beam.Flatten()
+      | stage_prefix + '_group_by_example_id' >> beam.GroupByKey()
+      | stage_prefix + '_generate_examples' >> beam.ParDo(
+          GenerateExamplesFn(large_patch_size, example_patch_size,
+                             use_before_image)))
+
+  small_examples = (
+      large_examples
+      | stage_prefix + '_generate_small_example' >> beam.Map(
+          _remove_large_images))
+
+  return large_examples, small_examples
 
 
 def _parse_coords_from_csv_line(line: str) -> _Coordinate:
@@ -525,7 +520,6 @@ def generate_examples_pipeline(
     unlabeled_coordinates: List[Tuple[float, float]],
     labeled_coordinates: List[Tuple[float, float, float]],
     use_dataflow: bool,
-    num_labeling_images: int,
     gdal_env: Dict[str, str],
     dataflow_job_name: Optional[str],
     dataflow_container_image: Optional[str],
@@ -549,7 +543,6 @@ def generate_examples_pipeline(
     labeled_coordinates: List of coordinates (longitude, latitude, label) to
       extract labeled examples for.
     use_dataflow: If true, run pipeline on GCP Dataflow.
-    num_labeling_images: Number of labeling images to generate, or 0 to disable.
     gdal_env: GDAL environment configuration.
     dataflow_job_name: Name of dataflow job.
     dataflow_container_image: Container image to use when running Dataflow.
@@ -576,31 +569,35 @@ def generate_examples_pipeline(
 
   with beam.Pipeline(options=pipeline_options) as pipeline:
     if unlabeled_coordinates:
-      examples_output_prefix = (
+      small_examples_output_prefix = (
           os.path.join(output_dir, 'examples', 'unlabeled', 'unlabeled'))
-      labeling_image_sample_rate = (
-          num_labeling_images / len(unlabeled_coordinates))
+      large_examples_output_prefix = (
+          os.path.join(output_dir, 'examples', 'unlabeled-large', 'unlabeled'))
 
     elif labeled_coordinates:
-      examples_output_prefix = (
+      small_examples_output_prefix = (
           os.path.join(output_dir, 'examples', 'labeled', 'labeled'))
-      labeling_image_sample_rate = 0
+      large_examples_output_prefix = (
+          os.path.join(output_dir, 'examples', 'labeled-large', 'labeled'))
 
-    examples, labeling_images = _generate_examples(
+    large_examples, small_examples = _generate_examples(
         pipeline, before_image_path, after_image_path, large_patch_size,
         example_patch_size, resolution, unlabeled_coordinates,
-        labeled_coordinates, labeling_image_sample_rate, gdal_env,
-        'generate_examples')
+        labeled_coordinates, gdal_env, 'generate_examples')
 
     _ = (
-        examples
-        | 'write_examples' >> beam.io.tfrecordio.WriteToTFRecord(
-            examples_output_prefix,
+        small_examples
+        | 'serialize_small_examples' >> beam.Map(
+            lambda e: e.SerializeToString())
+        | 'write_small_examples' >> beam.io.tfrecordio.WriteToTFRecord(
+            small_examples_output_prefix,
             file_name_suffix='.tfrecord',
             num_shards=num_output_shards))
-
-    if num_labeling_images > 0:
-      labeling_images_dir = (
-          os.path.join(output_dir, 'examples', 'labeling_images'))
-      beam_utils.write_records_as_files(labeling_images, labeling_images_dir,
-                                        temp_dir, 'write_labeling_images')
+    _ = (
+        large_examples
+        | 'serialize_large_examples' >> beam.Map(
+            lambda e: e.SerializeToString())
+        | 'write_large_examples' >> beam.io.tfrecordio.WriteToTFRecord(
+            large_examples_output_prefix,
+            file_name_suffix='.tfrecord',
+            num_shards=num_output_shards))
