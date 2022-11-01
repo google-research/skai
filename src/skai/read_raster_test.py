@@ -55,6 +55,14 @@ class ReadRasterTest(absltest.TestCase):
     ]
     self.assertSameElements(windows, expected_windows)
 
+  def test_get_windows_out_of_bounds(self):
+    coordinates = [('a', 178.482925, -16.632893), ('b', 160, -10)]
+    windows = read_raster._get_windows(self.raster, 64, coordinates)
+    expected_windows = [
+        Window(window_id='a', column=114, row=115, width=64, height=64),
+    ]
+    self.assertSameElements(windows, expected_windows)
+
   def test_group_windows(self):
     windows = [Window('w1', 0, 0, 256, 256),
                Window('w2', 1, 1, 256, 256),
