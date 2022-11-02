@@ -102,6 +102,11 @@ class _WindowGroup:
       yield i, group_data[row_start:row_end, column_start:column_end, :]
 
 
+def _in_bounds(x: float, y: float, bounds) -> bool:
+  return (bounds.left <= x <= bounds.right and
+          bounds.bottom <= y <= bounds.top)
+
+
 def _get_windows(
     raster,
     window_size: int,
@@ -121,6 +126,8 @@ def _get_windows(
   windows = []
   for example_id, longitude, latitude in coordinates:
     x, y = transformer.transform(longitude, latitude, errcheck=True)
+    if not _in_bounds(x, y, raster.bounds):
+      continue
     row, col = raster.index(x, y)
     half_size = window_size // 2
     col_off = col - half_size
