@@ -238,6 +238,28 @@ def _resample_image(image: np.ndarray, patch_size: int) -> np.ndarray:
       image, (patch_size, patch_size), interpolation=cv2.INTER_CUBIC)
 
 
+def _coordinates_to_groups(
+    coordinates: List[Tuple[str, float, float]],
+    raster_path: str,
+    patch_size: int,
+    resolution: float,
+    gdal_env: Dict[str, str]) -> Iterable[_WindowGroup]:
+  """Converts a list of coordinates into pixel windows and then groups them.
+  """
+  with rasterio.Env(**gdal_env):
+    raster = rasterio.open(raster_path)
+    raster_res = _get_raster_resolution_in_meters(raster)
+    scale_factor = resolution / raster_res
+    window_size = int(patch_size * scale_factor)
+    windows = _get_windows(raster, window_size, coordinates)
+
+  window_groups = _group_windows(windows)
+  logging.info('Grouped %d windows into %d groups.', len(windows),
+               len(window_groups))
+  for group in window_groups:
+    yield group
+
+
 class ReadRasterWindowGroupFn(beam.DoFn):
   """A beam function that reads window groups from a raster image.
 
@@ -245,19 +267,16 @@ class ReadRasterWindowGroupFn(beam.DoFn):
     _raster_path: Path to raster.
     _raster: Reference to the raster.
     _target_patch_size: Desired size of output patches.
-    _tag: String identifier for output patches.
     _gdal_env: GDAL environment configuration.
   """
 
   def __init__(self,
                raster_path: str,
                target_patch_size: int,
-               tag: str,
                gdal_env: Dict[str, str]):
     self._raster = None
     self._raster_path = raster_path
     self._target_patch_size = target_patch_size
-    self._tag = tag
     self._gdal_env = gdal_env
 
     self._num_groups_read = Metrics.counter('skai', 'num_groups_read')
@@ -303,47 +322,35 @@ class ReadRasterWindowGroupFn(beam.DoFn):
     window_data = _convert_to_uint8(window_data)
     for i, member_data in group.extract_members(window_data):
       resampled = _resample_image(member_data, self._target_patch_size)
-      yield group.members[i].window_id, (self._tag, resampled)
+      yield (group.members[i].window_id, (self._raster_path, resampled))
 
 
 def extract_patches_from_raster(
-    pipeline,
+    coordinates: beam.PCollection,
     raster_path: str,
-    tag: str,
     patch_size: int,
     resolution: float,
-    coordinates: List[Tuple[str, float, float]],
     gdal_env: Dict[str, str],
     stage_prefix: str) -> beam.PCollection:
   """Extracts patches from a raster.
 
   Args:
-    pipeline: Beam pipeline.
+    coordinates: PCollection of a single element: a list of coordinates.
     raster_path: Path to raster.
-    tag: String identifier for the generated patches. e.g. "before" or "after".
     patch_size: Desired size of output patches.
     resolution: Desired resolution of output patches.
-    coordinates: List of patch centroids as longitude, latitude coordinates.
     gdal_env: GDAL environment variables.
     stage_prefix: Unique prefix for Beam stage names.
 
   Returns:
-    A collection whose elements are (id, tag, window data).
+    A collection whose elements are (id, (image path, window data)).
   """
-
-  with rasterio.Env(**gdal_env):
-    raster = rasterio.open(raster_path)
-    raster_res = _get_raster_resolution_in_meters(raster)
-    scale_factor = resolution / raster_res
-    window_size = int(patch_size * scale_factor)
-    windows = _get_windows(raster, window_size, coordinates)
-
-  logging.info('Grouping "%s" windows to optimize throughput. '
-               'This may take a couple of minutes.', tag)
-  window_groups = _group_windows(windows)
-  logging.info('Grouped %d windows into %d groups.', len(windows),
-               len(window_groups))
-  return (pipeline
-          | stage_prefix + '_make_window_groups' >> beam.Create(window_groups)
+  return (coordinates
+          | stage_prefix + '_make_window_groups' >> beam.FlatMap(
+              _coordinates_to_groups,
+              raster_path=raster_path,
+              patch_size=patch_size,
+              resolution=resolution,
+              gdal_env=gdal_env)
           | stage_prefix + '_read_window_groups' >> beam.ParDo(
-              ReadRasterWindowGroupFn(raster_path, patch_size, tag, gdal_env)))
+              ReadRasterWindowGroupFn(raster_path, patch_size, gdal_env)))

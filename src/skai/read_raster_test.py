@@ -80,18 +80,19 @@ class ReadRasterTest(absltest.TestCase):
           pipeline
           | beam.Create([group1, group2])
           | beam.ParDo(read_raster.ReadRasterWindowGroupFn(
-              self.test_image_path, 64, 'before', {})))
+              self.test_image_path, 64, {})))
 
+      expected_image_path = self.test_image_path
       def _check_output_patches(patches):
         assert len(patches) == 3, len(patches)
         assert patches[0][0] == 'w1'
-        assert patches[0][1][0] == 'before'
+        assert patches[0][1][0] == expected_image_path
         assert patches[0][1][1].shape == (64, 64, 3)
         assert patches[1][0] == 'w2'
-        assert patches[1][1][0] == 'before'
+        assert patches[1][1][0] == expected_image_path
         assert patches[1][1][1].shape == (64, 64, 3)
         assert patches[2][0] == 'w3'
-        assert patches[2][1][0] == 'before'
+        assert patches[2][1][0] == expected_image_path
         assert patches[2][1][1].shape == (64, 64, 3)
 
       assert_that(patches, _check_output_patches)
