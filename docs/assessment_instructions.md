@@ -61,18 +61,20 @@ The AOI should be recorded in a GIS file format, such as [GeoJSON](https://geojs
 
 ## Step 4: Generate Unlabeled Examples
 
-The next step is to extract examples of buildings in the AOI from the before and after images, and save them in SKAI's training example format. Run the following command to do that. Simultaneously, the command will also create a Cloud example labeling task 
+The next step is to extract examples of buildings in the AOI from the before and
+after images, and save them in SKAI's training example format. Run the following command to do that. Simultaneously, the command will also create a Cloud example labeling task
 
 
 ```
 $ python generate_examples_main.py \
   --cloud_project=$PROJECT \
   --cloud_region=$LOCATION \
+  --dataset_name=<dataset name> \
   --before_image_path=gs://$BUCKET/images/before.tif \
   --after_image_path=gs://$BUCKET/images/after.tif \
   --aoi_path=<aoi-path> \
   --output_dir=gs://$BUCKET/examples/test_run \
-  --buildings_method=open_street_map \
+  --buildings_method=<building method> \
   --use_dataflow \
   --worker_service_account=$SERVICE_ACCOUNT \
   --create_cloud_labeling_task \
@@ -82,10 +84,41 @@ $ python generate_examples_main.py \
 
 `<aoi-path>` is the path to the AOI file you created in the previous section.
 
-After running this command, you should be able to see a new Dataflow job in the [Cloud console](https://console.cloud.google.com/dataflow/jobs). Clicking on the job will show a real-time monitoring page of the job's progress.
+`<dataset name>` is an arbitrary name that the dataflow job will take on.
+It should only contain alphanumeric characters and hyphen ("-").
 
-When the Dataflow job finishes, it should have generated a set of sharded TFRecord files containing unlabeled examples of buildings in the output directory you specified.
+`<building method>` specifies how building centroids will be fetched.
+This is discussed in more detail in the Building Detection subsection below.
 
+After running this command, you should be able to see a new Dataflow job in the
+[Cloud console](https://console.cloud.google.com/dataflow/jobs). Clicking on the
+job will show a real-time monitoring page of the job's progress.
+
+When the Dataflow job finishes, it should have generated a set of sharded
+TFRecord files containing unlabeled examples of buildings in the output
+directory you specified.
+
+### Building Detection
+
+SKAI can ingest building centroids from the following open source databases:
+
+* [Open Buildings](https://sites.research.google/open-buildings/)
+* [OpenStreetMap](https://www.openstreetmap.org/)
+
+The accuracy and coverage of these two databases are very different, so please
+research which database is best for the region of the world most relevant to
+your assessment.
+
+Alternatively, you can provide a CSV file containing the longitude, latitude
+coordinates of the buildings in the area of interest.
+
+The example generation pipeline controls the building detection method using
+two flags. The `--buildings_method` flag specifies where to look for buildings.
+It can be set to `open_buildings`, `open_street_map`, or `file`, each
+corresponding to one of the sources described above.
+
+If `--buildings_method` is set to `file`, then the flag `--buildings_file` must
+be set to the path of the CSV file that contains the building centroids.
 
 ## Step 5: Create example labeling task
 
@@ -162,7 +195,7 @@ This will generate two TFRecord files, one containing examples for training and 
 $ gcloud ai tensorboards create –display-name <Tensorboard name>
 
 Using endpoint [https://us-central1-aiplatform.googleapis.com/]
-Waiting for operation [999391182737489573628]...done.      
+Waiting for operation [999391182737489573628]...done.
 Created Vertex AI Tensorboard: projects/123456789012/locations/us-central1/tensorboards/874419473951.
 ```
 
@@ -222,7 +255,7 @@ Point your web browser to the [Vertex AI custom training jobs console](https://c
 
 ## Step 9: Generate damage assessment file
 
-Run inference to get the model’s predictions on all buildings in the area of interest. 
+Run inference to get the model’s predictions on all buildings in the area of interest.
 
 
 ```
