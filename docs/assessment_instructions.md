@@ -73,14 +73,11 @@ $ python generate_examples_main.py \
   --before_image_path=gs://$BUCKET/images/before.tif \
   --after_image_path=gs://$BUCKET/images/after.tif \
   --aoi_path=<aoi-path> \
-  --output_dir=gs://$BUCKET/examples/test_run \
+  --output_dir=gs://$BUCKET/test_run \
   --buildings_method=<building method> \
   --use_dataflow \
-  --worker_service_account=$SERVICE_ACCOUNT \
-  --create_cloud_labeling_task \
-  --cloud_labeler_emails=<labeler-emails>
+  --worker_service_account=$SERVICE_ACCOUNT
 ```
-
 
 `<aoi-path>` is the path to the AOI file you created in the previous section.
 
@@ -129,24 +126,31 @@ To train a SKAI model, a small number of examples generated in the previous step
 $ python create_cloud_labeling_task.py \
   --cloud_project=$PROJECT \
   --cloud_location=$LOCATION \
-  --import_file=<import file> \
   --dataset_name=<dataset name> \
+  --examples_pattern=<examples pattern> \
+  --images_dir=<images dir> \
   --cloud_labeler_emails=<labeler emails>
 ```
 
-
-
-```
-<import file> is a file generated in the previous step that contains the paths of image files to use in the labeling task. By default, it should be gs://$BUCKET/examples/test_run/examples/labeling_images/import_file.csv.
-```
-
-
-`<labeler-emails>` is a comma-delimited list of the emails of people who will be labeling example images. They must be Google email accounts, such as GMail or GSuite email accounts.
-
 `<dataset name>` is a name you assign to the dataset to identify it.
 
-An example labeling task will also be created in Vertex AI, and instructions for how to label examples will be sent to all email accounts provided in the `--cloud_labeler_emails` flag.
+`<examples pattern>` is the file pattern matching the TFRecord containing
+unlabeled examples generated in the previous step. It should look something like
+`gs://$BUCKET/test_run/examples/unlabeled/unlabeled-*.tfrecord`.
 
+`<images dir>` is a temporary directory to write labeling images to. This can be
+set to any Google Cloud Storage path. For example,
+`gs://$BUCKET/test_run/examples/labeling_images`. After the command is finished,
+you can see the images generated for labeling in this directory.
+
+`<labeler-emails>` is a comma-delimited list of the emails of people who will be labeling example images. They must be Google email accounts, such as GMail or
+GSuite email accounts.
+
+An example labeling task will also be created in Vertex AI, and instructions for
+how to label examples will be sent to all email accounts provided in the `--cloud_labeler_emails` flag.
+
+**Note:** It takes a while for VertexAI to send the out email containing the
+link to the labeling interface. Please be patient.
 
 ## Step 6: Label examples
 
