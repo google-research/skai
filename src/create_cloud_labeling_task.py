@@ -55,6 +55,12 @@ flags.DEFINE_string('images_dir', '', 'Directory to write images to.')
 flags.DEFINE_integer('max_images', 1000, 'Maximum number of images to label.')
 flags.DEFINE_bool('randomize', True, 'If true, randomly sample images.')
 flags.DEFINE_string('dataset_name', None, 'Dataset name')
+flags.DEFINE_list(
+    'label_classes',
+    ['undamaged', 'possibly_damaged', 'damaged_destroyed', 'bad_example'],
+    'Label classes.')
+flags.DEFINE_bool('use_google_managed_labelers', False,
+                  'If true, assign the task to Google managed labeling pool.')
 flags.DEFINE_string(
     'cloud_labeler_pool', None, 'Labeler pool. Format is '
     'projects/<project>/locations/us-central1/specialistPools/<id>.')
@@ -64,14 +70,6 @@ flags.DEFINE_list(
 flags.DEFINE_string('labeler_instructions_uri',
                     'gs://skai-public/labeling_instructions.pdf',
                     'URI for instructions.')
-
-# pylint: disable=line-too-long
-flags.DEFINE_string(
-    'label_inputs_schema_uri',
-    'gs://google-cloud-aiplatform/schema/datalabelingjob/inputs/'
-    'image_classification_1.0.0.yaml',
-    'Label inputs schema URI. See https://googleapis.dev/python/aiplatform/latest/aiplatform_v1/types.html#google.cloud.aiplatform_v1.types.DataLabelingJob.inputs_schema_uri.')
-# pylint: enable=line-too-long
 
 
 def _get_labeling_dataset_region(project_region: str) -> str:
@@ -102,7 +100,9 @@ def main(unused_argv):
   logging.info('Wrote %d labeling images.', num_images)
   logging.info('Wrote import file %s.', import_file_path)
 
-  if FLAGS.cloud_labeler_pool is not None:
+  if FLAGS.use_google_managed_labelers:
+    labeler_pool = None
+  elif FLAGS.cloud_labeler_pool is not None:
     labeler_pool = FLAGS.cloud_labeler_pool
   else:
     # Create a new labeler pool.
@@ -113,16 +113,22 @@ def main(unused_argv):
     labeler_pool = cloud_labeling.create_specialist_pool(
         FLAGS.cloud_project, FLAGS.cloud_location, pool_display_name,
         FLAGS.cloud_labeler_emails[:1], FLAGS.cloud_labeler_emails)
-    logging.log(logging.DEBUG, 'Created labeler pool: %s', labeler_pool)
+    logging.info('Created labeler pool: %s', labeler_pool)
 
   cloud_labeling.create_cloud_labeling_job(
       FLAGS.cloud_project,
       _get_labeling_dataset_region(FLAGS.cloud_location),
       timestamped_dataset,
-      labeler_pool,
+      FLAGS.label_classes,
       import_file_path,
       FLAGS.labeler_instructions_uri,
-      FLAGS.label_inputs_schema_uri)
+      labeler_pool)
+
+  if labeler_pool:
+    pool_id = labeler_pool.split('/')[-1]
+    pool_location = labeler_pool.split('/')[-3].replace('-', '_')
+    labeling_url = f'https://datacompute.google.com/w/cloudml_data_specialists_{pool_location}_{pool_id}'
+    logging.info('Labeling URL: %s', labeling_url)
 
 
 if __name__ == '__main__':

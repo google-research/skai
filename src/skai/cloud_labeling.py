@@ -18,7 +18,7 @@ import json
 import os
 import random
 import time
-from typing import Dict, Iterable, List, Tuple
+from typing import Dict, Iterable, List, Optional, Tuple
 
 from absl import logging
 
@@ -43,16 +43,12 @@ CAPTION_MARGIN = 32
 # Size of the reticule that identifies the building being labeled.
 RETICULE_HALF_LEN = 32
 
-# Class names for labeling task.
-LABEL_CLASSES = [
-    'undamaged',
-    'possibly_damaged',
-    'damaged_destroyed',
-    'bad_example'
-]
-
 # Name of generated import file.
 IMPORT_FILE_NAME = 'import_file.jsonl'
+
+# Schema for image classification tasks.
+LABEL_SCHEMA_URI = ('gs://google-cloud-aiplatform/schema/datalabelingjob/'
+                    'inputs/image_classification_1.0.0.yaml')
 
 Example = tf.train.Example
 Image = PIL.Image.Image
@@ -196,21 +192,22 @@ def create_cloud_labeling_job(
     project: str,
     location: str,
     dataset_name: str,
-    specialist_pool: str,
+    label_classes: List[str],
     import_file_uri: str,
     instruction_uri: str,
-    label_inputs_schema_uri: str) -> None:
+    specialist_pool: Optional[str]) -> None:
   """Creates Cloud dataset and labeling job.
 
   Args:
     project: Cloud project.
     location: Cloud location, e.g. us-central1.
     dataset_name: Name for created dataset and labeling job.
-    specialist_pool: Name of labeler pool to use. Has the form
-      projects/<project_id>/locations/us-central1/specialistPools/<pool_id>.
+    label_classes: Class names used in labeling task.
     import_file_uri: URI to import file for all example images.
     instruction_uri: URI to labeling instructions PDF.
-    label_inputs_schema_uri: Label inputs schema URI.
+    specialist_pool: Name of labeler pool to use. Has the form
+      projects/<project_id>/locations/us-central1/specialistPools/<pool_id>. If
+      None, the Google managed pool will be used.
   """
   aiplatform.init(project=project, location=location)
   import_schema_uri = (
@@ -238,7 +235,7 @@ def create_cloud_labeling_job(
   # Create labeling job for newly created dataset.
   client_options = {'api_endpoint': _get_api_endpoint(location)}
   client = aiplatform.gapic.JobServiceClient(client_options=client_options)
-  inputs_dict = {'annotation_specs': LABEL_CLASSES}
+  inputs_dict = {'annotation_specs': label_classes}
   inputs = json_format.ParseDict(inputs_dict, struct_pb2.Value())
 
   data_labeling_job_config = {
@@ -246,14 +243,21 @@ def create_cloud_labeling_job(
       'datasets': [dataset.resource_name],
       'labeler_count': 1,
       'instruction_uri': instruction_uri,
-      'inputs_schema_uri': label_inputs_schema_uri,
-      'inputs': inputs,
-      'annotation_labels': {
-          'aiplatform.googleapis.com/annotation_set_name':
-              'data_labeling_job_specialist_pool'
-      },
-      'specialist_pools': [specialist_pool],
+      'inputs_schema_uri': LABEL_SCHEMA_URI,
+      'inputs': inputs
   }
+
+  if specialist_pool:
+    data_labeling_job_config['annotation_labels'] = {
+        'aiplatform.googleapis.com/annotation_set_name':
+            'data_labeling_job_specialist_pool'
+    }
+    data_labeling_job_config['specialist_pools'] = [specialist_pool]
+  else:
+    data_labeling_job_config['annotation_labels'] = {
+        'aiplatform.googleapis.com/annotation_set_name':
+            'data_labeling_job_google_managed_pool'
+    }
 
   logging.log(logging.DEBUG, 'Data labeling job config: "%s"',
               repr(data_labeling_job_config))
