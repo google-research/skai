@@ -47,7 +47,6 @@ from absl import flags
 from absl import logging
 import shapely.geometry
 from skai import buildings
-from skai import cloud_labeling
 from skai import earth_engine
 from skai import generate_examples
 from skai import open_street_map
@@ -129,24 +128,6 @@ flags.DEFINE_list('label_to_class', ['undamaged=0', 'damaged=1'],
 flags.DEFINE_integer('num_keep_labeled_examples', 1000, 'Number of labeled '
                      'examples to keep (keeps all if None or 0).')
 
-# Flags controlling the creation of a Cloud labeling task for this dataset.
-flags.DEFINE_bool('create_cloud_labeling_task', False,
-                  'If true, create Vertex AI labeling task to label random '
-                  'subset of examples.')
-flags.DEFINE_string('cloud_labeler_pool', None, 'Existing labeler pool.')
-flags.DEFINE_list('cloud_labeler_emails', None,
-                  'Emails of workers of new labeler pool. '
-                  'First email will become the manager.')
-flags.DEFINE_string('labeler_instructions_uri',
-                    'gs://skai-public/labeling_instructions.pdf',
-                    'URI for instructions.')
-# pylint: disable=line-too-long
-flags.DEFINE_string(
-    'label_inputs_schema_uri',
-    'gs://google-cloud-aiplatform/schema/datalabelingjob/inputs/'
-    'image_classification_1.0.0.yaml',
-    'Label inputs schema URI. See https://googleapis.dev/python/aiplatform/latest/aiplatform_v1/types.html#google.cloud.aiplatform_v1.types.DataLabelingJob.inputs_schema_uri.')
-# pylint: enable=line-too-long
 
 Polygon = shapely.geometry.polygon.Polygon
 
@@ -260,30 +241,6 @@ def main(args):
       FLAGS.cloud_region,
       FLAGS.worker_service_account,
       FLAGS.max_dataflow_workers)
-
-  if FLAGS.create_cloud_labeling_task:
-    if FLAGS.cloud_labeler_pool is not None:
-      labeler_pool = FLAGS.cloud_labeler_pool
-    else:
-      if not FLAGS.cloud_labeler_emails:
-        raise ValueError('Must provide at least one labeler email.')
-
-      pool_display_name = f'{timestamped_dataset}_pool'
-      labeler_pool = cloud_labeling.create_specialist_pool(
-          FLAGS.cloud_project, FLAGS.cloud_region, pool_display_name,
-          FLAGS.cloud_labeler_emails[:1], FLAGS.cloud_labeler_emails)
-      logging.log(logging.DEBUG, 'Created labeler pool: %s', labeler_pool)
-
-    import_file_uri = os.path.join(
-        FLAGS.output_dir, 'examples', 'labeling_images', 'import_file.csv')
-    cloud_labeling.create_cloud_labeling_job(
-        FLAGS.cloud_project,
-        _get_labeling_dataset_region(FLAGS.cloud_region),
-        timestamped_dataset,
-        labeler_pool,
-        import_file_uri,
-        FLAGS.labeler_instructions_uri,
-        FLAGS.label_inputs_schema_uri)
 
 
 if __name__ == '__main__':
