@@ -16,8 +16,10 @@
 
 import base64
 import io
+import os
+import pickle
 import struct
-from typing import Iterable, List, Tuple
+from typing import Any, Iterable, List, Tuple
 
 from absl import flags
 import PIL.Image
@@ -116,3 +118,16 @@ def encode_coordinates(longitude: float, latitude: float) -> str:
 def decode_coordinates(encoded_coords: str) -> Tuple[float, float]:
   buffer = base64.b16decode(encoded_coords.encode('ascii'))
   return struct.unpack('<ff', buffer)
+
+
+def write_coordinates_file(coordinates: List[Any], path: str) -> None:
+  output_dir = os.path.dirname(path)
+  if not tf.io.gfile.exists(output_dir):
+    tf.io.gfile.makedirs(output_dir)
+  with tf.io.gfile.GFile(path, 'wb') as f:
+    pickle.dump(coordinates, f)
+
+
+def read_coordinates_file(path: str) -> List[Any]:
+  with tf.io.gfile.GFile(path, 'rb') as f:
+    return pickle.load(f)

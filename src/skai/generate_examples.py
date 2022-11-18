@@ -46,31 +46,6 @@ _MAX_DISPLACEMENT = 30
 
 
 @dataclasses.dataclass
-class _Coordinate:
-  """Class that encodes a geographic position and a label.
-
-  Attributes:
-    longitude: Longitude.
-    latitude: Latitude.
-    label: Label for for this coordinate.
-  """
-  longitude: float
-  latitude: float
-  label: float
-
-  def __post_init__(self):
-    # Check if the longitude and latitude are valid
-    if not -180 <= self.longitude <= 180:
-      raise ValueError(
-          f'Invalid longitude, got {self.longitude}'
-      )
-    if not -90 <= self.latitude <= 90:
-      raise ValueError(
-          f'Invalid latitude, got {self.latitude}'
-      )
-
-
-@dataclasses.dataclass
 class _FeatureUnion:
   """Class that holds all possible feature types for an example.
 
@@ -285,12 +260,11 @@ class GenerateExamplesFn(beam.DoFn):
           (self._large_patch_size, self._large_patch_size, 3), dtype=np.uint8)
       before_images = [('', before_image)]
 
-    for before, after in itertools.product(before_images, after_images):
-      before_image_id, before_image = before
-      after_image_id, after_image = after
-      example = self._create_example(example_id, before_image_id, before_image,
-                                     after_image_id, after_image,
-                                     scalar_features)
+    for i, j in itertools.product(range(len(before_images)),
+                                  range(len(after_images))):
+      example = self._create_example(example_id, before_images[i][0],
+                                     before_images[i][1], after_images[j][0],
+                                     after_images[j][1], scalar_features)
       if example:
         self._example_count.inc()
         yield example
@@ -344,14 +318,15 @@ def _get_local_pipeline_options() -> PipelineOptions:
   })
 
 
-def _coordinates_to_scalar_features(longitude: float, latitude: float,
-                                    label: float):
-  example_id = utils.encode_coordinates(longitude, latitude)
-  feature = _FeatureUnion(scalar_features={
-      'coordinates': [longitude, latitude],
-      'label': [label]
-  })
-  return (example_id, feature)
+def _coordinates_to_scalar_features(coordinates_path: str):
+  coordinates = utils.read_coordinates_file(coordinates_path)
+  for longitude, latitude, label in coordinates:
+    encoded_coords = utils.encode_coordinates(longitude, latitude)
+    feature = _FeatureUnion(scalar_features={
+        'coordinates': [longitude, latitude],
+        'label': [label]
+    })
+    yield (encoded_coords, feature)
 
 
 def _remove_large_images(example: Example) -> Example:
@@ -366,11 +341,10 @@ def _generate_examples(
     pipeline,
     before_image_paths: List[str],
     after_image_paths: List[str],
+    coordinates_path: str,
     large_patch_size: int,
     example_patch_size: int,
     resolution: float,
-    unlabeled_coordinates: List[Tuple[float, float]],
-    labeled_coordinates: List[Tuple[float, float, float]],
     gdal_env: Dict[str, str],
     stage_prefix: str) -> Tuple[beam.PCollection, beam.PCollection]:
   """Generates examples and labeling images from source images.
@@ -379,46 +353,25 @@ def _generate_examples(
     pipeline: Beam pipeline.
     before_image_paths: List of before image paths.
     after_image_paths: List of after image paths.
+    coordinates_path: Path to file containing building coordinates.
     large_patch_size: Size in pixels of before and after image patches for
       labeling and alignment. Typically 256.
     example_patch_size: Size of patches to extract into examples. Typically 64.
     resolution: Desired resolution of image patches.
-    unlabeled_coordinates: List of coordinates (longitude, latitude) to extract
-      unlabeled examples for.
-    labeled_coordinates: List of coordinates (longitude, latitude, label) to
-      extract labeled examples for.
     gdal_env: GDAL environment configuration.
     stage_prefix: Beam stage name prefix.
 
   Returns:
     PCollection of examples and PCollection of labeling images.
   """
-
-  if unlabeled_coordinates:
-    coords_with_ids = [
-        (utils.encode_coordinates(x, y), x, y) for x, y in unlabeled_coordinates
-    ]
-    scalar_features = [
-        _coordinates_to_scalar_features(x, y, -1.0)
-        for x, y in unlabeled_coordinates
-    ]
-  elif labeled_coordinates:
-    coords_with_ids = [(utils.encode_coordinates(x, y), x, y)
-                       for x, y, _ in labeled_coordinates]
-    scalar_features = [
-        _coordinates_to_scalar_features(x, y, label)
-        for x, y, label in labeled_coordinates
-    ]
-
-  scalar_features_collection = (
+  scalar_features = (
       pipeline
-      | stage_prefix + '_make_scalar_features' >> beam.Create(scalar_features))
+      | stage_prefix + 'enconde_coordinates_path' >> beam.Create(
+          [coordinates_path])
+      | stage_prefix + 'create_scalar_features' >> beam.FlatMap(
+          _coordinates_to_scalar_features))
 
-  coordinates_collection = (
-      pipeline
-      | stage_prefix + '_make_coordinates' >> beam.Create([coords_with_ids]))
-
-  input_collections = [scalar_features_collection]
+  input_collections = [scalar_features]
   after_image_size = large_patch_size
   use_before_image = bool(before_image_paths)
   if use_before_image:
@@ -427,9 +380,9 @@ def _generate_examples(
     # alignment algorithm at most +/-_MAX_DISPLACEMENT pixels of movement in
     # either dimension to find the best alignment.
     after_image_size += 2 * _MAX_DISPLACEMENT
-    for i, path in enumerate(before_image_paths):
+    for i, image_path in enumerate(before_image_paths):
       patches = read_raster.extract_patches_from_raster(
-          coordinates_collection, path, large_patch_size, resolution,
+          pipeline, coordinates_path, image_path, large_patch_size, resolution,
           gdal_env, f'before{i:02d}')
       features = (
           patches
@@ -437,11 +390,10 @@ def _generate_examples(
               lambda key, value: (key, _FeatureUnion(before_image=value))))
       input_collections.append(features)
 
-  for i, path in enumerate(after_image_paths):
-    patches = read_raster.extract_patches_from_raster(coordinates_collection,
-                                                      path, after_image_size,
-                                                      resolution, gdal_env,
-                                                      f'after{i:02d}')
+  for i, image_path in enumerate(after_image_paths):
+    patches = read_raster.extract_patches_from_raster(
+        pipeline, coordinates_path, image_path, after_image_size, resolution,
+        gdal_env, f'after{i:02d}')
     features = (
         patches
         | stage_prefix + f'_after{i:02d}_to_feature' >> beam.MapTuple(
@@ -462,11 +414,6 @@ def _generate_examples(
           _remove_large_images))
 
   return large_examples, small_examples
-
-
-def _parse_coords_from_csv_line(line: str) -> _Coordinate:
-  x, y = [float(w.strip()) for w in line.split(',')]
-  return _Coordinate(x, y, -1.0)
 
 
 def read_labels_file(
@@ -625,23 +572,28 @@ def generate_examples_pipeline(
   else:
     pipeline_options = _get_local_pipeline_options()
 
+  coordinates_path = os.path.join(temp_dir, 'coordinates')
+  if unlabeled_coordinates:
+    small_examples_output_prefix = (
+        os.path.join(output_dir, 'examples', 'unlabeled', 'unlabeled'))
+    large_examples_output_prefix = (
+        os.path.join(output_dir, 'examples', 'unlabeled-large', 'unlabeled'))
+    labeled_coordinates = [(longitude, latitude, -1.0)
+                           for longitude, latitude in unlabeled_coordinates]
+    utils.write_coordinates_file(labeled_coordinates, coordinates_path)
+
+  elif labeled_coordinates:
+    small_examples_output_prefix = (
+        os.path.join(output_dir, 'examples', 'labeled', 'labeled'))
+    large_examples_output_prefix = (
+        os.path.join(output_dir, 'examples', 'labeled-large', 'labeled'))
+    utils.write_coordinates_file(labeled_coordinates, coordinates_path)
+
   with beam.Pipeline(options=pipeline_options) as pipeline:
-    if unlabeled_coordinates:
-      small_examples_output_prefix = (
-          os.path.join(output_dir, 'examples', 'unlabeled', 'unlabeled'))
-      large_examples_output_prefix = (
-          os.path.join(output_dir, 'examples', 'unlabeled-large', 'unlabeled'))
-
-    elif labeled_coordinates:
-      small_examples_output_prefix = (
-          os.path.join(output_dir, 'examples', 'labeled', 'labeled'))
-      large_examples_output_prefix = (
-          os.path.join(output_dir, 'examples', 'labeled-large', 'labeled'))
-
     large_examples, small_examples = _generate_examples(
-        pipeline, before_image_paths, after_image_paths, large_patch_size,
-        example_patch_size, resolution, unlabeled_coordinates,
-        labeled_coordinates, gdal_env, 'generate_examples')
+        pipeline, before_image_paths, after_image_paths, coordinates_path,
+        large_patch_size, example_patch_size, resolution, gdal_env,
+        'generate_examples')
 
     _ = (
         small_examples
