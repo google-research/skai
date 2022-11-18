@@ -14,6 +14,7 @@
 
 """Functions for performing data labeling in GCP Vertex AI."""
 
+import collections
 import json
 import os
 import random
@@ -375,6 +376,9 @@ def _split_examples(
 ) -> Tuple[List[Example], List[Example]]:
   """Splits a list of examples into training and test sets.
 
+  Examples with the same encoded coordinates will always end up in the same
+  split to prevent leaking information between training and test sets.
+
   Args:
     examples: Input examples.
     test_fraction: Fraction of examples to use for testing.
@@ -382,10 +386,22 @@ def _split_examples(
   Returns:
     Tuple of (training examples, test examples).
   """
-  shuffled = examples[:]
-  random.shuffle(shuffled)
+  coordinates_to_examples = collections.defaultdict(list)
+  for example in examples:
+    c = example.features.feature['encoded_coordinates'].bytes_list.value[0]
+    coordinates_to_examples[c].append(example)
+
+  shuffled = random.sample(coordinates_to_examples.keys(),
+                           len(coordinates_to_examples))
   num_test = int(len(shuffled) * test_fraction)
-  return shuffled[num_test:], shuffled[:num_test]
+  test_examples = []
+  for coordinate in shuffled[:num_test]:
+    test_examples.extend(coordinates_to_examples[coordinate])
+
+  train_examples = []
+  for coordinate in shuffled[num_test:]:
+    train_examples.extend(coordinates_to_examples[coordinate])
+  return train_examples, test_examples
 
 
 def _merge_examples_and_labels(examples_pattern: str,
