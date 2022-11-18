@@ -57,7 +57,7 @@ flags.DEFINE_bool('randomize', True, 'If true, randomly sample images.')
 flags.DEFINE_string('dataset_name', None, 'Dataset name')
 flags.DEFINE_list(
     'label_classes',
-    ['undamaged', 'possibly_damaged', 'damaged_destroyed', 'bad_example'],
+    ['no_damage', 'minor_damage', 'major_damage', 'destroyed', 'bad_example'],
     'Label classes.')
 flags.DEFINE_bool('use_google_managed_labelers', False,
                   'If true, assign the task to Google managed labeling pool.')
@@ -68,7 +68,7 @@ flags.DEFINE_list(
     'cloud_labeler_emails', None, 'Emails of workers of new labeler pool. '
     'First email will become the manager.')
 flags.DEFINE_string('labeler_instructions_uri',
-                    'gs://skai-public/labeling_instructions.pdf',
+                    'gs://skai-public/labeling_instructions_v2.pdf',
                     'URI for instructions.')
 
 
