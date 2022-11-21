@@ -52,6 +52,7 @@ flags.DEFINE_string('cloud_project', 'disaster-assessment', 'GCP project name.')
 flags.DEFINE_string('cloud_location', 'us-central1', 'Project location.')
 flags.DEFINE_string('examples_pattern', '', 'Pattern matching TFRecords.')
 flags.DEFINE_string('images_dir', '', 'Directory to write images to.')
+flags.DEFINE_string('import_file_path', None, 'Import file path.')
 flags.DEFINE_integer('max_images', 1000, 'Maximum number of images to label.')
 flags.DEFINE_bool('randomize', True, 'If true, randomly sample images.')
 flags.DEFINE_string('dataset_name', None, 'Dataset name')
@@ -95,10 +96,13 @@ def main(unused_argv):
   timestamp = time.strftime('%Y%m%d_%H%M%S')
   timestamped_dataset = f'{FLAGS.dataset_name}_{timestamp}'
 
-  num_images, import_file_path = cloud_labeling.create_labeling_images(
-      FLAGS.examples_pattern, FLAGS.max_images, FLAGS.images_dir)
-  logging.info('Wrote %d labeling images.', num_images)
-  logging.info('Wrote import file %s.', import_file_path)
+  if FLAGS.import_file_path:
+    import_file_path = FLAGS.import_file_path
+  else:
+    num_images, import_file_path = cloud_labeling.create_labeling_images(
+        FLAGS.examples_pattern, FLAGS.max_images, FLAGS.images_dir)
+    logging.info('Wrote %d labeling images.', num_images)
+    logging.info('Wrote import file %s.', import_file_path)
 
   if FLAGS.use_google_managed_labelers:
     labeler_pool = None
