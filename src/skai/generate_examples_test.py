@@ -44,6 +44,8 @@ def _unordered_all_close(list1: List[Any], list2: List[Any]) -> bool:
 
 
 def _check_examples(
+    before_image_id: str,
+    after_image_id: str,
     small_patch_size: int,
     large_patch_size: int,
     expected_coordinates: List[Tuple[float, float, float]],
@@ -52,6 +54,8 @@ def _check_examples(
   """Validates examples generated from beam pipeline.
 
   Args:
+    before_image_id: Expected before image id.
+    after_image_id: Expected after image id.
     small_patch_size: The expected size of small patches.
     large_patch_size: The expected size of large patches.
     expected_coordinates: List of coordinates that examples should have.
@@ -71,8 +75,8 @@ def _check_examples(
       feature_names = set(example.features.feature.keys())
       # TODO(jzxu): Use constants for these feature name strings.
       expected_feature_names = [
-          'pre_image_png', 'post_image_png', 'coordinates',
-          'encoded_coordinates', 'label'
+          'pre_image_png', 'pre_image_id', 'post_image_png', 'post_image_id',
+          'coordinates', 'encoded_coordinates', 'label'
       ]
       if expect_large_patch:
         expected_feature_names.extend(
@@ -80,6 +84,13 @@ def _check_examples(
       assert feature_names == set(
           expected_feature_names
       ), f'Feature set does not match. Got: {" ".join(feature_names)}'
+
+      actual_before_id = example.features.feature[
+          'pre_image_id'].bytes_list.value[0].decode()
+      assert actual_before_id == before_image_id, actual_before_id
+      actual_after_id = example.features.feature[
+          'post_image_id'].bytes_list.value[0].decode()
+      assert actual_after_id == after_image_id, actual_after_id
 
       longitude, latitude = (
           example.features.feature['coordinates'].float_list.value)
@@ -144,20 +155,20 @@ class GenerateExamplesTest(absltest.TestCase):
 
     with test_pipeline.TestPipeline() as pipeline:
       large_examples, small_examples = generate_examples._generate_examples(
-          pipeline, self.test_image_path, self.test_image_path, 62, 32, 0.5,
+          pipeline, [self.test_image_path], [self.test_image_path], 62, 32, 0.5,
           unlabeled_coordinates, [], {}, 'unlabeled')
 
       # Example at second input coordinate should be dropped because its patch
       # falls mostly outside the before and after image bounds.
       assert_that(
           large_examples,
-          _check_examples(32, 62, [(178.482925, -16.632893, -1.0)], False,
-                          True),
+          _check_examples(self.test_image_path, self.test_image_path, 32, 62,
+                          [(178.482925, -16.632893, -1.0)], False, True),
           label='assert_large_examples')
       assert_that(
           small_examples,
-          _check_examples(32, 62, [(178.482925, -16.632893, -1.0)], False,
-                          False),
+          _check_examples(self.test_image_path, self.test_image_path, 32, 62,
+                          [(178.482925, -16.632893, -1.0)], False, False),
           label='assert_small_examples')
 
   def testGenerateExamplesFnLabeled(self):
@@ -168,20 +179,21 @@ class GenerateExamplesTest(absltest.TestCase):
 
     with test_pipeline.TestPipeline() as pipeline:
       large_examples, small_examples = generate_examples._generate_examples(
-          pipeline, self.test_image_path, self.test_image_path, 62, 32, 0.5,
+          pipeline, [self.test_image_path], [self.test_image_path], 62, 32, 0.5,
           [], labeled_coordinates, {}, 'labeled')
 
       assert_that(
           large_examples,
-          _check_examples(32, 62, [(178.482925, -16.632893, 0.0),
-                                   (178.482924, -16.632894, 1.0)], False, True),
+          _check_examples(self.test_image_path, self.test_image_path, 32, 62,
+                          [(178.482925, -16.632893, 0.0),
+                           (178.482924, -16.632894, 1.0)], False, True),
           label='assert_large_examples')
 
       assert_that(
           small_examples,
-          _check_examples(32, 62, [(178.482925, -16.632893, 0.0),
-                                   (178.482924, -16.632894, 1.0)], False,
-                          False),
+          _check_examples(self.test_image_path, self.test_image_path, 32, 62,
+                          [(178.482925, -16.632893, 0.0),
+                           (178.482924, -16.632894, 1.0)], False, False),
           label='assert_small_examples')
 
   def testGenerateExamplesFnNoBefore(self):
@@ -191,28 +203,29 @@ class GenerateExamplesTest(absltest.TestCase):
 
     with test_pipeline.TestPipeline() as pipeline:
       large_examples, small_examples = generate_examples._generate_examples(
-          pipeline, '', self.test_image_path, 62, 32, 0.5, coordinates, [],
+          pipeline, [], [self.test_image_path], 62, 32, 0.5, coordinates, [],
           {}, 'unlabeled')
 
       # Example at second input coordinate should be dropped because its patch
       # falls mostly outside the before and after image bounds.
       assert_that(
           large_examples,
-          _check_examples(32, 62, [(178.482925, -16.632893, -1.0)], True, True),
+          _check_examples('', self.test_image_path, 32, 62,
+                          [(178.482925, -16.632893, -1.0)], True, True),
           label='assert_large_examples')
 
       assert_that(
           small_examples,
-          _check_examples(32, 62, [(178.482925, -16.632893, -1.0)], True,
-                          False),
+          _check_examples('', self.test_image_path, 32, 62,
+                          [(178.482925, -16.632893, -1.0)], True, False),
           label='assert_small_examples')
 
   def testGenerateExamplesPipeline(self):
     output_dir = tempfile.mkdtemp(dir=absltest.TEST_TMPDIR.value)
     coordinates = [(178.482925, -16.632893), (178.482283, -16.632279)]
     generate_examples.generate_examples_pipeline(
-        before_image_path=self.test_image_path,
-        after_image_path=self.test_image_path,
+        before_image_paths=[self.test_image_path],
+        after_image_paths=[self.test_image_path],
         large_patch_size=32,
         example_patch_size=32,
         resolution=0.5,

@@ -14,10 +14,11 @@
 """Pipeline for generating tensorflow examples from satellite images."""
 
 import dataclasses
+import itertools
 import logging
 import os
 import pathlib
-from typing import Dict, Iterator, List, Optional, Tuple
+from typing import Any, Dict, Iterable, Iterator, List, Optional, Tuple
 import apache_beam as beam
 import cv2
 import geopandas as gpd
@@ -67,6 +68,24 @@ class _Coordinate:
       raise ValueError(
           f'Invalid latitude, got {self.latitude}'
       )
+
+
+@dataclasses.dataclass
+class _FeatureUnion:
+  """Class that holds all possible feature types for an example.
+
+  Objects of this class should have exactly one non-null attribute. Currently
+  it can either be a dictionary of scalar features, or before or after images.
+
+  Attributes:
+    scalar_features: Dictionary mapping string feature names to lists of scalar
+        values (floats, ints, or strings).
+    before_image: Before image. Should be a tuple of (image_path, image array).
+    after_image: After image. Should be a tuple of (image_path, image array).
+  """
+  scalar_features: Dict[str, Any] = None
+  before_image: Tuple[str, np.ndarray] = None
+  after_image: Tuple[str, np.ndarray] = None
 
 
 def _to_grayscale(image: np.ndarray) -> np.ndarray:
@@ -121,42 +140,6 @@ def _mostly_blank(image: np.ndarray) -> bool:
   return blank_fraction >= _BLANK_THRESHOLD
 
 
-def _create_example(example_id: str,
-                    before_image: np.ndarray, after_image: np.ndarray,
-                    before_crop: np.ndarray, after_crop: np.ndarray,
-                    scalar_features: Dict[str, List[float]]) -> Example:
-  """Create Tensorflow Example from inputs.
-
-  Args:
-    example_id: Example id.
-    before_image: Before disaster image.
-    after_image: After disaster image.
-    before_crop: Small before disaster image.
-    after_crop: Small after disaster image.
-    scalar_features: Dict mapping scalar feature names to values.
-
-  Returns:
-    Tensorflow Example.
-  """
-  example = tf.train.Example()
-  # TODO(jzxu): Use constants for these feature name strings.
-
-  # For legacy reasons, the example id feature is named "encoded_coordinates".
-  # Should change this in the future.
-  utils.add_bytes_feature('encoded_coordinates', example_id.encode(), example)
-  utils.add_bytes_feature('pre_image_png_large',
-                          tf.io.encode_png(before_image).numpy(), example)
-  utils.add_bytes_feature('post_image_png_large',
-                          tf.io.encode_png(after_image).numpy(), example)
-  utils.add_bytes_feature('pre_image_png',
-                          tf.io.encode_png(before_crop).numpy(), example)
-  utils.add_bytes_feature('post_image_png',
-                          tf.io.encode_png(after_crop).numpy(), example)
-  for name, value in scalar_features.items():
-    utils.add_float_list_feature(name, value, example)
-  return example
-
-
 def _center_crop(image: np.ndarray, crop_size: int) -> np.ndarray:
   """Crops an image into a square of a specified size.
 
@@ -207,51 +190,110 @@ class GenerateExamplesFn(beam.DoFn):
     self._after_patch_blank_count = Metrics.counter(
         'skai', 'after_patch_blank_count')
 
-  def process(self, grouped_features) -> Iterator[Example]:
+  def _create_example(
+      self,
+      example_id: str,
+      before_image_id: str,
+      before_image: np.ndarray,
+      after_image_id: str,
+      after_image: np.ndarray,
+      scalar_features: Dict[str, List[float]]) -> Optional[Example]:
+    """Create Tensorflow Example from inputs.
+
+    Args:
+      example_id: Example id.
+      before_image_id: String identifier for before image.
+      before_image: Before disaster image.
+      after_image_id: String identifier for after image.
+      after_image: After disaster image.
+      scalar_features: Dict mapping scalar feature names to values.
+
+    Returns:
+      Tensorflow Example.
+    """
+    if self._use_before_image:
+      after_image = align_after_image(before_image, after_image)
+    before_crop = _center_crop(before_image, self._example_patch_size)
+    if self._use_before_image and _mostly_blank(before_crop):
+      self._before_patch_blank_count.inc()
+      self._bad_example_count.inc()
+      return None
+    after_crop = _center_crop(after_image, self._example_patch_size)
+    if _mostly_blank(after_crop):
+      self._after_patch_blank_count.inc()
+      self._bad_example_count.inc()
+      return None
+
+    example = Example()
+    # TODO(jzxu): Use constants for these feature name strings.
+
+    # For legacy reasons, the example id feature is named "encoded_coordinates".
+    # Should change this in the future.
+    utils.add_bytes_feature('encoded_coordinates', example_id.encode(), example)
+    utils.add_bytes_feature('pre_image_png_large',
+                            tf.io.encode_png(before_image).numpy(), example)
+    utils.add_bytes_feature('pre_image_png',
+                            tf.io.encode_png(before_crop).numpy(), example)
+    utils.add_bytes_feature('pre_image_id', before_image_id.encode(), example)
+    utils.add_bytes_feature('post_image_png_large',
+                            tf.io.encode_png(after_image).numpy(), example)
+    utils.add_bytes_feature('post_image_png',
+                            tf.io.encode_png(after_crop).numpy(), example)
+    utils.add_bytes_feature('post_image_id', after_image_id.encode(), example)
+    for name, value in scalar_features.items():
+      utils.add_float_list_feature(name, value, example)
+    return example
+
+  def process(
+      self,
+      grouped_features: Tuple[str,
+                              Iterable[_FeatureUnion]]) -> Iterator[Example]:
     """Extract patches from before and after images and output as tf Example.
 
     Args:
-      grouped_features: All features for an example.
+      grouped_features: Tuple of example id, list of features for that example.
+        The elements of the features list are FeatureUnions that can be either
+        scalar features or images.
 
     Yields:
       Serialized Tensorflow Example.
     """
     example_id, features = grouped_features
-    features = dict(features)
-    scalar_features = features.get('scalar_features', {})
+    before_images = []
+    after_images = []
+    scalar_features = {}
+    for feature in features:
+      if feature.scalar_features:
+        scalar_features.update(feature.scalar_features)
+      elif feature.before_image:
+        before_images.append(feature.before_image)
+      elif feature.after_image:
+        after_images.append(feature.after_image)
 
-    after_image = features.get('after', None)
-    if after_image is None:
+    if not after_images:
       self._after_patch_blank_count.inc()
       self._bad_example_count.inc()
       return
 
     if self._use_before_image:
-      before_image = features.get('before', None)
-      if before_image is None:
+      if not before_images:
         self._before_patch_blank_count.inc()
         self._bad_example_count.inc()
         return
-      # Align after image to before image.
-      after_image = align_after_image(before_image, after_image)
     else:
       before_image = np.zeros(
           (self._large_patch_size, self._large_patch_size, 3), dtype=np.uint8)
+      before_images = [('', before_image)]
 
-    before_crop = _center_crop(before_image, self._example_patch_size)
-    if self._use_before_image and _mostly_blank(before_crop):
-      self._before_patch_blank_count.inc()
-      self._bad_example_count.inc()
-      return
-    after_crop = _center_crop(after_image, self._example_patch_size)
-    if _mostly_blank(after_crop):
-      self._after_patch_blank_count.inc()
-      self._bad_example_count.inc()
-      return
-    example = _create_example(example_id, before_image, after_image,
-                              before_crop, after_crop, scalar_features)
-    self._example_count.inc()
-    yield example
+    for before, after in itertools.product(before_images, after_images):
+      before_image_id, before_image = before
+      after_image_id, after_image = after
+      example = self._create_example(example_id, before_image_id, before_image,
+                                     after_image_id, after_image,
+                                     scalar_features)
+      if example:
+        self._example_count.inc()
+        yield example
 
 
 def _get_setup_file_path():
@@ -305,10 +347,11 @@ def _get_local_pipeline_options() -> PipelineOptions:
 def _coordinates_to_scalar_features(longitude: float, latitude: float,
                                     label: float):
   example_id = utils.encode_coordinates(longitude, latitude)
-  return (example_id, ('scalar_features', {
+  feature = _FeatureUnion(scalar_features={
       'coordinates': [longitude, latitude],
       'label': [label]
-  }))
+  })
+  return (example_id, feature)
 
 
 def _remove_large_images(example: Example) -> Example:
@@ -321,8 +364,8 @@ def _remove_large_images(example: Example) -> Example:
 
 def _generate_examples(
     pipeline,
-    before_image_path: str,
-    after_image_path: str,
+    before_image_paths: List[str],
+    after_image_paths: List[str],
     large_patch_size: int,
     example_patch_size: int,
     resolution: float,
@@ -334,8 +377,8 @@ def _generate_examples(
 
   Args:
     pipeline: Beam pipeline.
-    before_image_path: Before image path.
-    after_image_path: After image path.
+    before_image_paths: List of before image paths.
+    after_image_paths: List of after image paths.
     large_patch_size: Size in pixels of before and after image patches for
       labeling and alignment. Typically 256.
     example_patch_size: Size of patches to extract into examples. Typically 64.
@@ -371,24 +414,39 @@ def _generate_examples(
       pipeline
       | stage_prefix + '_make_scalar_features' >> beam.Create(scalar_features))
 
+  coordinates_collection = (
+      pipeline
+      | stage_prefix + '_make_coordinates' >> beam.Create([coords_with_ids]))
+
   input_collections = [scalar_features_collection]
   after_image_size = large_patch_size
-  use_before_image = bool(before_image_path)
+  use_before_image = bool(before_image_paths)
   if use_before_image:
-    before_images = read_raster.extract_patches_from_raster(
-        pipeline, before_image_path, 'before', large_patch_size, resolution,
-        coords_with_ids, gdal_env, 'before')
-    input_collections.append(before_images)
     # Make the after image patch larger than the before image patch by
     # giving it a border of _MAX_DISPLACEMENT pixels. This gives the
     # alignment algorithm at most +/-_MAX_DISPLACEMENT pixels of movement in
     # either dimension to find the best alignment.
     after_image_size += 2 * _MAX_DISPLACEMENT
+    for i, path in enumerate(before_image_paths):
+      patches = read_raster.extract_patches_from_raster(
+          coordinates_collection, path, large_patch_size, resolution,
+          gdal_env, f'before{i:02d}')
+      features = (
+          patches
+          | stage_prefix + f'_before{i:02d}_to_feature' >> beam.MapTuple(
+              lambda key, value: (key, _FeatureUnion(before_image=value))))
+      input_collections.append(features)
 
-  after_images = read_raster.extract_patches_from_raster(
-      pipeline, after_image_path, 'after', after_image_size, resolution,
-      coords_with_ids, gdal_env, 'after')
-  input_collections.append(after_images)
+  for i, path in enumerate(after_image_paths):
+    patches = read_raster.extract_patches_from_raster(coordinates_collection,
+                                                      path, after_image_size,
+                                                      resolution, gdal_env,
+                                                      f'after{i:02d}')
+    features = (
+        patches
+        | stage_prefix + f'_after{i:02d}_to_feature' >> beam.MapTuple(
+            lambda key, value: (key, _FeatureUnion(after_image=value))))
+    input_collections.append(features)
 
   large_examples = (
       input_collections
@@ -510,8 +568,8 @@ def parse_gdal_env(settings: List[str]) -> Dict[str, str]:
 
 
 def generate_examples_pipeline(
-    before_image_path: str,
-    after_image_path: str,
+    before_image_paths: List[str],
+    after_image_paths: List[str],
     large_patch_size: int,
     example_patch_size: int,
     resolution: float,
@@ -530,8 +588,8 @@ def generate_examples_pipeline(
   """Runs example generation pipeline.
 
   Args:
-    before_image_path: Before image path.
-    after_image_path: After image path.
+    before_image_paths: Before image paths.
+    after_image_paths: After image paths.
     large_patch_size: Size in pixels of before and after image patches for
       labeling and alignment. Typically 256.
     example_patch_size: Size of patches to extract into examples. Typically 64.
@@ -581,7 +639,7 @@ def generate_examples_pipeline(
           os.path.join(output_dir, 'examples', 'labeled-large', 'labeled'))
 
     large_examples, small_examples = _generate_examples(
-        pipeline, before_image_path, after_image_path, large_patch_size,
+        pipeline, before_image_paths, after_image_paths, large_patch_size,
         example_patch_size, resolution, unlabeled_coordinates,
         labeled_coordinates, gdal_env, 'generate_examples')
 

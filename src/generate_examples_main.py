@@ -51,6 +51,8 @@ from skai import earth_engine
 from skai import generate_examples
 from skai import open_street_map
 
+import tensorflow as tf
+
 FLAGS = flags.FLAGS
 
 # General GCP flags.
@@ -70,9 +72,11 @@ flags.DEFINE_string(
     None,
     'Identifier for the generated dataset.',
     required=True)
-flags.DEFINE_string('before_image_path', '', 'Path of pre-disaster GeoTIFF.')
-flags.DEFINE_string(
-    'after_image_path', None, 'Path of post-disaster GeoTIFF.', required=True)
+flags.DEFINE_list('before_image_paths', [], 'Path of pre-disaster GeoTIFF.')
+flags.DEFINE_list('after_image_paths', [], 'Path of post-disaster GeoTIFF.')
+flags.DEFINE_string('before_image_config', None,
+                    'Before image config file path.')
+flags.DEFINE_string('after_image_config', None, 'After image config file path.')
 flags.DEFINE_string(
     'aoi_path', None, 'Path to file containing area of interest')
 flags.DEFINE_string('output_dir', None, 'Output directory.', required=True)
@@ -184,6 +188,11 @@ def _get_labeling_dataset_region(project_region: str) -> str:
   return 'us-central1'
 
 
+def _read_image_config(path: str) -> List[str]:
+  with tf.io.gfile.GFile(path, 'r') as f:
+    return [line.strip() for line in f.readlines()]
+
+
 def main(args):
   del args  # unused
 
@@ -223,9 +232,23 @@ def main(args):
 
   gdal_env = generate_examples.parse_gdal_env(FLAGS.gdal_env)
 
+  if FLAGS.before_image_paths:
+    before_image_paths = FLAGS.before_image_paths
+  elif FLAGS.before_image_config:
+    before_image_paths = _read_image_config(FLAGS.before_image_config)
+  else:
+    before_image_paths = []
+
+  if FLAGS.after_image_paths:
+    after_image_paths = FLAGS.after_image_paths
+  elif FLAGS.after_image_config:
+    after_image_paths = _read_image_config(FLAGS.after_image_config)
+  else:
+    after_image_paths = []
+
   generate_examples.generate_examples_pipeline(
-      FLAGS.before_image_path,
-      FLAGS.after_image_path,
+      before_image_paths,
+      after_image_paths,
       FLAGS.large_patch_size,
       FLAGS.example_patch_size,
       FLAGS.resolution,
