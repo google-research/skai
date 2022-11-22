@@ -14,6 +14,7 @@
 """Tests for read_raster."""
 
 import pathlib
+import tempfile
 from absl.testing import absltest
 
 import apache_beam as beam
@@ -22,6 +23,7 @@ from apache_beam.testing.util import assert_that
 import rasterio
 
 from skai import read_raster
+from skai import utils
 
 TEST_IMAGE_PATH = 'test_data/blank.tif'
 
@@ -96,6 +98,19 @@ class ReadRasterTest(absltest.TestCase):
         assert patches[2][1][1].shape == (64, 64, 3)
 
       assert_that(patches, _check_output_patches)
+
+  def test_coordinates_to_groups(self):
+    coordinates = [
+        (178.482925, -16.632893, -1.0),
+        (178.482283, -16.632279, -1.0),
+        (178.482284, -16.632279, -1.0)]
+
+    with tempfile.NamedTemporaryFile(dir=absltest.TEST_TMPDIR.value) as f:
+      coordinates_path = f.name
+      utils.write_coordinates_file(coordinates, coordinates_path)
+      groups = list(read_raster._coordinates_to_groups(
+          self.test_image_path, coordinates_path, 32, 0.5, {}))
+      self.assertLen(groups, 2)
 
 
 if __name__ == '__main__':

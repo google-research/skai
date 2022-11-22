@@ -24,6 +24,7 @@ from apache_beam.testing import test_pipeline
 from apache_beam.testing.util import assert_that
 import numpy as np
 from skai import generate_examples
+from skai import utils
 import tensorflow as tf
 
 TEST_IMAGE_PATH = 'test_data/blank.tif'
@@ -146,17 +147,19 @@ class GenerateExamplesTest(absltest.TestCase):
     super().setUp()
     current_dir = pathlib.Path(__file__).parent
     self.test_image_path = str(current_dir / TEST_IMAGE_PATH)
+    self.coordinates_path = str(current_dir / 'coordinates')
 
   def testGenerateExamplesFn(self):
     """Tests GenerateExamplesFn class."""
 
-    unlabeled_coordinates = [(178.482925, -16.632893),
-                             (178.482283, -16.632279)]
+    unlabeled_coordinates = [(178.482925, -16.632893, -1.0),
+                             (178.482283, -16.632279, -1.0)]
+    utils.write_coordinates_file(unlabeled_coordinates, self.coordinates_path)
 
     with test_pipeline.TestPipeline() as pipeline:
       large_examples, small_examples = generate_examples._generate_examples(
-          pipeline, [self.test_image_path], [self.test_image_path], 62, 32, 0.5,
-          unlabeled_coordinates, [], {}, 'unlabeled')
+          pipeline, [self.test_image_path], [self.test_image_path],
+          self.coordinates_path, 62, 32, 0.5, {}, 'unlabeled')
 
       # Example at second input coordinate should be dropped because its patch
       # falls mostly outside the before and after image bounds.
@@ -176,11 +179,12 @@ class GenerateExamplesTest(absltest.TestCase):
 
     labeled_coordinates = [(178.482925, -16.632893, 0),
                            (178.482924, -16.632894, 1)]
+    utils.write_coordinates_file(labeled_coordinates, self.coordinates_path)
 
     with test_pipeline.TestPipeline() as pipeline:
       large_examples, small_examples = generate_examples._generate_examples(
-          pipeline, [self.test_image_path], [self.test_image_path], 62, 32, 0.5,
-          [], labeled_coordinates, {}, 'labeled')
+          pipeline, [self.test_image_path], [self.test_image_path],
+          self.coordinates_path, 62, 32, 0.5, {}, 'labeled')
 
       assert_that(
           large_examples,
@@ -199,12 +203,14 @@ class GenerateExamplesTest(absltest.TestCase):
   def testGenerateExamplesFnNoBefore(self):
     """Tests GenerateExamplesFn class without before image."""
 
-    coordinates = [(178.482925, -16.632893), (178.482283, -16.632279)]
+    coordinates = [(178.482925, -16.632893, -1.0),
+                   (178.482283, -16.632279, -1.0)]
+    utils.write_coordinates_file(coordinates, self.coordinates_path)
 
     with test_pipeline.TestPipeline() as pipeline:
       large_examples, small_examples = generate_examples._generate_examples(
-          pipeline, [], [self.test_image_path], 62, 32, 0.5, coordinates, [],
-          {}, 'unlabeled')
+          pipeline, [], [self.test_image_path], self.coordinates_path, 62, 32,
+          0.5, {}, 'unlabeled')
 
       # Example at second input coordinate should be dropped because its patch
       # falls mostly outside the before and after image bounds.

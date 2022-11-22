@@ -26,6 +26,8 @@ import rasterio
 import rasterio.plot
 import rtree
 
+from skai import utils
+
 Metrics = beam.metrics.Metrics
 
 # Maximum size of a single patch read.
@@ -110,7 +112,7 @@ def _in_bounds(x: float, y: float, bounds) -> bool:
 def _get_windows(
     raster,
     window_size: int,
-    coordinates: List[Tuple[str, float, float]]) -> List[_Window]:
+    coordinates: Iterable[Tuple[str, float, float]]) -> List[_Window]:
   """Computes windows in pixel coordinates for a raster.
 
   Args:
@@ -239,19 +241,33 @@ def _resample_image(image: np.ndarray, patch_size: int) -> np.ndarray:
 
 
 def _coordinates_to_groups(
-    coordinates: List[Tuple[str, float, float]],
     raster_path: str,
+    coordinates_path: str,
     patch_size: int,
     resolution: float,
     gdal_env: Dict[str, str]) -> Iterable[_WindowGroup]:
   """Converts a list of coordinates into pixel windows and then groups them.
+
+  Args:
+    raster_path: Path to raster image.
+    coordinates_path: Path to coordinates file.
+    patch_size: Size of patches to extract.
+    resolution: Resolution of patches to extract.
+    gdal_env: GDAL environment configuration.
+
+  Yields:
+    Grouped windows.
   """
+  coordinates = utils.read_coordinates_file(coordinates_path)
+  coords_with_ids = [(utils.encode_coordinates(longitude,
+                                               latitude), longitude, latitude)
+                     for longitude, latitude, _ in coordinates]
   with rasterio.Env(**gdal_env):
     raster = rasterio.open(raster_path)
     raster_res = _get_raster_resolution_in_meters(raster)
     scale_factor = resolution / raster_res
     window_size = int(patch_size * scale_factor)
-    windows = _get_windows(raster, window_size, coordinates)
+    windows = _get_windows(raster, window_size, coords_with_ids)
 
   window_groups = _group_windows(windows)
   logging.info('Grouped %d windows into %d groups.', len(windows),
@@ -326,7 +342,8 @@ class ReadRasterWindowGroupFn(beam.DoFn):
 
 
 def extract_patches_from_raster(
-    coordinates: beam.PCollection,
+    pipeline: beam.Pipeline,
+    coordinates_path: str,
     raster_path: str,
     patch_size: int,
     resolution: float,
@@ -335,7 +352,9 @@ def extract_patches_from_raster(
   """Extracts patches from a raster.
 
   Args:
-    coordinates: PCollection of a single element: a list of coordinates.
+    pipeline: Beam pipeline.
+    coordinates_path: Path to CSV file containing the longitude, latitude
+      coordinates to extract patches for.
     raster_path: Path to raster.
     patch_size: Desired size of output patches.
     resolution: Desired resolution of output patches.
@@ -345,12 +364,14 @@ def extract_patches_from_raster(
   Returns:
     A collection whose elements are (id, (image path, window data)).
   """
-  return (coordinates
+  return (pipeline
+          | stage_prefix + '_encode_raster_path' >> beam.Create([raster_path])
           | stage_prefix + '_make_window_groups' >> beam.FlatMap(
               _coordinates_to_groups,
-              raster_path=raster_path,
+              coordinates_path=coordinates_path,
               patch_size=patch_size,
               resolution=resolution,
               gdal_env=gdal_env)
+          | stage_prefix + '_reshuffle' >> beam.Reshuffle()
           | stage_prefix + '_read_window_groups' >> beam.ParDo(
               ReadRasterWindowGroupFn(raster_path, patch_size, gdal_env)))
