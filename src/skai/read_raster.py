@@ -25,10 +25,12 @@ import pyproj
 import rasterio
 import rasterio.plot
 import rtree
+import shapely.geometry
 
 from skai import utils
 
 Metrics = beam.metrics.Metrics
+Polygon = shapely.geometry.Polygon
 
 # Maximum size of a single patch read.
 _MAX_PATCH_SIZE = 2048
@@ -375,3 +377,20 @@ def extract_patches_from_raster(
           | stage_prefix + '_reshuffle' >> beam.Reshuffle()
           | stage_prefix + '_read_window_groups' >> beam.ParDo(
               ReadRasterWindowGroupFn(raster_path, patch_size, gdal_env)))
+
+
+def get_raster_bounds(
+    raster_path: str, gdal_env: Dict[str, str]) -> Polygon:
+  """Returns raster bounds as a shapely Polygon.
+
+  Args:
+    raster_path: Rastegdal_env: Dict[str, str]r path.
+    gdal_env: GDAL environment variables.
+
+  Returns
+    Polygon of bounds of raster.
+  """
+  with rasterio.Env(**gdal_env):
+    raster = rasterio.open(raster_path)
+    return shapely.geometry.box(raster.bounds.left, raster.bounds.bottom,
+                                raster.bounds.right, raster.bounds.top)
