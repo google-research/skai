@@ -75,16 +75,13 @@ def _check_examples(
     for example in actual_examples:
       feature_names = set(example.features.feature.keys())
       # TODO(jzxu): Use constants for these feature name strings.
-      expected_feature_names = [
+      expected_feature_names = set([
           'pre_image_png', 'pre_image_id', 'post_image_png', 'post_image_id',
-          'coordinates', 'encoded_coordinates', 'label'
-      ]
+          'coordinates', 'encoded_coordinates', 'label', 'example_id'])
       if expect_large_patch:
-        expected_feature_names.extend(
+        expected_feature_names.update(
             ['pre_image_png_large', 'post_image_png_large'])
-      assert feature_names == set(
-          expected_feature_names
-      ), f'Feature set does not match. Got: {" ".join(feature_names)}'
+      assert feature_names == expected_feature_names, f'Feature set does not match. Got: {" ".join(feature_names)}'
 
       actual_before_id = example.features.feature[
           'pre_image_id'].bytes_list.value[0].decode()

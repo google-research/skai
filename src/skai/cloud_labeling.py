@@ -136,9 +136,20 @@ def create_labeling_images(
   for record in tf.data.TFRecordDataset(example_files):
     example = Example()
     example.ParseFromString(record.numpy())
-    example_id = (
-        example.features.feature['encoded_coordinates'].bytes_list.value[0]
-        .decode())
+    if 'example_id' in example.features.feature:
+      example_id = (
+          example.features.feature['example_id'].bytes_list.value[0]
+          .decode())
+    else:
+      # If the example doesn't have an "example_id" feature, fall back on using
+      # "encoded_coordinates". This maintains backwards compatibility with
+      # older datasets.
+      # TODO(jzxu): Remove this branch when backward compatibility is no longer
+      # needed.
+      example_id = (
+          example.features.feature['encoded_coordinates'].bytes_list.value[0]
+          .decode())
+
     before_image = utils.deserialize_image(
         example.features.feature['pre_image_png_large'].bytes_list.value[0],
         'png')
@@ -398,9 +409,20 @@ def _merge_examples_and_labels(examples_pattern: str,
     for record in tf.data.TFRecordDataset([example_file]):
       example = Example()
       example.ParseFromString(record.numpy())
-      example_id = (
-          example.features.feature['encoded_coordinates'].bytes_list.value[0]
-          .decode())
+      if 'example_id' in example.features.feature:
+        example_id = (
+            example.features.feature['example_id'].bytes_list.value[0]
+            .decode())
+      else:
+        # If the example doesn't have an "example_id" feature, fall back on
+        # using "encoded_coordinates". This maintains backwards compatibility
+        # with older datasets.
+        # TODO(jzxu): Remove this branch when backward compatibility is no
+        # longer needed.
+        example_id = (
+            example.features.feature['encoded_coordinates'].bytes_list.value[0]
+            .decode())
+
       if example_id in labels:
         label = _string_to_float_label(labels[example_id])
         label_feature = example.features.feature['label'].float_list
