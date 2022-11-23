@@ -14,10 +14,12 @@
 """Pipeline for generating tensorflow examples from satellite images."""
 
 import dataclasses
+import hashlib
 import itertools
 import logging
 import os
 import pathlib
+import pickle
 from typing import Any, Dict, Iterable, Iterator, List, Optional, Tuple
 import apache_beam as beam
 import cv2
@@ -132,6 +134,24 @@ def _center_crop(image: np.ndarray, crop_size: int) -> np.ndarray:
   return image[i:i + crop_size, j:j + crop_size, :]
 
 
+def _make_example_id(longitude: float, latitude: float, before_image_id: str,
+                     after_image_id: str) -> str:
+  """Hashes the uniquely identifying features of an example into a string id.
+
+  Args:
+    longitude: Longitude of example centroid.
+    latitude: Latitude of example centroid.
+    before_image_id: Id of before image.
+    after_image_id: Id of after image.
+
+  Returns:
+    String hash of input features.
+  """
+  serialized = pickle.dumps(
+      (longitude, latitude, before_image_id, after_image_id))
+  return hashlib.md5(serialized).hexdigest()
+
+
 class GenerateExamplesFn(beam.DoFn):
   """DoFn that extracts patches from before and after images into examples.
 
@@ -167,7 +187,7 @@ class GenerateExamplesFn(beam.DoFn):
 
   def _create_example(
       self,
-      example_id: str,
+      encoded_coordinates: str,
       before_image_id: str,
       before_image: np.ndarray,
       after_image_id: str,
@@ -176,7 +196,7 @@ class GenerateExamplesFn(beam.DoFn):
     """Create Tensorflow Example from inputs.
 
     Args:
-      example_id: Example id.
+      encoded_coordinates: Encoded coordinates.
       before_image_id: String identifier for before image.
       before_image: Before disaster image.
       after_image_id: String identifier for after image.
@@ -202,9 +222,12 @@ class GenerateExamplesFn(beam.DoFn):
     example = Example()
     # TODO(jzxu): Use constants for these feature name strings.
 
-    # For legacy reasons, the example id feature is named "encoded_coordinates".
-    # Should change this in the future.
-    utils.add_bytes_feature('encoded_coordinates', example_id.encode(), example)
+    utils.add_bytes_feature('encoded_coordinates', encoded_coordinates.encode(),
+                            example)
+    longitude, latitude = scalar_features['coordinates']
+    example_id = _make_example_id(longitude, latitude, before_image_id,
+                                  after_image_id)
+    utils.add_bytes_feature('example_id', example_id.encode(), example)
     utils.add_bytes_feature('pre_image_png_large',
                             tf.io.encode_png(before_image).numpy(), example)
     utils.add_bytes_feature('pre_image_png',
