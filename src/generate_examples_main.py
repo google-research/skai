@@ -108,7 +108,7 @@ flags.DEFINE_string('overpass_url',
                     'OpenStreetMap Overpass server URL.')
 flags.DEFINE_string(
     'open_buildings_feature_collection',
-    'GOOGLE/Research/open-buildings/v1/polygons',
+    'GOOGLE/Research/open-buildings/v2/polygons',
     'Name of Earth Engine feature collection containing Open Buildings '
     'footprints.')
 
