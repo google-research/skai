@@ -440,8 +440,11 @@ def _generate_examples(
 
 
 def read_labels_file(
-    path: str, label_property: str, labels_to_classes: List[str],
-    max_points: int) -> List[Tuple[float, float, float]]:
+    path: str,
+    label_property: str,
+    labels_to_classes: List[str] = None,
+    max_points: int = None
+) -> List[Tuple[float, float, float]]:
   """Reads labels from a GIS file.
 
   If the "label_property" is a string, then it is assumed to be the name of a
@@ -449,7 +452,8 @@ def read_labels_file(
   the class and label, e.g. "damaged=1". If the name is not in
   "labels_to_classes", the example is dropped.
 
-  If the label is a float or integer, it is read as-is.
+  If the label is a float or integer, it is read as-is without labels_to_classes
+  specified.
 
   Args:
     path: Path to the file to be read.
@@ -461,19 +465,20 @@ def read_labels_file(
   Returns:
     List of tuples of the form (longitude, latitude, float label).
   """
-  # Parse labels_to_classes into dictionary format
-  label_to_class_dict = {}
-  for label_to_class in labels_to_classes:
-    if '=' not in label_to_class:
-      raise ValueError(
-          f'Invalid label to class mapping "{label_to_class}",'
-          f'should have form "label=class".')
-    label, _, numeric_class = label_to_class.partition('=')
-    try:
-      label_to_class_dict[label] = float(numeric_class)
-    except TypeError:
-      logging.error('Class %s is not numeric.', numeric_class)
-      raise
+  # Parse labels_to_classes into dictionary format if specified
+  if labels_to_classes:
+    label_to_class_dict = {}
+    for label_to_class in labels_to_classes:
+      if '=' not in label_to_class:
+        raise ValueError(
+            f'Invalid label to class mapping "{label_to_class}",'
+            f'should have form "label=class".')
+      label, numeric_class = label_to_class.split('=')
+      try:
+        label_to_class_dict[label] = float(numeric_class)
+      except TypeError:
+        logging.error('Class %s is not numeric.', numeric_class)
+        raise
 
   # Generate coordinates from label file
   df = gpd.read_file(path).to_crs(epsg=4326)
