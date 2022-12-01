@@ -50,6 +50,7 @@ from skai import buildings
 from skai import earth_engine
 from skai import generate_examples
 from skai import open_street_map
+from skai import read_raster
 
 import tensorflow as tf
 
@@ -169,25 +170,6 @@ def get_building_centroids(regions: List[Polygon]) -> List[Tuple[float, float]]:
   raise ValueError('Invalid value for "buildings_method" flag.')
 
 
-def _get_labeling_dataset_region(project_region: str) -> str:
-  """Choose where to host a labeling dataset.
-
-  As of November 2021, labeling datasets can only be created in "us-central1"
-  and "europe-west4" regions. See
-
-  https://cloud.google.com/vertex-ai/docs/general/locations#available-regions
-
-  Args:
-    project_region: The region of the project.
-
-  Returns:
-    Supported region for hosting the labeling dataset.
-  """
-  if project_region.startswith('europe-'):
-    return 'europe-west4'
-  return 'us-central1'
-
-
 def _read_image_config(path: str) -> List[str]:
   with tf.io.gfile.GFile(path, 'r') as f:
     return [line.strip() for line in f.readlines()]
@@ -211,28 +193,7 @@ def main(args):
       raise ValueError('dataflow_container_image must be specified when using '
                        'Dataflow and your Python version != 3.7, 3.8, or 3.9.')
 
-  if not FLAGS.labels_file and FLAGS.buildings_method == 'none':
-    raise ValueError('At least labels_file (for labeled examples extraction) '
-                     'or buildings_method != none (for unlabeled data) should '
-                     'be specified.')
-  if FLAGS.buildings_method != 'none':
-    aoi = buildings.read_aois(FLAGS.aoi_path)
-    building_centroids = get_building_centroids(aoi)
-    logging.info('Found %d buildings in area of interest.',
-                 len(building_centroids))
-  else:
-    # Only if one wants to extract labeled examples and labels_file is provided.
-    building_centroids = []
-
-  if FLAGS.labels_file:
-    labeled_coordinates = generate_examples.read_labels_file(
-        FLAGS.labels_file, FLAGS.label_property, FLAGS.labels_to_classes,
-        FLAGS.num_keep_labeled_examples)
-  else:
-    labeled_coordinates = []
-
   gdal_env = generate_examples.parse_gdal_env(FLAGS.gdal_env)
-
   if FLAGS.before_image_paths:
     before_image_paths = FLAGS.before_image_paths
   elif FLAGS.before_image_config:
@@ -246,6 +207,30 @@ def main(args):
     after_image_paths = _read_image_config(FLAGS.after_image_config)
   else:
     after_image_paths = []
+
+  if not FLAGS.labels_file and FLAGS.buildings_method == 'none':
+    raise ValueError('At least labels_file (for labeled examples extraction) '
+                     'or buildings_method != none (for unlabeled data) should '
+                     'be specified.')
+  if FLAGS.buildings_method != 'none':
+    if FLAGS.aoi_path:
+      aois = buildings.read_aois(FLAGS.aoi_path)
+    else:
+      aois = [read_raster.get_raster_bounds(path, gdal_env)
+              for path in after_image_paths]
+    building_centroids = get_building_centroids(aois)
+    logging.info('Found %d buildings in area of interest.',
+                 len(building_centroids))
+  else:
+    # Only if one wants to extract labeled examples and labels_file is provided.
+    building_centroids = []
+
+  if FLAGS.labels_file:
+    labeled_coordinates = generate_examples.read_labels_file(
+        FLAGS.labels_file, FLAGS.label_property, FLAGS.labels_to_classes,
+        FLAGS.num_keep_labeled_examples)
+  else:
+    labeled_coordinates = []
 
   generate_examples.generate_examples_pipeline(
       before_image_paths,

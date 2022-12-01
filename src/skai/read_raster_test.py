@@ -112,6 +112,11 @@ class ReadRasterTest(absltest.TestCase):
           self.test_image_path, coordinates_path, 32, 0.5, {}))
       self.assertLen(groups, 2)
 
+  def test_get_raster_bounds(self):
+    bounds = read_raster.get_raster_bounds(self.test_image_path, {})
+    self.assertSequenceAlmostEqual(
+        bounds.bounds, [19868555.0, -1878200.3724, 19868705.0, -1878059.3724])
+
 
 if __name__ == '__main__':
   absltest.main()
