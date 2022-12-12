@@ -22,8 +22,10 @@ $ export SERVICE_ACCOUNT=<service account email>
 
 ## Step 2: Prepare images
 
-Your satellite images must be [Cloud Optimized GeoTIFFs](https://www.cogeo.org/) for SKAI to process them. If you are not sure if your GeoTIFFs are valid Cloud Optimized GeoTIFFs, you can check using this command (make sure the SKAI python virtualenv is activated):
-
+Your satellite images must be [Cloud Optimized GeoTIFFs](https://www.cogeo.org/)
+for SKAI to process them. If you are not sure if your GeoTIFFs are valid Cloud
+Optimized GeoTIFFs, you can check using this command (make sure the SKAI python
+virtualenv is activated):
 
 ```
 $ rio cogeo validate /path/to/images/before.tif
@@ -50,13 +52,20 @@ $ gsutil cp /path/to/images/before.tif gs://$BUCKET/images/before.tif
 $ gsutil cp /path/to/images/after.tif gs://$BUCKET/images/after.tif
 ```
 
+You can provide SKAI with multiple before and after images. It will
+automatically determine which before and after images pair together. However, if
+a building is only covered by a before image but not an after image, or
+vice-versa, SKAI will not assess that building.
 
+## Step 3: Choose an Area of Interest (Optional)
 
-## Step 3: Choose an Area of Interest
+You need to choose an area of interest (AOI) where SKAI will perform the assessment.
+By default, SKAI will consider the entire area covered by your after images to
+be the area of interest. If you want to restrict the assessment to a smaller
+area, then you must specify the bounds of that area in the format described
+below.
 
-You need to choose an area of interest (AOI) where SKAI will perform the assessment. This will usually be a polygonal sub-region within the region covered by the before and after images. The AOI should cover the area impacted by the disaster, but not cover areas that you are not interested in analyzing, such as areas clearly not impacted by the disaster.
-
-The AOI should be recorded in a GIS file format, such as [GeoJSON](https://geojson.org/) (preferred) or [Shapefile](https://en.wikipedia.org/wiki/Shapefile). The easiest way to do this is to use a GIS program such as [QGIS](https://www.qgis.org/) that lets you draw a polygon on a map, then save that polygon as a GeoJSON file. This [QGIS tutorial](https://docs.qgis.org/3.22/en/docs/training_manual/create_vector_data/create_new_vector.html) walks through how to do this.
+The custom AOI should be recorded in a GIS file format, such as [GeoJSON](https://geojson.org/) (preferred) or [Shapefile](https://en.wikipedia.org/wiki/Shapefile). The easiest way to do this is to use a GIS program such as [QGIS](https://www.qgis.org/) that lets you draw a polygon on a map, then save that polygon as a GeoJSON file. This [QGIS tutorial](https://docs.qgis.org/3.22/en/docs/training_manual/create_vector_data/create_new_vector.html) walks through how to do this.
 
 
 ## Step 4: Generate Unlabeled Examples
@@ -70,8 +79,8 @@ $ python generate_examples_main.py \
   --cloud_project=$PROJECT \
   --cloud_region=$LOCATION \
   --dataset_name=<dataset name> \
-  --before_image_path=gs://$BUCKET/images/before.tif \
-  --after_image_path=gs://$BUCKET/images/after.tif \
+  --before_image_paths=<before image paths> \
+  --after_image_paths=<after image paths> \
   --aoi_path=<aoi-path> \
   --output_dir=gs://$BUCKET/test_run \
   --buildings_method=<building method> \
@@ -79,10 +88,19 @@ $ python generate_examples_main.py \
   --worker_service_account=$SERVICE_ACCOUNT
 ```
 
-`<aoi-path>` is the path to the AOI file you created in the previous section.
-
 `<dataset name>` is an arbitrary name that the dataflow job will take on.
 It should only contain alphanumeric characters and hyphen ("-").
+
+`<before image paths>` is a comma-separated list of paths to your
+pre-disaster images. For example,
+`gs://$BUCKET/images/before1.tif,gs://$BUCKET/images/before2.tif`.
+
+`<after image paths>` is a comma-separated list of paths to your
+post-disaster images.
+
+`<aoi-path>` is the path to the Area of Interest file, as discussed in the
+previous section. If you omit this flag, the entire area covered by your after
+image(s) will be considered the area of interest.
 
 `<building method>` specifies how building centroids will be fetched.
 This is discussed in more detail in the Building Detection subsection below.
@@ -154,15 +172,24 @@ link to the labeling interface. Please be patient.
 
 ## Step 6: Label examples
 
-All labelers should follow the [labeling instructions](https://storage.googleapis.com/skai-public/labeling_instructions.pdf) in their emails to manually label a number of building examples. Labeling at least 250 examples each of damaged/destroyed and undamaged buildings should be sufficient. Labeling more examples may improve model accuracy.
+All labelers should follow the [labeling instructions](https://storage.googleapis.com/skai-public/labeling_instructions_v2.pdf) in their emails to manually label a number of building examples. Labeling at least 250 examples each of damaged/destroyed and undamaged buildings should be sufficient. Labeling more examples may improve model accuracy.
 
-**Note:** The labeling task is currently configured with 4 choices for each example - undamaged, possibly\_damaged, damaged\_destroyed, and bad\_example. These text labels are mapped into a binary label, 0 or 1, when generating examples. The mapping is as follows:
+**Note:** The labeling task is currently configured with 5 choices for each example:
 
-*   undamaged, possibly\_damaged, bad\_example --> 0
-*   damaged\_destroyed --> 1
+*   no\_damage
+*   minor\_damage
+*   major\_damage
+*   destroyed
+*   bad\_example
 
-Future versions of the SKAI model will have a separate class for bad examples, resulting in 3 classes total.
+These text labels are mapped into a binary label, 0 or 1, when generating examples.
+The mapping is as follows:
 
+*   no\_damage, bad\_example --> 0
+*   minor\_damage, major\_damage, destroyed --> 1
+
+Future versions of the SKAI model will have a separate class for bad examples,
+resulting in 3 classes total.
 
 ## Step 7: Merge Labels into Dataset
 

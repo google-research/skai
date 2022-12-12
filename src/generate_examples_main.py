@@ -73,8 +73,10 @@ flags.DEFINE_string(
     None,
     'Identifier for the generated dataset.',
     required=True)
-flags.DEFINE_list('before_image_paths', [], 'Path of pre-disaster GeoTIFF.')
-flags.DEFINE_list('after_image_paths', [], 'Path of post-disaster GeoTIFF.')
+flags.DEFINE_list('before_image_paths', [],
+                  'Comma-separated list of paths of pre-disaster GeoTIFFs.')
+flags.DEFINE_list('after_image_paths', [],
+                  'Comma-separated list of paths of post-disaster GeoTIFFs.')
 flags.DEFINE_string('before_image_config', None,
                     'Before image config file path.')
 flags.DEFINE_string('after_image_config', None, 'After image config file path.')
