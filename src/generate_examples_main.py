@@ -45,13 +45,13 @@ from typing import List, Tuple
 from absl import app
 from absl import flags
 from absl import logging
+import pandas as pd
 import shapely.geometry
 from skai import buildings
 from skai import earth_engine
 from skai import generate_examples
 from skai import open_street_map
 from skai import read_raster
-
 import tensorflow as tf
 
 FLAGS = flags.FLAGS
@@ -164,8 +164,12 @@ def get_building_centroids(regions: List[Polygon]) -> List[Tuple[float, float]]:
       sys.exit(1)
     logging.info('Querying Open Buildings centroids. This may take a while.')
     output_path = os.path.join(FLAGS.output_dir, 'open_buildings_centroids.csv')
-    centroids = earth_engine.get_open_buildings_centroids(
-        regions, FLAGS.open_buildings_feature_collection, output_path)
+    try:
+      centroids = earth_engine.get_open_buildings_centroids(
+          regions, FLAGS.open_buildings_feature_collection, output_path)
+    except pd.errors.EmptyDataError as e:
+      logging.error('Error ocurred: %s', e, exc_info=True)
+      sys.exit(1)
     logging.info('Open Buildings centroids saved to %s', output_path)
     return centroids
 

@@ -54,13 +54,19 @@ def _download_feature_collection(
 
   Returns:
     FeatureCollection data as a GeoDataFrame.
+
+  Raises:
+    pd.errors.EmptyDataError if there no buildings.
   """
   url = collection.getDownloadURL('csv', properties)
   with urllib.request.urlopen(url) as url_file, tf.io.gfile.GFile(
       output_path, 'wb') as output:
     shutil.copyfileobj(url_file, output)
   with tf.io.gfile.GFile(output_path, 'r') as f:
-    df = pd.read_csv(f)
+    try:
+      df = pd.read_csv(f)
+    except pd.errors.EmptyDataError as e:
+      raise e
   if '.geo' in df.columns:
     geometry = df['.geo'].apply(json.loads).apply(shapely.geometry.shape)
     properties = df.drop(columns=['.geo'])
@@ -88,16 +94,25 @@ def get_open_buildings(regions: List[ShapelyGeometry],
 
   Returns:
     GeoDataFrame of building footprints.
+
+  Raises:
+    pd.errors.EmptyDataError if there no buildings.
   """
   bounds = ee.FeatureCollection([_shapely_to_ee_feature(r) for r in regions])
   open_buildings = ee.FeatureCollection(collection)
   aoi_buildings = open_buildings.filterBounds(bounds)
   if as_centroids:
     centroids = aoi_buildings.map(_get_open_building_feature_centroid)
-    return _download_feature_collection(centroids, ['longitude', 'latitude'],
-                                        output_path)
+    try:
+      return _download_feature_collection(centroids, ['longitude', 'latitude'],
+                                          output_path)
+    except pd.errors.EmptyDataError as e:
+      raise e
   else:
-    return _download_feature_collection(aoi_buildings, ['.geo'], output_path)
+    try:
+      return _download_feature_collection(aoi_buildings, ['.geo'], output_path)
+    except pd.errors.EmptyDataError as e:
+      raise e
 
 
 def get_open_buildings_centroids(
@@ -114,8 +129,14 @@ def get_open_buildings_centroids(
 
   Returns:
     List of (longitude, latitude) building centroids.
+
+  Raises:
+    pd.errors.EmptyDataError if there no buildings.
   """
-  gdf = get_open_buildings(regions, collection, True, output_path)
+  try:
+    gdf = get_open_buildings(regions, collection, True, output_path)
+  except pd.errors.EmptyDataError as e:
+    raise e
   return list(zip(gdf['geometry'].x, gdf['geometry'].y))
 
 
