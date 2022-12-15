@@ -365,7 +365,7 @@ def _write_tfrecord(examples: Iterable[Example], path: str) -> None:
 def _string_to_float_label(label: str) -> float:
   """Converts string labels supplied by labelers to binary float labels."""
   # TODO(jzxu): Make the mapping from string to float values configurable.
-  if label in ['damaged_destroyed']:
+  if label in ['minor_damage', 'major_damage', 'destroyed']:
     return 1.0
   return 0.0
 
