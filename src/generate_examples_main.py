@@ -166,9 +166,6 @@ def get_building_centroids(regions: List[Polygon]) -> List[Tuple[float, float]]:
     output_path = os.path.join(FLAGS.output_dir, 'open_buildings_centroids.csv')
     centroids = earth_engine.get_open_buildings_centroids(
         regions, FLAGS.open_buildings_feature_collection, output_path)
-    if not centroids:
-      logging.error('No building is found.', exc_info=True)
-      sys.exit(1)
     logging.info('Open Buildings centroids saved to %s', output_path)
     return centroids
 

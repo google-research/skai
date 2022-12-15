@@ -89,13 +89,6 @@ def _annotate_image(image: Image, caption: str) -> Image:
   return annotated_image
 
 
-def _read_example_ids_from_import_file(path: str) -> Iterable[str]:
-  with tf.io.gfile.GFile(path, 'r') as import_file:
-    for line in import_file:
-      # Each line has the form gs://bucket/a/b/<example_id>.png.
-      yield os.path.splitext(os.path.basename(line.strip()))[0]
-
-
 def create_labeling_image(before_image: Image, after_image: Image) -> Image:
   """Creates an image used for labeling.
 
@@ -125,7 +118,6 @@ def create_labeling_image(before_image: Image, after_image: Image) -> Image:
 def create_labeling_images(
     examples_pattern: str,
     max_images: int,
-    excluded_import_file_patterns: List[str],
     output_dir: str) -> Tuple[int, str]:
   """Creates PNGs used for labeling from TFRecords.
 
@@ -135,8 +127,6 @@ def create_labeling_images(
   Args:
     examples_pattern: File pattern for input TFRecords.
     max_images: Maximum number of images to create.
-    excluded_import_file_patterns: List of import file patterns containing
-      images to exclude.
     output_dir: Output directory.
 
   Returns:
@@ -144,13 +134,6 @@ def create_labeling_images(
   """
   example_files = tf.io.gfile.glob(examples_pattern)
   image_paths = []
-  excluded_example_ids = set()
-  for pattern in excluded_import_file_patterns:
-    for path in tf.io.gfile.glob(pattern):
-      logging.info('Excluding example ids from "%s"', path)
-      excluded_example_ids.update(_read_example_ids_from_import_file(path))
-
-  logging.info('Excluding %d example ids', len(excluded_example_ids))
   for record in tf.data.TFRecordDataset(example_files):
     example = Example()
     example.ParseFromString(record.numpy())
@@ -167,10 +150,6 @@ def create_labeling_images(
       example_id = (
           example.features.feature['encoded_coordinates'].bytes_list.value[0]
           .decode())
-
-    if example_id in excluded_example_ids:
-      logging.info('"%s" excluded', example_id)
-      continue
 
     before_image = utils.deserialize_image(
         example.features.feature['pre_image_png_large'].bytes_list.value[0],
@@ -386,7 +365,7 @@ def _write_tfrecord(examples: Iterable[Example], path: str) -> None:
 def _string_to_float_label(label: str) -> float:
   """Converts string labels supplied by labelers to binary float labels."""
   # TODO(jzxu): Make the mapping from string to float values configurable.
-  if label in ['minor_damage', 'major_damage', 'destroyed']:
+  if label in ['damaged_destroyed']:
     return 1.0
   return 0.0
 
