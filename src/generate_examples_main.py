@@ -73,9 +73,10 @@ flags.DEFINE_string(
     None,
     'Identifier for the generated dataset.',
     required=True)
-flags.DEFINE_list('before_image_paths', [],
-                  'Comma-separated list of paths of pre-disaster GeoTIFFs.')
-flags.DEFINE_list('after_image_paths', [],
+flags.DEFINE_list(
+    'before_image_patterns', [],
+    'Comma-separated list of path patterns of pre-disaster GeoTIFFs.')
+flags.DEFINE_list('after_image_patterns', [],
                   'Comma-separated list of paths of post-disaster GeoTIFFs.')
 flags.DEFINE_string('before_image_config', None,
                     'Before image config file path.')
@@ -166,6 +167,9 @@ def get_building_centroids(regions: List[Polygon]) -> List[Tuple[float, float]]:
     output_path = os.path.join(FLAGS.output_dir, 'open_buildings_centroids.csv')
     centroids = earth_engine.get_open_buildings_centroids(
         regions, FLAGS.open_buildings_feature_collection, output_path)
+    if not centroids:
+      logging.error('No building is found.', exc_info=True)
+      sys.exit(1)
     logging.info('Open Buildings centroids saved to %s', output_path)
     return centroids
 
