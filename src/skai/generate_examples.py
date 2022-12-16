@@ -403,7 +403,7 @@ def _generate_examples(
     # alignment algorithm at most +/-_MAX_DISPLACEMENT pixels of movement in
     # either dimension to find the best alignment.
     after_image_size += 2 * _MAX_DISPLACEMENT
-    for i, image_path in enumerate(before_image_paths):
+    for i, image_path in enumerate(tf.io.gfile.glob(before_image_paths)):
       patches = read_raster.extract_patches_from_raster(
           pipeline, coordinates_path, image_path, large_patch_size, resolution,
           gdal_env, f'before{i:02d}')
@@ -413,7 +413,7 @@ def _generate_examples(
               lambda key, value: (key, _FeatureUnion(before_image=value))))
       input_collections.append(features)
 
-  for i, image_path in enumerate(after_image_paths):
+  for i, image_path in enumerate(tf.io.gfile.glob(after_image_paths)):
     patches = read_raster.extract_patches_from_raster(
         pipeline, coordinates_path, image_path, after_image_size, resolution,
         gdal_env, f'after{i:02d}')
