@@ -1,6 +1,6 @@
 # SKAI Setup Instructions
 
-Last update: December 15, 2022
+June 1, 2022
 
 
 ## Cloud Setup
@@ -138,10 +138,6 @@ $ pip install -r requirements.txt
 ```
 
 
-### Authenticate with Earth Engine (Optional)
-* Some features in SKAI use earth engine, if you don't have an account, please sign-up [here](https://signup.earthengine.google.com/).
-
-* After signing up, run the command `earthengine authenticate` in a terminal.
 
 ## Feedback
 

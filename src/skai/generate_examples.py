@@ -361,21 +361,16 @@ def _remove_large_images(example: Example) -> Example:
 
 
 def _generate_examples(
-    pipeline,
-    before_image_paths: List[str],
-    after_image_paths: List[str],
-    coordinates_path: str,
-    large_patch_size: int,
-    example_patch_size: int,
-    resolution: float,
-    gdal_env: Dict[str, str],
+    pipeline, before_image_patterns: List[str], after_image_patterns: List[str],
+    coordinates_path: str, large_patch_size: int, example_patch_size: int,
+    resolution: float, gdal_env: Dict[str, str],
     stage_prefix: str) -> Tuple[beam.PCollection, beam.PCollection]:
   """Generates examples and labeling images from source images.
 
   Args:
     pipeline: Beam pipeline.
-    before_image_paths: List of before image paths.
-    after_image_paths: List of after image paths.
+    before_image_patterns: List of before image path patterns.
+    after_image_patterns: List of after image path patterns.
     coordinates_path: Path to file containing building coordinates.
     large_patch_size: Size in pixels of before and after image patches for
       labeling and alignment. Typically 256.
@@ -396,14 +391,14 @@ def _generate_examples(
 
   input_collections = [scalar_features]
   after_image_size = large_patch_size
-  use_before_image = bool(before_image_paths)
+  use_before_image = bool(before_image_patterns)
   if use_before_image:
     # Make the after image patch larger than the before image patch by
     # giving it a border of _MAX_DISPLACEMENT pixels. This gives the
     # alignment algorithm at most +/-_MAX_DISPLACEMENT pixels of movement in
     # either dimension to find the best alignment.
     after_image_size += 2 * _MAX_DISPLACEMENT
-    for i, image_path in enumerate(before_image_paths):
+    for i, image_path in enumerate(tf.io.gfile.glob(before_image_patterns)):
       patches = read_raster.extract_patches_from_raster(
           pipeline, coordinates_path, image_path, large_patch_size, resolution,
           gdal_env, f'before{i:02d}')
@@ -413,7 +408,7 @@ def _generate_examples(
               lambda key, value: (key, _FeatureUnion(before_image=value))))
       input_collections.append(features)
 
-  for i, image_path in enumerate(after_image_paths):
+  for i, image_path in enumerate(tf.io.gfile.glob(after_image_patterns)):
     patches = read_raster.extract_patches_from_raster(
         pipeline, coordinates_path, image_path, after_image_size, resolution,
         gdal_env, f'after{i:02d}')
@@ -542,29 +537,26 @@ def parse_gdal_env(settings: List[str]) -> Dict[str, str]:
   return gdal_env
 
 
-def generate_examples_pipeline(
-    before_image_paths: List[str],
-    after_image_paths: List[str],
-    large_patch_size: int,
-    example_patch_size: int,
-    resolution: float,
-    output_dir: str,
-    num_output_shards: int,
-    unlabeled_coordinates: List[Tuple[float, float]],
-    labeled_coordinates: List[Tuple[float, float, float]],
-    use_dataflow: bool,
-    gdal_env: Dict[str, str],
-    dataflow_job_name: Optional[str],
-    dataflow_container_image: Optional[str],
-    cloud_project: Optional[str],
-    cloud_region: Optional[str],
-    worker_service_account: Optional[str],
-    max_workers: int) -> None:
+def generate_examples_pipeline(before_image_patterns: List[str],
+                               after_image_patterns: List[str],
+                               large_patch_size: int, example_patch_size: int,
+                               resolution: float, output_dir: str,
+                               num_output_shards: int,
+                               unlabeled_coordinates: List[Tuple[float, float]],
+                               labeled_coordinates: List[Tuple[float, float,
+                                                               float]],
+                               use_dataflow: bool, gdal_env: Dict[str, str],
+                               dataflow_job_name: Optional[str],
+                               dataflow_container_image: Optional[str],
+                               cloud_project: Optional[str],
+                               cloud_region: Optional[str],
+                               worker_service_account: Optional[str],
+                               max_workers: int) -> None:
   """Runs example generation pipeline.
 
   Args:
-    before_image_paths: Before image paths.
-    after_image_paths: After image paths.
+    before_image_patterns: Before image path patterns.
+    after_image_patterns: After image path patterns.
     large_patch_size: Size in pixels of before and after image patches for
       labeling and alignment. Typically 256.
     example_patch_size: Size of patches to extract into examples. Typically 64.
@@ -619,7 +611,7 @@ def generate_examples_pipeline(
 
   with beam.Pipeline(options=pipeline_options) as pipeline:
     large_examples, small_examples = _generate_examples(
-        pipeline, before_image_paths, after_image_paths, coordinates_path,
+        pipeline, before_image_patterns, after_image_patterns, coordinates_path,
         large_patch_size, example_patch_size, resolution, gdal_env,
         'generate_examples')
 
