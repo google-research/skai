@@ -79,8 +79,8 @@ $ python generate_examples_main.py \
   --cloud_project=$PROJECT \
   --cloud_region=$LOCATION \
   --dataset_name=<dataset name> \
-  --before_image_paths=<before image paths> \
-  --after_image_paths=<after image paths> \
+  --before_image_patterns=<before image paths> \
+  --after_image_patterns=<after image paths> \
   --aoi_path=<aoi-path> \
   --output_dir=gs://$BUCKET/test_run \
   --buildings_method=<building method> \
@@ -91,11 +91,11 @@ $ python generate_examples_main.py \
 `<dataset name>` is an arbitrary name that the dataflow job will take on.
 It should only contain alphanumeric characters and hyphen ("-").
 
-`<before image paths>` is a comma-separated list of paths to your
+`<before image patterns>` is a comma-separated list of path patterns to your
 pre-disaster images. For example,
 `gs://$BUCKET/images/before1.tif,gs://$BUCKET/images/before2.tif`.
 
-`<after image paths>` is a comma-separated list of paths to your
+`<after image patterns>` is a comma-separated list of path patterns to your
 post-disaster images.
 
 `<aoi-path>` is the path to the Area of Interest file, as discussed in the
