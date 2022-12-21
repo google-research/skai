@@ -16,8 +16,8 @@ r"""Runs example generation pipeline.
 Example invocation to run on workstation:
 
 python generate_examples_main.py \
-  --before_image_path=/path/to/before_image.tif \
-  --after_image_path=/path/to/after_image.tif \
+  --before_image_patterns=/path/to/before_*_1.tif,/path/to/before_*_2.tif \
+  --after_image_patterns=/path/to/after_*_1.tif,/path/to/after_*_2.tif \
   --aoi_path=/path/to/aoi.geojson \
   --buildings_method=open_street_map \
   --output_dir=/path/to/output \
@@ -26,8 +26,8 @@ python generate_examples_main.py \
 Example invocation to run on Cloud DataFlow:
 
 python generate_examples_main.py \
-  --before_image_path=gs://bucket-name/before_image.tif \
-  --after_image_path=gs://bucket-name/after_image.tif \
+  --before_image_patterns=gs://bucket-name/before_image.tif \
+  --after_image_patterns=gs://bucket-name/after_image.tif \
   --aoi_path=/path/to/aoi.geojson \
   --buildings_method=open_street_map \
   --output_dir=gs://bucket-name/disaster-name \
@@ -200,19 +200,19 @@ def main(args):
                        'Dataflow and your Python version != 3.7, 3.8, or 3.9.')
 
   gdal_env = generate_examples.parse_gdal_env(FLAGS.gdal_env)
-  if FLAGS.before_image_paths:
-    before_image_paths = FLAGS.before_image_paths
+  if FLAGS.before_image_patterns:
+    before_image_patterns = FLAGS.before_image_patterns
   elif FLAGS.before_image_config:
-    before_image_paths = _read_image_config(FLAGS.before_image_config)
+    before_image_patterns = _read_image_config(FLAGS.before_image_config)
   else:
-    before_image_paths = []
+    before_image_patterns = []
 
-  if FLAGS.after_image_paths:
-    after_image_paths = FLAGS.after_image_paths
+  if FLAGS.after_image_patterns:
+    after_image_patterns = FLAGS.after_image_patterns
   elif FLAGS.after_image_config:
-    after_image_paths = _read_image_config(FLAGS.after_image_config)
+    after_image_patterns = _read_image_config(FLAGS.after_image_config)
   else:
-    after_image_paths = []
+    after_image_patterns = []
 
   if not FLAGS.labels_file and FLAGS.buildings_method == 'none':
     raise ValueError('At least labels_file (for labeled examples extraction) '
@@ -223,7 +223,7 @@ def main(args):
       aois = buildings.read_aois(FLAGS.aoi_path)
     else:
       aois = [read_raster.get_raster_bounds(path, gdal_env)
-              for path in after_image_paths]
+              for path in after_image_patterns]
     building_centroids = get_building_centroids(aois)
     logging.info('Found %d buildings in area of interest.',
                  len(building_centroids))
@@ -239,8 +239,8 @@ def main(args):
     labeled_coordinates = []
 
   generate_examples.generate_examples_pipeline(
-      before_image_paths,
-      after_image_paths,
+      before_image_patterns,
+      after_image_patterns,
       FLAGS.large_patch_size,
       FLAGS.example_patch_size,
       FLAGS.resolution,
