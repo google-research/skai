@@ -514,6 +514,8 @@ def get_dataflow_container_image(py_version: str) -> str:
     return 'gcr.io/disaster-assessment/dataflow_3.8_image:latest'
   elif py_version == '3.9':
     return 'gcr.io/disaster-assessment/dataflow_3.9_image:latest'
+  elif py_version == '3.10':
+    return 'gcr.io/disaster-assessment/dataflow_3.10_image:latest'
   else:
     return None
 

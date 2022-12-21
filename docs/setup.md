@@ -72,7 +72,7 @@ SKAI runs in a Linux environment. If you don't have a Linux workstation, you can
 *   The VM will not have to run any heavy computation, so you can choose a configuration that minimizes the cost of the VM. The lowest-spec machine type, "n1-standard-1", should be sufficient.
 *   The VM will also not have to hold much data, as most data will be stored in your GCS bucket. For the boot disk of the VM, you can choose a 10 GB balanced persistent disk with the most recent Debian GNU/Linux image.
 
-After the virtual machine is created, you can log in with [SSH in your browser](https://cloud.google.com/compute/docs/ssh-in-browser). See the next section for 
+After the virtual machine is created, you can log in with [SSH in your browser](https://cloud.google.com/compute/docs/ssh-in-browser). See the next section for instructions for setting up the Linux environment.
 
 
 ## Linux Setup Instructions
@@ -103,7 +103,7 @@ $ sudo apt-get install python3-venv python3-opencv
 ```
 
 
-**Note about Python version:** As of June 1, 2022, the latest version of Dataflow supports Python versions 3.7, 3.8, and 3.9. Please make sure that your workstation's Python installation is one of these versions. If not, you will have to manually install a compatible version of Python. See [here](https://cloud.google.com/dataflow/docs/support/beam-runtime-support) for more information.
+**Note about Python version:** As of December 21, 2022, the latest version of Dataflow supports Python versions 3.7-3.10. Please make sure that your workstation's Python installation is one of these versions. If not, you will have to manually install a compatible version of Python. See [here](https://cloud.google.com/dataflow/docs/support/beam-runtime-support) for more information.
 
 
 ### Install Google Cloud SDK
