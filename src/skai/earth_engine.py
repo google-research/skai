@@ -60,7 +60,11 @@ def _download_feature_collection(
       output_path, 'wb') as output:
     shutil.copyfileobj(url_file, output)
   with tf.io.gfile.GFile(output_path, 'r') as f:
-    df = pd.read_csv(f)
+    try:
+      df = pd.read_csv(f)
+    except pd.errors.EmptyDataError:
+      # Initialize an empty dataframe.
+      df = pd.DataFrame(columns=['longitude', 'latitude'])
   if '.geo' in df.columns:
     geometry = df['.geo'].apply(json.loads).apply(shapely.geometry.shape)
     properties = df.drop(columns=['.geo'])
@@ -69,6 +73,7 @@ def _download_feature_collection(
     properties = df.drop(columns=['longitude', 'latitude'])
   else:
     geometry = None
+    properties = None
 
   return gpd.GeoDataFrame(properties, geometry=geometry)
 
