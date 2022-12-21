@@ -14,28 +14,20 @@
 
 """Tests for generate_examples.py."""
 
-import glob
 import os
 import pathlib
 import tempfile
 from typing import Any, List, Tuple
-
 from absl.testing import absltest
-import apache_beam as beam
+
 from apache_beam.testing import test_pipeline
 from apache_beam.testing.util import assert_that
-from apache_beam.testing.util import equal_to
 import numpy as np
 from skai import generate_examples
 from skai import utils
 import tensorflow as tf
 
-
 TEST_IMAGE_PATH = 'test_data/blank.tif'
-
-
-def _get_before_image_id(example):
-  return example.features.feature['pre_image_id'].bytes_list.value[0].decode()
 
 
 def _deserialize_image(serialized_image: bytes) -> np.ndarray:
@@ -153,7 +145,6 @@ class GenerateExamplesTest(absltest.TestCase):
     current_dir = pathlib.Path(__file__).parent
     self.test_image_path = str(current_dir / TEST_IMAGE_PATH)
     self.coordinates_path = str(current_dir / 'coordinates')
-    self.test_image_path_patterns = str(current_dir / 'test_data/country_*.tif')
 
   def testGenerateExamplesFn(self):
     """Tests GenerateExamplesFn class."""
@@ -232,41 +223,12 @@ class GenerateExamplesTest(absltest.TestCase):
                           [(178.482925, -16.632893, -1.0)], True, False),
           label='assert_small_examples')
 
-  def testGenerateExampleFnPathPattern(self):
-    """Test GenerateExampleFn class with a path pattern."""
-    coordinates = [(178.482925, -16.632893, -1.0)]
-    utils.write_coordinates_file(coordinates, self.coordinates_path)
-
-    expected_before_image_ids = glob.glob(self.test_image_path_patterns)
-
-    with test_pipeline.TestPipeline() as pipeline:
-      # The path patterns specify two before images.
-      large_examples, small_examples = generate_examples._generate_examples(
-          pipeline, [self.test_image_path_patterns],
-          [self.test_image_path], self.coordinates_path, 62, 32, 0.5,
-          {}, 'unlabeled')
-
-      small_examples_before_ids = (
-          small_examples | 'Map small examples to before image ids' >>
-          beam.Map(_get_before_image_id))
-      large_examples_before_ids = (
-          large_examples | 'Map large examples to before image ids' >>
-          beam.Map(_get_before_image_id))
-
-      assert_that(small_examples_before_ids,
-                  equal_to(expected_before_image_ids),
-                  'check small examples before image ids')
-
-      assert_that(large_examples_before_ids,
-                  equal_to(expected_before_image_ids),
-                  'check large examples before image ids')
-
   def testGenerateExamplesPipeline(self):
     output_dir = tempfile.mkdtemp(dir=absltest.TEST_TMPDIR.value)
     coordinates = [(178.482925, -16.632893), (178.482283, -16.632279)]
     generate_examples.generate_examples_pipeline(
-        before_image_patterns=[self.test_image_path],
-        after_image_patterns=[self.test_image_path],
+        before_image_paths=[self.test_image_path],
+        after_image_paths=[self.test_image_path],
         large_patch_size=32,
         example_patch_size=32,
         resolution=0.5,
