@@ -57,7 +57,7 @@ flags.DEFINE_string(
     'If specified, use this import file directly instead of generating new '
     'images. Assumes that all images referenced by this import file exist.'
 )
-flags.DEFINE_list('exclude_import_file_patterns', None,
+flags.DEFINE_list('exclude_import_file_patterns', [],
                   'File patterns for import files listing images not to '
                   'generate.')
 flags.DEFINE_integer('max_images', 1000, 'Maximum number of images to label.')
