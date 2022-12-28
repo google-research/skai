@@ -360,6 +360,27 @@ def _remove_large_images(example: Example) -> Example:
   return new_example
 
 
+def _expand_patterns(patterns: Iterable[str]) -> List[str]:
+  """Returns the list of paths matched by a list of URI patterns.
+
+  Args:
+    patterns: List of file patterns.
+
+  Returns:
+    List of matched paths.
+  """
+  paths = []
+  for pattern in patterns:
+    if (pattern.startswith('/') or
+        pattern.startswith('file://') or
+        pattern.startswith('gs://') or
+        pattern.startswith('s3://')):
+      paths.extend(tf.io.gfile.glob(pattern))
+    else:
+      paths.append(pattern)
+  return paths
+
+
 def _generate_examples(
     pipeline, before_image_patterns: List[str], after_image_patterns: List[str],
     coordinates_path: str, large_patch_size: int, example_patch_size: int,
@@ -398,7 +419,7 @@ def _generate_examples(
     # alignment algorithm at most +/-_MAX_DISPLACEMENT pixels of movement in
     # either dimension to find the best alignment.
     after_image_size += 2 * _MAX_DISPLACEMENT
-    for i, image_path in enumerate(tf.io.gfile.glob(before_image_patterns)):
+    for i, image_path in enumerate(_expand_patterns(before_image_patterns)):
       patches = read_raster.extract_patches_from_raster(
           pipeline, coordinates_path, image_path, large_patch_size, resolution,
           gdal_env, f'before{i:02d}')
@@ -408,7 +429,7 @@ def _generate_examples(
               lambda key, value: (key, _FeatureUnion(before_image=value))))
       input_collections.append(features)
 
-  for i, image_path in enumerate(tf.io.gfile.glob(after_image_patterns)):
+  for i, image_path in enumerate(_expand_patterns(after_image_patterns)):
     patches = read_raster.extract_patches_from_raster(
         pipeline, coordinates_path, image_path, after_image_size, resolution,
         gdal_env, f'after{i:02d}')
