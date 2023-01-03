@@ -16,7 +16,7 @@ requests
 rio-cogeo
 rtree
 shapely
-sklearn
+scikit-learn
 tensorflow
 tensorflow-addons
 tensorflow-datasets
