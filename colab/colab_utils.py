@@ -1,8 +1,21 @@
-#@title Please run this cell first!
+# Copyright 2021 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Utility functions for skai colab notebook."""
 
 import base64
 import collections
-import datetime
 import io
 import json
 import os
@@ -14,45 +27,15 @@ import ee
 import folium
 from folium.plugins import HeatMap
 import ipyplot
-import IPython.display
+from IPython.display import display, HTML, Javascript
 import pandas as pd
 import pexpect
-import pprint
 import pyproj
-import pytz
 import requests
-import smtplib
-import ssl
 import tensorflow as tf
 
-from os import path
-from google.appengine.api import mail
 from google.cloud import monitoring_v3
-from IPython.display import display, HTML, Javascript
 from PIL import Image, ImageDraw, ImageFont
-
-#def launch_pexpect_process(script, arguments,dir_args, use_pexpect):
-#  flags_str = ' '.join(f"--{f}='{v}'" for f, v in arguments.items())
-#  commands = '; '.join([
-#      f'set -e',
-#      f'source {dir_args["python_env"]}',
-#      f'export GOOGLE_APPLICATION_CREDENTIALS={dir_args["path_cred"]}',
-#      f'python {dir_args["path_skai"]}/src/{script} {flags_str}'])
-#  
-#  sh_command = f'bash -c "{commands}" | tee /tmp/output.txt'
-#  print(sh_command)
-#  if use_pexpect:
-#    return pexpect.spawn(sh_command)
-#  else:
-#    with open('/tmp/shell_command.sh', 'w') as f:
-#      f.write(commands)
-#    !bash "/tmp/shell_command.sh" | tee /tmp/output.txt
-
-
-#def load_start_tensorboard(path_log):
-#   %load_ext tensorboard
-#   %tensorboard --logdir gs://{path_log}
-
 
 def make_gcp_http_request(url):
   token=subprocess.check_output('gcloud auth print-access-token'.split()).decode().rstrip('.\r\n')
@@ -102,8 +85,6 @@ def progress(value, max=100):
   return HTML(css + html)
 
 
-#@title Function definition job processing
-
 # Add custom basemaps to folium.
 
 basemaps = {
@@ -144,7 +125,6 @@ basemaps = {
     )
 }
 
-
 def create_folium_map_with_images(pathgcp_before, pathgcp_after):
   # Load before image and get latitude/longitude of map center.
 
@@ -160,12 +140,11 @@ def create_folium_map_with_images(pathgcp_before, pathgcp_after):
 
   if error_message:
     print(f'The following TIFF image(s) need to be Cloud Optimzed GeoTIFF file(s) in order to be visualized in the map using EarthEngine:\n{no_cog_file}\n{str(error_message[0])}')
-    return #raise error_message[-1]
+    return
 
   before_image_path = pathgcp_before.split(',')[0]
   before_map = ee.Image.loadGeoTIFF(before_image_path)
   before_map_id_dict = before_map.getMapId()
-  print(before_map_id_dict)
   x = before_map.getInfo()['bands'][0]['crs_transform'][2]
   y = before_map.getInfo()['bands'][0]['crs_transform'][-1]
   dim_x, dim_y = before_map.getInfo()['bands'][0]['dimensions']
@@ -202,7 +181,7 @@ def create_folium_map_with_images(pathgcp_before, pathgcp_after):
     ).add_to(my_map)
 
   my_map.add_child(folium.LayerControl())
-  IPython.display.display(my_map)
+  display(my_map)
 
 
 ## CLASS DEFINITION EXAMPLEJOB
@@ -345,10 +324,6 @@ def run_example_generation(generate_examples_args,path_dir_args, pretty_output=T
       if i == 2:
         child.close()
         break
-
-  
-
-  
 
 ## CLASS DEFINITION LABELINGJOB
 
@@ -662,28 +637,23 @@ def metrics(train_label_acc, train_label_auc, test_acc, test_auc, train_epoch,te
 def timestamp_to_datetime(timestamp):
   return pd.to_datetime(timestamp)
 
-def update_job_id(job_id):
-    global train_job_id
-    global eval_job_id
-    if train_job_id is None:
-      train_job_id = job_id
-      progress_display.update(progress(1, 100))
-    elif eval_job_id is None:
-      if job_id != train_job_id:
-        eval_job_id = job_id 
+def update_job_id(job_id, train_job_id,eval_job_id):
+  if train_job_id is None:
+    train_job_id = job_id
+  elif eval_job_id is None:
+    if job_id != train_job_id:
+      eval_job_id = job_id
+  return train_job_id,eval_job_id
 
 def run_train_and_eval_job(path_file,email_manager,load_tensorboard=False,path_log_tensorboard=None):
 
-  global progress_display
   # Create the progress bar and metrics displays.
   progress_display = display(progress(0, 100), display_id=True)
   metrics_display = None
 
   # Store Job IDs of training and evaluation jobs.
   # Keep track of the timestamp of most recent logs to process only fresher logs. 
-  global train_job_id,eval_job_id
-  train_job_id = None 
-  eval_job_id = None
+  train_job_id, eval_job_id = None, None 
   curr_epoch = None
   total_num_epochs = None
   total_num_img= None
@@ -695,7 +665,6 @@ def run_train_and_eval_job(path_file,email_manager,load_tensorboard=False,path_l
   # Run the child program.
   child = pexpect.spawn(f'sh {path_file}')
   while not child.closed:
-    #print('Hi',train_job_id)
     # Expects 5 different patterns, or EOF (meaning the program terminated).
     # Each pattern is a regex and you can use regex match groups "()" to extract a
     # part of the matched text for later use.
@@ -713,7 +682,9 @@ def run_train_and_eval_job(path_file,email_manager,load_tensorboard=False,path_l
 
     elif pattern_idx == 1:  # A job was created, so store its ID.
       job_id = child.match.group(1).decode()
-      update_job_id(job_id)
+      train_job_id,eval_job_id=update_job_id(job_id,train_job_id,eval_job_id)
+      if train_job_id is not None:
+        progress_display.update(progress(1, 100))
 
     elif pattern_idx == 2:  # Jobs are created. 
       if job_id == train_job_id:
@@ -1041,7 +1012,7 @@ def create_folium_map(geojson_path, pathgcp_before, pathgcp_after):
   print('Number of Damaged Buildings: ', num_damaged_buildings)
   print('Number of Undamaged Buildings: ', num_undamaged_buildings)
   print('Total: ', int(num_undamaged_buildings) + int(num_damaged_buildings))
-  IPython.display.display(my_map)
+  display(my_map)
 
 
 
