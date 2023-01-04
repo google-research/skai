@@ -84,47 +84,6 @@ def progress(value, max=100):
         """.format(value=value, max=max)
   return HTML(css + html)
 
-
-# Add custom basemaps to folium.
-
-basemaps = {
-    'Google Maps': folium.TileLayer(
-        tiles = 'https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}',
-        attr = 'Google',
-        name = 'Google Maps',
-        overlay = True,
-        control = True
-    ),
-    'Google Satellite': folium.TileLayer(
-        tiles = 'https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}',
-        attr = 'Google',
-        name = 'Google Satellite',
-        overlay = True,
-        control = True
-    ),
-    'Google Terrain': folium.TileLayer(
-        tiles = 'https://mt1.google.com/vt/lyrs=p&x={x}&y={y}&z={z}',
-        attr = 'Google',
-        name = 'Google Terrain',
-        overlay = True,
-        control = True
-    ),
-    'Google Satellite Hybrid': folium.TileLayer(
-        tiles = 'https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}',
-        attr = 'Google',
-        name = 'Google Satellite',
-        overlay = True,
-        control = True
-    ),
-    'Esri Satellite': folium.TileLayer(
-        tiles = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-        attr = 'Esri',
-        name = 'Esri Satellite',
-        overlay = True,
-        control = True
-    )
-}
-
 def create_folium_map_with_images(pathgcp_before, pathgcp_after):
   # Load before image and get latitude/longitude of map center.
 
@@ -144,7 +103,6 @@ def create_folium_map_with_images(pathgcp_before, pathgcp_after):
 
   before_image_path = pathgcp_before.split(',')[0]
   before_map = ee.Image.loadGeoTIFF(before_image_path)
-  before_map_id_dict = before_map.getMapId()
   x = before_map.getInfo()['bands'][0]['crs_transform'][2]
   y = before_map.getInfo()['bands'][0]['crs_transform'][-1]
   dim_x, dim_y = before_map.getInfo()['bands'][0]['dimensions']
@@ -248,10 +206,6 @@ def parse_dataflow_job_creation_params(param_str: str):
   return params_dict
 
 def count_tfrecord(path):
-  pre_images = []
-  post_images = []
-  labels = []
-  labels_split=[]
   total_example_num=len(list(tf.data.TFRecordDataset(path)))
   return total_example_num
 
@@ -552,7 +506,7 @@ def caption_pilformat(img_data, caption):
 
   return img_
 
-def ipyplot_tfrecord(path, max_examples=None):
+def visualize_labeled_examples(path, max_examples=None):
   pre_images = []
   post_images = []
   labels = []
@@ -621,7 +575,7 @@ sleep 60 ; python {path_skai}/src/launch_vertex_job.py \\
   with open(args['path_run'], 'w+') as file:
     file.write(submission_ending)
     
-def metrics(train_label_acc, train_label_auc, test_acc, test_auc, train_epoch,test_epoch, time):
+def format_training_metrics(train_label_acc, train_label_auc, test_acc, test_auc, train_epoch,test_epoch, time):
   html = """
          <h2>Metrics (updated as training progresses {timestamp}):</h2>
          <h3>Labeled Training Set, Epoch {train_epoch}</h3> 
@@ -682,9 +636,12 @@ def run_train_and_eval_job(path_file,email_manager,load_tensorboard=False,path_l
 
     elif pattern_idx == 1:  # A job was created, so store its ID.
       job_id = child.match.group(1).decode()
-      train_job_id,eval_job_id=update_job_id(job_id,train_job_id,eval_job_id)
-      if train_job_id is not None:
+      if train_job_id is None:
+        train_job_id = job_id
         progress_display.update(progress(1, 100))
+      elif eval_job_id is None:
+        if job_id != train_job_id:
+          eval_job_id = job_id        
 
     elif pattern_idx == 2:  # Jobs are created. 
       if job_id == train_job_id:
@@ -770,13 +727,13 @@ def run_train_and_eval_job(path_file,email_manager,load_tensorboard=False,path_l
                 break
             if train_label_acc is not None and test_acc is not None:
               if metrics_display is None:
-                metrics_display = display(metrics(0, 0, 0, 0, 0, 0, 
+                metrics_display = display(format_training_metrics(0, 0, 0, 0, 0, 0, 
                                                   eval_most_recent_timestamp.strftime("%Y-%m-%d, %H:%M:%S")), display_id=True)
                 print('\n')
                 if load_tensorboard:
                   load_start_tensorboard(path_log_tensorboard)
               else :
-                metrics_display.update(metrics(train_label_acc, train_label_auc, test_acc, test_auc,train_label_epoch,test_epoch,
+                metrics_display.update(format_training_metrics(train_label_acc, train_label_auc, test_acc, test_auc,train_label_epoch,test_epoch,
                                                eval_most_recent_timestamp.strftime("%Y-%m-%d, %H:%M:%S")))          
     
     elif pattern_idx == 5:  # Job completed. Email user a notification.
@@ -912,6 +869,32 @@ def run_inference_and_prediction_job(path_file):
       child.close()
 
 def create_folium_map(geojson_path, pathgcp_before, pathgcp_after):
+
+  # Add custom basemaps to folium.
+  basemaps = {
+      'Google Maps': folium.TileLayer(
+          tiles = 'https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}',
+          attr = 'Google',
+          name = 'Google Maps',
+          overlay = True,
+          control = True
+      ),
+      'Google Satellite': folium.TileLayer(
+          tiles = 'https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}',
+          attr = 'Google',
+          name = 'Google Satellite',
+          overlay = True,
+          control = True
+      ),
+      'Google Satellite Hybrid': folium.TileLayer(
+          tiles = 'https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}',
+          attr = 'Google',
+          name = 'Google Satellite',
+          overlay = True,
+          control = True
+      )
+  }
+
   with open(geojson_path, 'r') as f:
     predictions = json.load(f)
 
