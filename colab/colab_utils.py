@@ -86,7 +86,7 @@ def progress(value, max=100):
 
 def create_folium_map_with_images(pathgcp_before, pathgcp_after):
   # Load before image and get latitude/longitude of map center.
-
+# TODO(jzxu): Clean up this code and merge with function "create_folium_map".
   no_cog_file=''
   error_message=[]
   for image_path in pathgcp_before.split(',')+pathgcp_after.split(','):
