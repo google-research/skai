@@ -38,6 +38,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 
 def make_gcp_http_request(url):
+    """Run GET GCP API request using url provided."""
     token = subprocess.check_output(
         'gcloud auth print-access-token'.split()).decode().rstrip('.\r\n')
     response = requests.get(
@@ -49,6 +50,7 @@ def make_gcp_http_request(url):
 
 
 def bucket_exists(project, bucket_name):
+    """Check if bucket is alredy existing."""
     url = f'https://storage.googleapis.com/storage/v1/b?project={project}'
     data = make_gcp_http_request(url)
     buckets = [
@@ -60,11 +62,13 @@ def bucket_exists(project, bucket_name):
 
 
 def create_bucket(project, location, bucket_name):
+    """Create bucket in given project."""
     os.system(
         f"""gsutil mb -p {project} -l {location} -b on gs://{bucket_name}""")
 
 
 def progress(value, max=100):
+    """Build progress bar."""
     css = """
         <style>
           progress {
@@ -97,6 +101,7 @@ def progress(value, max=100):
 
 
 def create_folium_map_with_images(pathgcp_before, pathgcp_after):
+    """Display images before and after if there are all TIFF files."""
     # Load before image and get latitude/longitude of map center.
     # TODO(jzxu): Clean up this code and merge with function "create_folium_map".
     no_cog_file = ''
@@ -154,10 +159,8 @@ def create_folium_map_with_images(pathgcp_before, pathgcp_after):
     display(my_map)
 
 
-## CLASS DEFINITION EXAMPLEJOB
-
-
 class DataflowMetricFetcher:
+    """Read and parse log of generate_examples_main.py command to track progress of examples processed."""
 
     def __init__(self, project_id: str, job_name: str, metric_name: str):
         self._client = monitoring_v3.MetricServiceClient()
@@ -203,6 +206,7 @@ class DataflowMetricFetcher:
 
 
 class ProgressBar:
+    """Configuration of the progress bar for generate_examples_main.py command with progress tracking of examples processed."""
 
     def __init__(self, max):
         self._display = display(self.get_html(0, max), display_id=True)
@@ -217,6 +221,7 @@ class ProgressBar:
 
 
 def parse_dataflow_job_creation_params(param_str: str):
+    """Parse dataflow job log to build dictionnary with job parameters."""
     params_dict = {}
     lines = [line.strip() for line in param_str.split('\r\n')]
     for line in lines:
@@ -230,6 +235,7 @@ def parse_dataflow_job_creation_params(param_str: str):
 
 
 def count_tfrecord(path):
+    """Count number of examples contains in tfrecord file."""
     total_example_num = len(list(tf.data.TFRecordDataset(path)))
     return total_example_num
 
@@ -237,6 +243,9 @@ def count_tfrecord(path):
 def run_example_generation(generate_examples_args,
                            path_dir_args,
                            pretty_output=True):
+    """Run generate_examples_main.py command.
+    If pretty_output is True, run the command with display of the progress bar.
+    Otherwise, run the command with standard generated stdout output."""
     if not pretty_output:
         launch_pexpect_process('generate_examples_main.py',
                                generate_examples_args,
@@ -321,10 +330,8 @@ def run_example_generation(generate_examples_args,
                 break
 
 
-## CLASS DEFINITION LABELINGJOB
-
-
 class LabelingJob:
+    """Run GET GCP API requests to extract information on labeling task and dataset."""
 
     def __init__(self, endpoint, project, location, labeling_job):
         self._endpoint = endpoint
@@ -435,6 +442,10 @@ class LabelingJob:
 def run_labeling_task_creation(create_label_task_args,
                                path_dir_args,
                                pretty_output=True):
+    """Run create_cloud_labeling_task.py command.
+    If pretty_output is True, run the command a reduced stdout output and return of processed information about task and dataset created 
+    (dataset_id, dataset_name, labelingjob_id, labelingjob_instruction).
+    Otherwise, run the command with standard generated stdout output and return None."""
     if not pretty_output:
         launch_pexpect_process('create_cloud_labeling_task.py',
                                create_label_task_args, path_dir_args, False)
@@ -514,11 +525,8 @@ def run_labeling_task_creation(create_label_task_args,
     return dataset_id, dataset_name, labelingjob_id, labelingjob_instruction
 
 
-## CLASS DEFINITION DATASETJOB
-
-
 def create_labeled_dataset(create_labeled_dataset_args, path_dir_args):
-
+    """Run create_labeled_dataset.py command."""
     child = launch_pexpect_process('create_labeled_dataset.py',
                                    create_labeled_dataset_args, path_dir_args,
                                    True)
@@ -533,10 +541,8 @@ def create_labeled_dataset(create_labeled_dataset_args, path_dir_args):
         print('Labeled dataset created.')
 
 
-## CLASS DEFINTION IPYPLOT
-
-
 def concat_caption_pilimage(image_before, image_after):
+    """Concatenate the before and after images for visualisation using ipyplot package."""
     img_before = caption_pilformat(image_before, "before")
     img_after = caption_pilformat(image_after, "after")
 
@@ -550,6 +556,7 @@ def concat_caption_pilimage(image_before, image_after):
 
 
 def caption_pilformat(img_data, caption):
+    """Create the caption text on the images."""
     base64_encoded = base64.b64encode(img_data)
     im_bytes = base64.b64decode(base64_encoded)
     byte_encoded = io.BytesIO(im_bytes)
@@ -569,6 +576,7 @@ def caption_pilformat(img_data, caption):
 
 
 def visualize_labeled_examples(path, max_examples=None):
+    """Visualise the example labeled by the operators using ipyplot package."""
     pre_images = []
     post_images = []
     labels = []
@@ -614,11 +622,8 @@ def visualize_labeled_examples(path, max_examples=None):
     return total_example_num
 
 
-## CLASS DEFINITION TRAINJOB
-
-
 def write_train_and_eval_launch_script(**args):
-
+    """Build the shell launch_vertex_job.py command for training and evaluation jobs with input parameters."""
     args['hyper_parameters_args'] = ''
 
     submission_ending = '''
@@ -655,6 +660,7 @@ sleep 60 ; python {path_skai}/src/launch_vertex_job.py \\
 
 def format_training_metrics(train_label_acc, train_label_auc, test_acc,
                             test_auc, train_epoch, test_epoch, time):
+    """Format the trining metrics with HTML display."""
     html = """
          <h2>Metrics (updated as training progresses {timestamp}):</h2>
          <h3>Labeled Training Set, Epoch {train_epoch}</h3> 
@@ -675,20 +681,13 @@ def timestamp_to_datetime(timestamp):
     return pd.to_datetime(timestamp)
 
 
-def update_job_id(job_id, train_job_id, eval_job_id):
-    if train_job_id is None:
-        train_job_id = job_id
-    elif eval_job_id is None:
-        if job_id != train_job_id:
-            eval_job_id = job_id
-    return train_job_id, eval_job_id
-
-
 def run_train_and_eval_job(path_file,
                            email_manager,
                            load_tensorboard=False,
                            path_log_tensorboard=None):
-
+    """Run the shell launch_vertex_job.py command. for training and evaluation job.
+    If load_tensorboard=True and path_log_tensorboard is provided, 
+    tensorboard is display to track the progress of the training job and performance metrics."""
     # Create the progress bar and metrics displays.
     progress_display = display(progress(0, 100), display_id=True)
     metrics_display = None
@@ -867,11 +866,10 @@ def run_train_and_eval_job(path_file,
             child.close()
 
 
-## CLASS DEFINITION INFERENCEJOB
-
-
 def get_epoch_number(path_experiment, id_eval_job, checkpoint_selection,
                      checkpoint_index):
+    """Return the epoch number of choosen method or a specific checkpoint (including the reformating):
+    ["most_recent","top_auc_test", "top_acc_test","index_number"]."""
     if checkpoint_selection == 'most_recent':
         most_recent_epoch_file = os.path.join(f'gs://{path_experiment}',
                                               'checkpoints',
@@ -957,7 +955,8 @@ def get_epoch_number(path_experiment, id_eval_job, checkpoint_selection,
 
 
 def write_generate_inference_script(**args):
-
+    """Build the shell launch_vertex_job.py command for inference job with input parameters, and flags
+    --job_type=eval --inference_mode=True --save_predictions=True"""
     submission_ending = '''
 source {python_env}; export GOOGLE_APPLICATION_CREDENTIALS={path_cred};
 python {path_skai}/src/launch_vertex_job.py \\
@@ -980,7 +979,7 @@ python {path_skai}/src/launch_vertex_job.py \\
 
 
 def run_inference_and_prediction_job(path_file):
-
+    """Run the shell launch_vertex_job.py command for inference job."""
     # Initialize progress bar.
     progress_display = display(progress(0, 100), display_id=True)
     curr_idx = 0
@@ -1020,7 +1019,8 @@ def run_inference_and_prediction_job(path_file):
 
 
 def create_folium_map(geojson_path, pathgcp_before, pathgcp_after):
-
+    """Display images before and after if there are all TIFF files, and predictions on two layers:
+    one per building with circle marker, and one as a heat map of damaged building."""
     # Add custom basemaps to folium.
     basemaps = {
         'Google Maps':
