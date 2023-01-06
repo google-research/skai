@@ -39,6 +39,8 @@ from skai.semi_supervised import ssl_train_library
 from skai.semi_supervised import train
 import tensorflow.compat.v1 as tf
 
+###COPYBARA_PLACEHOLDER_01
+
 flags.adopt_module_key_flags(ssl_flags)
 FLAGS = flags.FLAGS
 
@@ -281,6 +283,7 @@ def _FindCheckpoints(checkpoint_dir: str) -> Set[str]:
 
 
 def main(_):
+  ###COPYBARA_PLACEHOLDER_02
 
   # Create dataset with only validation data
   dataset = ssl_train_library.create_dataset(
