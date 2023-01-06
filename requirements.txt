@@ -15,10 +15,11 @@ rasterio
 requests
 rio-cogeo
 rtree
-shapely
+shapely<2
 scikit-learn
 tensorflow
 tensorflow-addons
 tensorflow-datasets
 tensorflow_probability
 tqdm
+openlocationcode

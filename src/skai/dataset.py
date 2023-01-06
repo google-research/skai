@@ -39,7 +39,7 @@ class SkaiDataset(tfds.core.GeneratorBasedBuilder):
   """TFDS dataset for SKAI.
 
   Example usage:
-    import tensorflow_datasets.public_api as tfds
+    import tensorflow_datasets as tfds
     from skai import dataset
 
     ds = tfds.load('skai_dataset', builder_kwargs={
