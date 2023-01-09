@@ -58,8 +58,10 @@ def _check_examples(
     small_patch_size: int,
     large_patch_size: int,
     expected_coordinates: List[Tuple[float, float, float]],
+    expected_plus_codes: List[str],
     expect_blank_before: bool,
-    expect_large_patch: bool):
+    expect_large_patch: bool,
+):
   """Validates examples generated from beam pipeline.
 
   Args:
@@ -68,6 +70,7 @@ def _check_examples(
     small_patch_size: The expected size of small patches.
     large_patch_size: The expected size of large patches.
     expected_coordinates: List of coordinates that examples should have.
+    expected_plus_codes: List of plus codes that examples should have.
     expect_blank_before: If true, the before image should be all zeros.
     expect_large_patch: If true, the examples should contain large patches.
 
@@ -77,6 +80,7 @@ def _check_examples(
 
   def _check_examples_internal(actual_examples):
     actual_coordinates = set()
+    actual_plus_codes = []
     expected_small_shape = (small_patch_size, small_patch_size, 3)
     expected_large_shape = (large_patch_size, large_patch_size, 3)
 
@@ -84,15 +88,27 @@ def _check_examples(
       feature_names = set(example.features.feature.keys())
       # TODO(jzxu): Use constants for these feature name strings.
       expected_feature_names = set([
-          'pre_image_png', 'pre_image_id', 'post_image_png', 'post_image_id',
-          'coordinates', 'encoded_coordinates', 'label', 'example_id'])
+          'pre_image_png',
+          'pre_image_id',
+          'post_image_png',
+          'post_image_id',
+          'coordinates',
+          'encoded_coordinates',
+          'label',
+          'example_id',
+          'plus_code',
+      ])
       if expect_large_patch:
         expected_feature_names.update(
-            ['pre_image_png_large', 'post_image_png_large'])
-      assert feature_names == expected_feature_names, f'Feature set does not match. Got: {" ".join(feature_names)}'
+            ['pre_image_png_large', 'post_image_png_large']
+        )
+      assert (
+          feature_names == expected_feature_names
+      ), f'Feature set does not match. Got: {" ".join(feature_names)}'
 
-      actual_before_id = example.features.feature[
-          'pre_image_id'].bytes_list.value[0].decode()
+      actual_before_id = (
+          example.features.feature['pre_image_id'].bytes_list.value[0].decode()
+      )
       assert actual_before_id == before_image_id, actual_before_id
       actual_after_id = example.features.feature[
           'post_image_id'].bytes_list.value[0].decode()
@@ -140,8 +156,20 @@ def _check_examples(
             f'actual = {large_after_image.shape}')
 
       actual_coordinates.add((longitude, latitude, label))
+      actual_plus_codes.append(
+          example.features.feature['plus_code'].bytes_list.value[0].decode()
+      )
 
     assert _unordered_all_close(expected_coordinates, actual_coordinates)
+
+    assert len(expected_plus_codes) == len(actual_plus_codes)
+
+    expected_plus_codes_sorted = sorted(expected_plus_codes)
+    actual_plus_codes_sorted = sorted(actual_plus_codes)
+    for expected_plus_code, actual_plus_code in zip(
+        expected_plus_codes_sorted, actual_plus_codes_sorted
+    ):
+      assert expected_plus_code == actual_plus_code
 
   return _check_examples_internal
 
@@ -171,14 +199,32 @@ class GenerateExamplesTest(absltest.TestCase):
       # falls mostly outside the before and after image bounds.
       assert_that(
           large_examples,
-          _check_examples(self.test_image_path, self.test_image_path, 32, 62,
-                          [(178.482925, -16.632893, -1.0)], False, True),
-          label='assert_large_examples')
+          _check_examples(
+              self.test_image_path,
+              self.test_image_path,
+              32,
+              62,
+              [(178.482925, -16.632893, -1.0)],
+              ['5VMW9F8M+R5V8F4'],
+              False,
+              True,
+          ),
+          label='assert_large_examples',
+      )
       assert_that(
           small_examples,
-          _check_examples(self.test_image_path, self.test_image_path, 32, 62,
-                          [(178.482925, -16.632893, -1.0)], False, False),
-          label='assert_small_examples')
+          _check_examples(
+              self.test_image_path,
+              self.test_image_path,
+              32,
+              62,
+              [(178.482925, -16.632893, -1.0)],
+              ['5VMW9F8M+R5V8F4'],
+              False,
+              False,
+          ),
+          label='assert_small_examples',
+      )
 
   def testGenerateExamplesFnLabeled(self):
     """Tests GenerateExamplesFn class."""
@@ -194,17 +240,33 @@ class GenerateExamplesTest(absltest.TestCase):
 
       assert_that(
           large_examples,
-          _check_examples(self.test_image_path, self.test_image_path, 32, 62,
-                          [(178.482925, -16.632893, 0.0),
-                           (178.482924, -16.632894, 1.0)], False, True),
-          label='assert_large_examples')
+          _check_examples(
+              self.test_image_path,
+              self.test_image_path,
+              32,
+              62,
+              [(178.482925, -16.632893, 0.0), (178.482924, -16.632894, 1.0)],
+              ['5VMW9F8M+R5V8F4', '5VMW9F8M+R5V872'],
+              False,
+              True,
+          ),
+          label='assert_large_examples',
+      )
 
       assert_that(
           small_examples,
-          _check_examples(self.test_image_path, self.test_image_path, 32, 62,
-                          [(178.482925, -16.632893, 0.0),
-                           (178.482924, -16.632894, 1.0)], False, False),
-          label='assert_small_examples')
+          _check_examples(
+              self.test_image_path,
+              self.test_image_path,
+              32,
+              62,
+              [(178.482925, -16.632893, 0.0), (178.482924, -16.632894, 1.0)],
+              ['5VMW9F8M+R5V8F4', '5VMW9F8M+R5V872'],
+              False,
+              False,
+          ),
+          label='assert_small_examples',
+      )
 
   def testGenerateExamplesFnNoBefore(self):
     """Tests GenerateExamplesFn class without before image."""
@@ -222,15 +284,33 @@ class GenerateExamplesTest(absltest.TestCase):
       # falls mostly outside the before and after image bounds.
       assert_that(
           large_examples,
-          _check_examples('', self.test_image_path, 32, 62,
-                          [(178.482925, -16.632893, -1.0)], True, True),
-          label='assert_large_examples')
+          _check_examples(
+              '',
+              self.test_image_path,
+              32,
+              62,
+              [(178.482925, -16.632893, -1.0)],
+              ['5VMW9F8M+R5V8F4'],
+              True,
+              True,
+          ),
+          label='assert_large_examples',
+      )
 
       assert_that(
           small_examples,
-          _check_examples('', self.test_image_path, 32, 62,
-                          [(178.482925, -16.632893, -1.0)], True, False),
-          label='assert_small_examples')
+          _check_examples(
+              '',
+              self.test_image_path,
+              32,
+              62,
+              [(178.482925, -16.632893, -1.0)],
+              ['5VMW9F8M+R5V8F4'],
+              True,
+              False,
+          ),
+          label='assert_small_examples',
+      )
 
   def testGenerateExampleFnPathPattern(self):
     """Test GenerateExampleFn class with a path pattern."""
