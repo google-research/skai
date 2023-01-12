@@ -20,6 +20,7 @@ import json
 import os
 import re
 import subprocess
+import tempfile
 import time
 
 import ee
@@ -114,7 +115,9 @@ def create_folium_map_with_images(pathgcp_before, pathgcp_after):
 
   if error_message:
     print(
-        f'The following TIFF image(s) need to be Cloud Optimzed GeoTIFF file(s) in order to be visualized in the map using EarthEngine:\n{no_cog_file}\n{str(error_message[0])}'
+        'The following TIFF image(s) need to be Cloud Optimzed GeoTIFF file(s) '
+        'in order to be visualized in the map using EarthEngine:'
+        f'\n{no_cog_file}\n{str(error_message[0])}'
     )
     return
 
@@ -157,7 +160,9 @@ def create_folium_map_with_images(pathgcp_before, pathgcp_after):
 
 
 class DataflowMetricFetcher:
-  """Read and parse log of generate_examples_main.py command to track progress of examples processed."""
+  """Read and parse log of generate_examples_main.py command to track progress
+     of examples processed.
+  """
 
   def __init__(self, project_id: str, job_name: str, metric_name: str):
     self._client = monitoring_v3.MetricServiceClient()
@@ -203,14 +208,18 @@ class DataflowMetricFetcher:
 
 
 class ProgressBar:
-  """Configuration of the progress bar for generate_examples_main.py command with progress tracking of examples processed."""
+  """Configuration of the progress bar for generate_examples_main.py command
+     with progress tracking of examples processed.
+  """
 
   def __init__(self, max):
     self._display = display(self.get_html(0, max), display_id=True)
 
   def get_html(self, value, max):
     return HTML(
-        f'Num generated examples: {value}/{max}<progress value="{value}" max="{max}" style="width: 100%">{value}</progress>'
+        f'Num generated examples: {value}/{max}'
+        f'<progress value="{value}" max="{max}" '
+        f'style="width: 100%">{value}</progress>'
     )
 
   def update(self, num_examples, max):
@@ -237,12 +246,14 @@ def count_tfrecord(path):
   return total_example_num
 
 
-def run_example_generation(generate_examples_args,
-                           path_dir_args,
-                           pretty_output=True):
+def run_example_generation(
+    generate_examples_args, path_dir_args, pretty_output=True
+):
   """Run generate_examples_main.py command.
-    If pretty_output is True, run the command with display of the progress bar.
-    Otherwise, run the command with standard generated stdout output."""
+
+  If pretty_output is True, run the command with display of the progress bar.
+  Otherwise, run the command with standard generated stdout output.
+  """
   if not pretty_output:
     launch_pexpect_process(
         'generate_examples_main.py',
@@ -280,9 +291,9 @@ def run_example_generation(generate_examples_args,
       job_project = job_params['projectId']
       job_status_pattern = f'Job {job_id} is in state JOB_STATE_([A-Z]+)'
       print(f'Your Dataflow job is :\n{job_name}')
-      print(
-          f'Detailed monitoring page - Dataflow job id {job_id}: https://console.cloud.google.com/dataflow/jobs/{job_location}/{job_id}?project={job_project}'
-      )
+      url = ('https://console.cloud.google.com/dataflow/jobs/'
+             f'{job_location}/{job_id}?project={job_project}')
+      print(f'Detailed monitoring page - Dataflow job id {job_id}: {url}')
       break
     else:
       print(child.before.decode())
@@ -305,15 +316,14 @@ def run_example_generation(generate_examples_args,
         progress_bar.update(num_buildings, num_buildings)
         total_example_counter = 0
         for k in range(20):
-          file_directory = 'unlabeled/unlabeled-000{:02d}-of-00020.tfrecord'.format(
-              k)
+          file_directory = f'unlabeled/unlabeled-000{k:02d}-of-00020.tfrecord'
           tfrecord_path = os.path.join(
               os.path.join(generate_examples_args['output_dir'], 'examples'),
               file_directory)
           total_example_counter += count_tfrecord(tfrecord_path)
         print(
-            '{} building examples were extracted within the Area Of Interest and TIFF images'
-            .format(total_example_counter))
+            f'{total_example_counter} building examples were extracted within '
+            'the Area Of Interest and TIFF images')
     elif i == 1 or i == 2:
       if job_state == 'RUNNING':
         examples_processed = 0
@@ -330,7 +340,7 @@ def run_example_generation(generate_examples_args,
 
 
 class LabelingJob:
-  """Run GET GCP API requests to extract information on labeling task and dataset."""
+  """Class for querying information on labeling task and dataset."""
 
   def __init__(self, endpoint, project, location, labeling_job):
     self._endpoint = endpoint
@@ -343,7 +353,7 @@ class LabelingJob:
     self._dataset = job_info['datasets'][0]
 
     assert len(job_info['specialistPools']) == 1
-    # Has the format projects/{project_id}/locations/{location}/specialistPools/{pool_id}
+    # projects/{project_id}/locations/{location}/specialistPools/{pool_id}
     parts = job_info['specialistPools'][0].split('/')
     assert len(parts) == 6
     assert parts[4] == 'specialistPools'
@@ -365,7 +375,8 @@ class LabelingJob:
     Warning: There is a long lag between when items are labeled and when this
     value is updated.
     '''
-    parent = f'projects/{self._project}/locations/{self._location}/dataLabelingJobs/{self._labeling_job}'
+    parent = (f'projects/{self._project}/locations/{self._location}/'
+              f'dataLabelingJobs/{self._labeling_job}')
     url = f'https://{self._endpoint}/v1/{parent}'
     header = self.get_header()
     r = requests.get(url, headers=header)
@@ -383,7 +394,8 @@ class LabelingJob:
     return info.get('labelingProgress', 0)
 
   def get_data_items(self):
-    parent = f'projects/{self._project}/locations/{self._location}/datasets/{self._dataset}/dataItems'
+    parent = (f'projects/{self._project}/locations/{self._location}/datasets/'
+              f'{self._dataset}/dataItems')
     url = f'https://{self._endpoint}/v1/{parent}'
     items = []
     page_token = None
@@ -407,42 +419,48 @@ class LabelingJob:
   def get_labels(self, data_item_name):
     url = f'https://{self._endpoint}/v1/{data_item_name}/annotations'
     header = self.get_header()
-    r = requests.get(url, headers=header)
-    if not r.ok:
-      r.raise_for_status()
-    json = r.json()
+    response = requests.get(url, headers=header)
+    if not response.ok:
+      response.raise_for_status()
+    response_json = response.json()
     labels = []
-    if 'annotations' in json:
-      for a in json['annotations']:
+    if 'annotations' in response_json:
+      for a in response_json['annotations']:
         labels.append(a['payload']['displayName'])
     return labels
 
   def get_worker_url(self):
-    '''Returns the URL workers can use to access the labeling interface.
+    """Returns the URL workers can use to access the labeling interface.
 
     The syntax of the URL was determined by reverse engineering, so there's no
     guarantee that it won't change in the future.
-    '''
+    """
     location = self._location.replace('-', '_')
-    return f'https://datacompute.google.com/w/cloudml_data_specialists_{location}_{self._pool_id}'
+    return ('https://datacompute.google.com/w/'
+            f'cloudml_data_specialists_{location}_{self._pool_id}')
 
   def get_manager_url(self):
-    '''Returns the URL managers can use to access the task management interface.
+    """Returns the URL managers can use to access the task management interface.
 
     The syntax of the URL was determined by reverse engineering, so there's no
     guarantee that it won't change in the future.
-    '''
+    """
     location = self._location.replace('-', '_')
-    return f'https://datacompute.google.com/cm/cloudml_data_specialists_{location}_{self._pool_id}/tasks'
+    return ('https://datacompute.google.com/cm/'
+            f'cloudml_data_specialists_{location}_{self._pool_id}/tasks')
 
 
 def run_labeling_task_creation(create_label_task_args,
                                path_dir_args,
                                pretty_output=True):
   """Run create_cloud_labeling_task.py command.
-    If pretty_output is True, run the command a reduced stdout output and return of processed information about task and dataset created 
-    (dataset_id, dataset_name, labelingjob_id, labelingjob_instruction).
-    Otherwise, run the command with standard generated stdout output and return None."""
+
+  If pretty_output is True, run the command a reduced stdout output and return
+  of processed information about task and dataset created
+  (dataset_id, dataset_name, labelingjob_id, labelingjob_instruction).
+  Otherwise, run the command with standard generated stdout output and return
+  None.
+  """
   if not pretty_output:
     launch_pexpect_process('create_cloud_labeling_task.py',
                            create_label_task_args, path_dir_args, False)
@@ -451,17 +469,24 @@ def run_labeling_task_creation(create_label_task_args,
   child = launch_pexpect_process('create_cloud_labeling_task.py',
                                  create_label_task_args, path_dir_args, True)
 
-  DATASET_CREATED_PATTERN = '] ImageDataset created. Resource name: projects/[^/]+/locations/[^/]+/datasets/([0-9]+)'
-  LABELING_JOB_CREATED_PATTERN = '] Data labeling job created:'
+  dataset_created_pattern = ('] ImageDataset created. Resource name: '
+                             'projects/[^/]+/locations/[^/]+/datasets/([0-9]+)')
+  labeling_job_created_pattern = '] Data labeling job created:'
+
+  location = create_label_task_args['cloud_location']
+  project = create_label_task_args['cloud_project']
 
   output = b''
-
   while child.isalive():
-    i = child.expect([
-        DATASET_CREATED_PATTERN, LABELING_JOB_CREATED_PATTERN, pexpect.EOF,
-        pexpect.TIMEOUT
-    ],
-                     timeout=1800)
+    i = child.expect(
+        [
+            dataset_created_pattern,
+            labeling_job_created_pattern,
+            pexpect.EOF,
+            pexpect.TIMEOUT,
+        ],
+        timeout=1800,
+    )
 
     if isinstance(child.before, bytes):
       output += child.before
@@ -474,15 +499,16 @@ def run_labeling_task_creation(create_label_task_args,
     elif i == 1:
       print('Data labeling job created.')
 
-      url = 'https://{}-aiplatform.googleapis.com/v1/projects/{}/locations/{}/dataLabelingJobs'.format(
-          create_label_task_args["cloud_location"],
-          create_label_task_args["cloud_project"],
-          create_label_task_args["cloud_location"])
+      url = (f'https://{location}-aiplatform.googleapis.com/v1/projects/'
+             f'{project}/locations/{location}/dataLabelingJobs')
       data = make_gcp_http_request(url)
       data = list(
           filter(
-              lambda d: create_label_task_args["dataset_name"] in d[
-                  'displayName'], data['dataLabelingJobs']))[0]
+              lambda d: create_label_task_args['dataset_name']
+              in d['displayName'],
+              data['dataLabelingJobs'],
+          )
+      )[0]
 
       dataset_id = int(data['datasets'][0].split('/')[-1])
       dataset_name = data['displayName']
@@ -493,17 +519,25 @@ def run_labeling_task_creation(create_label_task_args,
       print(f'\nData Labeling job {labelingjob_id} created')
 
       labeling_job = LabelingJob(
-          f'{create_label_task_args["cloud_location"]}-aiplatform.googleapis.com',
-          create_label_task_args["cloud_project"],
-          create_label_task_args["cloud_location"], labelingjob_id)
+          f'{location}-aiplatform.googleapis.com',
+          project,
+          location,
+          labelingjob_id,
+      )
 
-      print('Instruction URL: {}'.format(
-          labelingjob_instruction.replace('gs://',
-                                          'https://storage.cloud.google.com/')))
+      print(
+          'Instruction URL: {}'.format(
+              labelingjob_instruction.replace(
+                  'gs://', 'https://storage.cloud.google.com/'
+              )
+          )
+      )
       print(f'Worker URL: {labeling_job.get_worker_url()}')
       print(f'Manager URL: {labeling_job.get_manager_url()}')
       print(
-          f'Detailed monitoring page: https://console.cloud.google.com/vertex-ai/locations/{create_label_task_args["cloud_location"]}/labeling-tasks/{labelingjob_id}?project={create_label_task_args["cloud_project"]}'
+          'Detailed monitoring page: '
+          'https://console.cloud.google.com/vertex-ai/locations/'
+          f'{location}/labeling-tasks/{labelingjob_id}?project={project}'
       )
 
       break
@@ -537,13 +571,13 @@ def create_labeled_dataset(create_labeled_dataset_args, path_dir_args):
 
 
 def concat_caption_pilimage(image_before, image_after):
-  """Concatenate the before and after images for visualisation using ipyplot package."""
-  img_before = caption_pilformat(image_before, "before")
-  img_after = caption_pilformat(image_after, "after")
+  """Concatenate the before and after images for visualisation."""
+  img_before = caption_pilformat(image_before, 'before')
+  img_after = caption_pilformat(image_after, 'after')
 
   w, h = img_before.size
 
-  img_concat = Image.new('RGB', (2 * w, h), "white")
+  img_concat = Image.new('RGB', (2 * w, h), 'white')
   img_concat.paste(img_before, (0, 0))
   img_concat.paste(img_after, (w, 0))
 
@@ -559,12 +593,12 @@ def caption_pilformat(img_data, caption):
   img = Image.open(byte_encoded)
   wd, hg = img.size
 
-  img_ = Image.new('RGB', (wd + int(wd / 10), hg + int(hg / 5)), "white")
+  img_ = Image.new('RGB', (wd + int(wd / 10), hg + int(hg / 5)), 'white')
   img_.paste(img, (int(wd / 20), int(hg / 5)))
 
   wd, hg = img_.size
   img_cap = ImageDraw.Draw(img_)
-  _, _, w, h = img_cap.textbbox((0, 0), caption)
+  _, _, w, _ = img_cap.textbbox((0, 0), caption)
   img_cap.text(((wd - w) / 2, 0), caption, fill=(0, 0, 0))
 
   return img_
@@ -579,7 +613,7 @@ def visualize_labeled_examples(path, max_examples=None):
   total_example_num = len(list(tf.data.TFRecordDataset(path)))
   print('Number of examples: {}.'.format(total_example_num))
 
-  if max_examples == None:
+  if max_examples is None:
     max_examples = total_example_num
 
   for record in tf.data.TFRecordDataset(path):
@@ -618,7 +652,7 @@ def visualize_labeled_examples(path, max_examples=None):
 
 
 def write_train_and_eval_launch_script(**args):
-  """Build the shell launch_vertex_job.py command for training and evaluation jobs with input parameters."""
+  """Builds shell command for launching training and evaluation jobs."""
   args['hyper_parameters_args'] = ''
 
   submission_ending = '''
@@ -658,7 +692,7 @@ def format_training_metrics(train_label_acc, train_label_auc, test_acc,
   """Format the trining metrics with HTML display."""
   html = """
          <h2>Metrics (updated as training progresses {timestamp}):</h2>
-         <h3>Labeled Training Set, Epoch {train_epoch}</h3> 
+         <h3>Labeled Training Set, Epoch {train_epoch}</h3>
          <p>Accuracy: {train_label_acc}% | AUC: {train_label_auc}</p>
          <h3>Test Set, Epoch {test_epoch}</h3>
          <p>Accuracy: {test_acc}% | AUC: {test_auc}</p>
@@ -681,15 +715,18 @@ def run_train_and_eval_job(path_file,
                            email_manager,
                            load_tensorboard=False,
                            path_log_tensorboard=None):
-  """Run the shell launch_vertex_job.py command. for training and evaluation job.
-    If load_tensorboard=True and path_log_tensorboard is provided, 
-    tensorboard is display to track the progress of the training job and performance metrics."""
+  """Run the shell launch_vertex_job.py command for training and evaluation job.
+
+  If load_tensorboard=True and path_log_tensorboard is provided,
+  tensorboard is display to track the progress of the training job and
+  performance metrics.
+  """
   # Create the progress bar and metrics displays.
   progress_display = display(progress(0, 100), display_id=True)
   metrics_display = None
 
   # Store Job IDs of training and evaluation jobs.
-  # Keep track of the timestamp of most recent logs to process only fresher logs.
+  # Keep track of timestamp of most recent logs to process only fresher logs.
   train_job_id, eval_job_id = None, None
   curr_epoch = None
   total_num_epochs = None
@@ -703,17 +740,26 @@ def run_train_and_eval_job(path_file,
   child = pexpect.spawn(f'sh {path_file}')
   while not child.closed:
     # Expects 5 different patterns, or EOF (meaning the program terminated).
-    # Each pattern is a regex and you can use regex match groups "()" to extract a
-    # part of the matched text for later use.
-    pattern_idx = child.expect([
-        'I.*] Creating CustomJob',
-        'I.*] CustomJob created\. Resource name: .*/([0-9]*)',
-        'I.*] View Custom Job:\r\n(.*)\r\nCustomJob',
-        'I.*] CustomJob .*/([0-9]*) current state:\r\nJobState.JOB_STATE_PENDING',
-        'I.*] CustomJob .*/([0-9]*) current state:\r\nJobState.JOB_STATE_RUNNING',
-        'I.*] CustomJob run completed.', pexpect.EOF
-    ],
-                               timeout=None)
+    # Each pattern is a regex and you can use regex match groups "()" to extract
+    # a part of the matched text for later use.
+    pattern_idx = child.expect(
+        [
+            'I.*] Creating CustomJob',
+            'I.*] CustomJob created\\. Resource name: .*/([0-9]*)',
+            'I.*] View Custom Job:\r\n(.*)\r\nCustomJob',
+            (
+                'I.*] CustomJob .*/([0-9]*) current'
+                ' state:\r\nJobState.JOB_STATE_PENDING'
+            ),
+            (
+                'I.*] CustomJob .*/([0-9]*) current'
+                ' state:\r\nJobState.JOB_STATE_RUNNING'
+            ),
+            'I.*] CustomJob run completed.',
+            pexpect.EOF,
+        ],
+        timeout=None,
+    )
     if pattern_idx == 0:
       progress_display.update(progress(0, 100))
 
@@ -729,11 +775,13 @@ def run_train_and_eval_job(path_file,
     elif pattern_idx == 2:  # Jobs are created.
       if job_id == train_job_id:
         print(
-            f'Training CustomJob created\nDetailed monitoring page - Train job id {job_id} : {child.match.group(1).decode()}'
+            'Training CustomJob created\nDetailed monitoring page - '
+            f'Train job id {job_id} : {child.match.group(1).decode()}'
         )
       else:
         print(
-            f'Evaluation CustomJob created\nDetailed monitoring page - Eval job id {job_id} : {child.match.group(1).decode()}'
+            'Evaluation CustomJob created\nDetailed monitoring page - '
+            f'Eval job id {job_id} : {child.match.group(1).decode()}'
         )
 
     elif pattern_idx == 3:  # Jobs are pending, so update progress bar.
@@ -748,10 +796,12 @@ def run_train_and_eval_job(path_file,
           eval_state = 'PENDING'
           print(f'Evaluation CustomJob state: {eval_state}')
 
-    elif pattern_idx == 4:  # Jobs are running, so update progress bar or metrics.
+    elif pattern_idx == 4:  # Jobs are running, update progress bar or metrics.
       job_id = child.match.group(1).decode()
       get_logs_status = os.system(
-          f"""gcloud logging read 'resource.labels.job_id={job_id} severity=ERROR "Epoch"' --format json > /tmp/{job_id}_log"""
+          'gcloud logging read'
+          f'"resource.labels.job_id={job_id} severity=ERROR "Epoch""'
+          f'--format json > /tmp/{job_id}_log'
       )
       if get_logs_status == 0:
         with open(f'/tmp/{job_id}_log', 'r') as log_file:
@@ -763,7 +813,7 @@ def run_train_and_eval_job(path_file,
             # If training job, then update the progress bar.
             curr_epoch = None
             for log in log_data:
-              log_timestamp = timestamp_to_datetime(log["timestamp"])
+              log_timestamp = timestamp_to_datetime(log['timestamp'])
               if log_timestamp < train_most_recent_timestamp:
                 # If logs have not been refreshed, ignore them.
                 break
@@ -795,15 +845,19 @@ def run_train_and_eval_job(path_file,
               eval_state = 'RUNNING'
               print(f'Evaluation CustomJob state: {eval_state}\n')
 
-            train_label_acc, train_label_auc, test_acc, test_auc = None, None, None, None
+            train_label_acc = None
+            train_label_auc = None
+            test_acc = None
+            test_auc = None
             for log in log_data:
-              log_timestamp = timestamp_to_datetime(log["timestamp"])
+              log_timestamp = timestamp_to_datetime(log['timestamp'])
               if log_timestamp < eval_most_recent_timestamp:
                 # If logs have not been refreshed, ignore them.
                 break
               if train_label_acc is None:
                 train_label_matches = re.search(
-                    'Epoch: ([0-9]*), .* Train_Label AUC: ([0-9]*\.[0-9]*), Train_Label Accuracy: ([0-9]*\.[0-9]*)',
+                    r'Epoch: ([0-9]*), .* Train_Label AUC: ([0-9]*\.[0-9]*), ' +
+                    r'Train_Label Accuracy: ([0-9]*\.[0-9]*)',
                     log['jsonPayload']['message'])
                 if train_label_matches:
                   train_label_epoch = min(
@@ -814,7 +868,8 @@ def run_train_and_eval_job(path_file,
                   train_label_acc = train_label_matches.groups()[2]
               elif test_acc is None:
                 test_matches = re.search(
-                    'Epoch: ([0-9]*), .* Test AUC: ([0-9]*\.[0-9]*), Test Accuracy: ([0-9]*\.[0-9]*)',
+                    r'Epoch: ([0-9]*), .* Test AUC: ([0-9]*\.[0-9]*), '
+                    r'Test Accuracy: ([0-9]*\.[0-9]*)',
                     log['jsonPayload']['message'])
                 if test_matches:
                   test_epoch = min(
@@ -832,7 +887,7 @@ def run_train_and_eval_job(path_file,
                     format_training_metrics(
                         0, 0, 0, 0, 0, 0,
                         eval_most_recent_timestamp.strftime(
-                            "%Y-%m-%d, %H:%M:%S")),
+                            '%Y-%m-%d, %H:%M:%S')),
                     display_id=True)
                 print('\n')
                 if load_tensorboard:
@@ -843,22 +898,35 @@ def run_train_and_eval_job(path_file,
                         train_label_acc, train_label_auc, test_acc, test_auc,
                         train_label_epoch, test_epoch,
                         eval_most_recent_timestamp.strftime(
-                            "%Y-%m-%d, %H:%M:%S")))
+                            '%Y-%m-%d, %H:%M:%S')))
 
     elif pattern_idx == 5:  # Job completed. Email user a notification.
-      print(f'Training CustomJob state: DONE\n')
+      print('Training CustomJob state: DONE\n')
+      email_subject = 'Skai Training Complete'
+      email_body = ('Training has completed! Please return to the Colab to '
+                    'visualize results.')
       os.system(
-          f"""printf 'Subject: Skai Training Complete\n\nTraining has completed! Please return to the Colab to visualize results.' | msmtp {email_manager}"""
+          f'printf "Subject: {email_subject}\n\n{email_body}" '
+          f'| msmtp {email_manager}'
       )
       progress_display.update(progress(100, 100))
     else:
       child.close()
 
 
+def _download_eval_job_log(eval_job_id):
+  with tempfile.NamedTemporaryFile() as output:
+    log_filter = (
+        f'"resource.labels.job_id={eval_job_id} severity=ERROR \\"Epoch\\""')
+    command = f'gcloud logging read {log_filter} --format json > {output.name}'
+    if os.system(command) == 0:
+      return json.load(output)
+    return None
+
+
 def get_epoch_number(path_experiment, id_eval_job, checkpoint_selection,
                      checkpoint_index):
-  """Return the epoch number of choosen method or a specific checkpoint (including the reformating):
-    ["most_recent","top_auc_test", "top_acc_test","index_number"]."""
+  """Return the epoch number of choosen method or a specific checkpoint."""
   if checkpoint_selection == 'most_recent':
     most_recent_epoch_file = os.path.join(f'gs://{path_experiment}',
                                           'checkpoints', 'last_processed_epoch')
@@ -866,82 +934,85 @@ def get_epoch_number(path_experiment, id_eval_job, checkpoint_selection,
     with open('/tmp/last_processed_epoch', 'r') as epoch_f:
       epoch_num = epoch_f.read()
 
-  elif checkpoint_selection in ["top_auc_test", "top_acc_test"]:
-    epoch_num_acc, metrics_acc, epoch_num_auc, metrics_auc = None, None, None, None
-    get_logs_status = os.system(
-        f"""gcloud logging read 'resource.labels.job_id={id_eval_job} severity=ERROR "Epoch"' --format json > /tmp/{id_eval_job}_log"""
-    )
-    if get_logs_status == 0:
-      with open(f'/tmp/{id_eval_job}_log', 'r') as log_file:
-        log_data = json.load(log_file)
-        for log in log_data:
-          test_matches = re.search(
-              'Epoch: ([0-9]*),.*Test AUC: ([0-9]*\.[0-9]*), Test Accuracy: ([0-9]*\.[0-9]*)',
-              log['jsonPayload']['message'])
-          if test_matches:
-
-            if epoch_num_acc == None:
-              epoch_num_acc = test_matches.groups()[0]
-              metrics_acc = float(test_matches.groups()[2])
-            elif (int(test_matches.groups()[0]) > int(epoch_num_acc) and
-                  float(test_matches.groups()[2]) == metrics_acc) or (float(
-                      test_matches.groups()[2]) > metrics_acc):
-              epoch_num_acc = test_matches.groups()[0]
-              metrics_acc = float(test_matches.groups()[2])
-
-            if epoch_num_auc == None:
-              epoch_num_auc = test_matches.groups()[0]
-              metrics_auc = float(test_matches.groups()[1])
-            elif (int(test_matches.groups()[0]) > int(epoch_num_auc) and
-                  float(test_matches.groups()[1]) == metrics_auc) or (float(
-                      test_matches.groups()[1]) > metrics_auc):
-              epoch_num_auc = test_matches.groups()[0]
-              metrics_auc = float(test_matches.groups()[1])
-
-        if checkpoint_selection == "top_auc_test":
-          epoch_num = epoch_num_auc
-        elif checkpoint_selection == "top_acc_test":
-          epoch_num = epoch_num_acc
-
-  elif checkpoint_selection == "index_number":
-    epoch_num = str(int(checkpoint_index))
-
-  metrics_acc, metrics_auc = None, None
-  get_logs_status = os.system(
-      f"""gcloud logging read 'resource.labels.job_id={id_eval_job} severity=ERROR "Epoch"' --format json > /tmp/{id_eval_job}_log"""
-  )
-  if get_logs_status == 0:
-    with open(f'/tmp/{id_eval_job}_log', 'r') as log_file:
-      log_data = json.load(log_file)
+  elif checkpoint_selection in ['top_auc_test', 'top_acc_test']:
+    epoch_num_acc = None
+    metrics_acc = None
+    epoch_num_auc = None
+    metrics_auc = None
+    log_data = _download_eval_job_log(id_eval_job)
+    if log_data:
       for log in log_data:
         test_matches = re.search(
-            'Epoch: ([0-9]*),.*Test AUC: ([0-9]*\.[0-9]*), Test Accuracy: ([0-9]*\.[0-9]*)',
+            r'Epoch: ([0-9]*),.*Test AUC: ([0-9]*\.[0-9]*), '
+            r'Test Accuracy: ([0-9]*\.[0-9]*)',
             log['jsonPayload']['message'])
         if test_matches:
-          if int(test_matches.groups()[0]) == int(epoch_num):
-            metrics_acc = test_matches.groups()[2]
-            metrics_auc = test_matches.groups()[1]
-            break
+
+          if epoch_num_acc is None:
+            epoch_num_acc = test_matches.groups()[0]
+            metrics_acc = float(test_matches.groups()[2])
+          elif (int(test_matches.groups()[0]) > int(epoch_num_acc) and
+                float(test_matches.groups()[2]) == metrics_acc) or (float(
+                    test_matches.groups()[2]) > metrics_acc):
+            epoch_num_acc = test_matches.groups()[0]
+            metrics_acc = float(test_matches.groups()[2])
+
+          if epoch_num_auc is None:
+            epoch_num_auc = test_matches.groups()[0]
+            metrics_auc = float(test_matches.groups()[1])
+          elif (int(test_matches.groups()[0]) > int(epoch_num_auc) and
+                float(test_matches.groups()[1]) == metrics_auc) or (float(
+                    test_matches.groups()[1]) > metrics_auc):
+            epoch_num_auc = test_matches.groups()[0]
+            metrics_auc = float(test_matches.groups()[1])
+
+      if checkpoint_selection == 'top_auc_test':
+        epoch_num = epoch_num_auc
+      elif checkpoint_selection == 'top_acc_test':
+        epoch_num = epoch_num_acc
+
+  elif checkpoint_selection == 'index_number':
+    epoch_num = str(int(checkpoint_index))
+
+  metrics_acc = None
+  metrics_auc = None
+  log_data = _download_eval_job_log(id_eval_job)
+  if log_data:
+    for log in log_data:
+      test_matches = re.search(
+          r'Epoch: ([0-9]*),.*Test AUC: ([0-9]*\.[0-9]*), '
+          r'Test Accuracy: ([0-9]*\.[0-9]*)',
+          log['jsonPayload']['message'])
+      if test_matches:
+        if int(test_matches.groups()[0]) == int(epoch_num):
+          metrics_acc = test_matches.groups()[2]
+          metrics_auc = test_matches.groups()[1]
+          break
 
   if checkpoint_selection == "top_auc_test":
     print(
-        f'Checkpoint used: {epoch_num}, Test AUC (best): {metrics_auc}, Test Accuracy: {metrics_acc}'
+        f'Checkpoint used: {epoch_num}, '
+        f'Test AUC (best): {metrics_auc}, '
+        f'Test Accuracy: {metrics_acc}'
     )
   elif checkpoint_selection == "top_acc_test":
     print(
-        f'Checkpoint used: {epoch_num}, Test AUC: {metrics_auc}, Test Accuracy (best): {metrics_acc}'
+        f'Checkpoint used: {epoch_num}, '
+        f'Test AUC: {metrics_auc}, '
+        f'Test Accuracy (best): {metrics_acc}'
     )
   else:
     print(
-        f'Checkpoint used: {epoch_num}, Test AUC: {metrics_auc}, Test Accuracy: {metrics_acc}'
+        f'Checkpoint used: {epoch_num}, '
+        f'Test AUC: {metrics_auc}, '
+        f'Test Accuracy: {metrics_acc}'
     )
 
   return epoch_num.zfill(8)
 
 
 def write_generate_inference_script(**args):
-  """Build the shell launch_vertex_job.py command for inference job with input parameters, and flags
-    --job_type=eval --inference_mode=True --save_predictions=True"""
+  """Build the shell launch_vertex_job.py command for inference job."""
   submission_ending = '''
 source {python_env}; export GOOGLE_APPLICATION_CREDENTIALS={path_cred};
 python {path_skai}/src/launch_vertex_job.py \\
@@ -974,12 +1045,15 @@ def run_inference_and_prediction_job(path_file):
   child = pexpect.spawn(f'sh {path_file}')
   while not child.closed:
     # Expects 5 different patterns, or EOF (meaning the program terminated).
-    # Each pattern is a regex and you can use regex match groups "()" to extract a
-    # part of the matched text for later use.
+    # Each pattern is a regex and you can use regex match groups "()" to extract
+    # a part of the matched text for later use.
     pattern_idx = child.expect([
-        'CustomJob created\.', 'JobState\.JOB_STATE_PENDING\r\n',
-        'JobState\.JOB_STATE_RUNNING\r\n', 'JobState\.JOB_STATE_SUCCEEDED\r\n',
-        'CustomJob run completed\.', pexpect.EOF
+        r'CustomJob created\.',
+        r'JobState\.JOB_STATE_PENDING\r\n',
+        r'JobState\.JOB_STATE_RUNNING\r\n',
+        r'JobState\.JOB_STATE_SUCCEEDED\r\n',
+        r'CustomJob run completed\.',
+        pexpect.EOF
     ],
                                timeout=None)
     if pattern_idx == 0:  # A job was created.
@@ -1003,9 +1077,12 @@ def run_inference_and_prediction_job(path_file):
 
 
 def create_folium_map(geojson_path, pathgcp_before, pathgcp_after):
-  """Display images before and after if there are all TIFF files, and predictions on two layers:
-    one per building with circle marker, and one as a heat map of damaged building."""
-  # Add custom basemaps to folium.
+  """Creates an interactive Folium map.
+
+  Displays images before and after if they are all TIFF files, an predictions on
+  two layers: one per building with circle marker, and one as a heat map of
+  damaged building.
+  """
   basemaps = {
       'Google Maps':
           folium.TileLayer(
@@ -1069,7 +1146,9 @@ def create_folium_map(geojson_path, pathgcp_before, pathgcp_after):
 
   if error_message:
     print(
-        f'The following TIFF image(s) need to be Cloud Optimzed GeoTIFF file(s) in order to be visualized in the map using EarthEngine:\n{no_cog_file}\n'
+        'The following TIFF image(s) need to be Cloud Optimzed GeoTIFF file(s) '
+        'in order to be visualized in the map using EarthEngine:\n'
+        f'{no_cog_file}'
     )
 
   else:
