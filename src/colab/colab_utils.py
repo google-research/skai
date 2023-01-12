@@ -65,7 +65,7 @@ def create_bucket(project, location, bucket_name):
       f"""gsutil mb -p {project} -l {location} -b on gs://{bucket_name}""")
 
 
-def get_id_project(project):
+def get_project_id(project):
   """Return the project id for given project name."""
   url = 'https://cloudresourcemanager.googleapis.com/v1/projects/{}'.format(
       project)
@@ -191,7 +191,7 @@ class ProgressBar:
         self.get_html(metrics, display_message), display_id=True)
 
   def format_example_metrics(self, args):
-    return '''Num generated examples: {value}/{max}'''.format(**args)
+    return 'Num generated examples: {value}/{max}'.format(**args)
 
   def format_training_metrics(self, args):
     return '''Metrics (updated as training progresses {timestamp}):<br>
@@ -364,11 +364,11 @@ class LabelingJob:
     }
 
   def get_info(self):
-    '''Return the percentage of data items labeled.
+    """Return the percentage of data items labeled.
 
     Warning: There is a long lag between when items are labeled and when this
     value is updated.
-    '''
+    """
     parent = (f'projects/{self._project}/locations/{self._location}/'
               f'dataLabelingJobs/{self._labeling_job}')
     url = f'https://{self._endpoint}/v1/{parent}'
@@ -379,11 +379,11 @@ class LabelingJob:
     return r.json()
 
   def get_completion_percentage(self):
-    '''Return the percentage of data items labeled.
+    """Return the percentage of data items labeled.
 
     Warning: There is a long lag between when items are labeled and when this
     value is updated.
-    '''
+    """
     info = self.get_info()
     return info.get('labelingProgress', 0)
 
@@ -894,7 +894,7 @@ def _download_eval_job_log(eval_job_id):
     return None
 
 
-def get_id_train_eval_job(project, location, job_name):
+def get_train_eval_job_id(project, location, job_name):
   """Return the job id of the train or evaluation job name."""
   url = 'https://{}-aiplatform.googleapis.com/v1/projects/{}/locations/{}/customJobs'.format(
       location, project, location)
