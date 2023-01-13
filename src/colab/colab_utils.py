@@ -65,38 +65,12 @@ def create_bucket(project, location, bucket_name):
       f"""gsutil mb -p {project} -l {location} -b on gs://{bucket_name}""")
 
 
-def progress(value, max=100):
-  """Build progress bar."""
-  css = """
-        <style>
-          progress {
-            border-radius: 7px;
-            box-shadow: 1px 1px 2px rgba(0, 0, 0, 0.5) inset;
-            width: 80%;
-            height: 30px;
-            display: block;
-          }
-          progress::-webkit-progress-bar {
-            background-color: rgba(237, 237, 237, 0);
-            border-radius: 7px;
-          }
-          progress::-webkit-progress-value {
-            background-color: green;
-            border-radius: 7px;
-            box-shadow: 1px 1px 1px rgba(0, 0, 0, 0.1) inset;
-          }
-        </style>
-        """
-  html = """
-          <progress
-              value='{value}'
-              max='{max}'
-          >
-            {value}%
-          </progress>
-        """.format(
-      value=value, max=max)
-  return HTML(css + html)
+def get_project_id(project):
+  """Return the project id for given project name."""
+  url = 'https://cloudresourcemanager.googleapis.com/v1/projects/{}'.format(
+      project)
+  data = make_gcp_http_request(url)
+  return int(data['projectNumber'])
 
 
 def create_folium_map_with_images(pathgcp_before, pathgcp_after):
@@ -117,8 +91,7 @@ def create_folium_map_with_images(pathgcp_before, pathgcp_after):
     print(
         'The following TIFF image(s) need to be Cloud Optimzed GeoTIFF file(s) '
         'in order to be visualized in the map using EarthEngine:'
-        f'\n{no_cog_file}\n{str(error_message[0])}'
-    )
+        f'\n{no_cog_file}\n{str(error_message[0])}')
     return
 
   before_image_path = pathgcp_before.split(',')[0]
@@ -212,18 +185,39 @@ class ProgressBar:
      with progress tracking of examples processed.
   """
 
-  def __init__(self, max):
-    self._display = display(self.get_html(0, max), display_id=True)
+  def __init__(self, metrics, job_type=None, display_message=None):
+    self._job_type = job_type
+    self._display = display(
+        self.get_html(metrics, display_message), display_id=True)
 
-  def get_html(self, value, max):
-    return HTML(
-        f'Num generated examples: {value}/{max}'
-        f'<progress value="{value}" max="{max}" '
-        f'style="width: 100%">{value}</progress>'
-    )
+  def format_example_metrics(self, args):
+    return 'Num generated examples: {value}/{max}'.format(**args)
 
-  def update(self, num_examples, max):
-    self._display.update(self.get_html(num_examples, max))
+  def format_training_metrics(self, args):
+    return '''Metrics (updated as training progresses {timestamp}):<br>
+    Labeled Training Set, Epoch {train_epoch}<br>
+    Accuracy: {train_label_acc}% | AUC: {train_label_auc}<br>
+    Test Set, Epoch {test_epoch}<br>
+    Accuracy: {test_acc}% | AUC: {test_auc}'''.format(**args)
+
+  def get_html(self, metrics, display_message=None):
+    style = f'''<progress value="{metrics["value"]}" max="{metrics["max"]}"
+    style="width: 100%">{metrics["value"]}</progress>'''
+
+    if display_message is not None:
+      formated_message = display_message
+    else:
+      if self._job_type == None:
+        formated_message = ''
+      elif self._job_type == 'example_progress':
+        formated_message = self.format_example_metrics(metrics)
+      elif self._job_type == 'training_progress':
+        formated_message = self.format_training_metrics(metrics)
+
+    return HTML(formated_message + style)
+
+  def update(self, metrics, display_message=None):
+    self._display.update(self.get_html(metrics, display_message))
 
 
 def parse_dataflow_job_creation_params(param_str: str):
@@ -246,9 +240,9 @@ def count_tfrecord(path):
   return total_example_num
 
 
-def run_example_generation(
-    generate_examples_args, path_dir_args, pretty_output=True
-):
+def run_example_generation(generate_examples_args,
+                           path_dir_args,
+                           pretty_output=True):
   """Run generate_examples_main.py command.
 
   If pretty_output is True, run the command with display of the progress bar.
@@ -262,7 +256,7 @@ def run_example_generation(
         use_pexpect=False)
     return
 
-  progress_bar = ProgressBar(1)
+  progress_bar = ProgressBar({'value': 0, 'max': 1}, 'example_progress')
 
   child = launch_pexpect_process(
       'generate_examples_main.py',
@@ -281,7 +275,7 @@ def run_example_generation(
     if i == 0:
       num_buildings = int(child.match.group(1))
       print(f'Found {num_buildings} buildings in area of interest.')
-      progress_bar.update(0, num_buildings)
+      progress_bar.update({'value': 0, 'max': num_buildings})
     elif i == 1:
       job_params = parse_dataflow_job_creation_params(
           child.match.group(1).decode())
@@ -313,7 +307,7 @@ def run_example_generation(
       job_state = child.match.group(1).decode()
       print(f'Dataflow job state: {job_state}')
       if job_state == 'DONE':
-        progress_bar.update(num_buildings, num_buildings)
+        progress_bar.update({'value': num_buildings, 'max': num_buildings})
         total_example_counter = 0
         for k in range(20):
           file_directory = f'unlabeled/unlabeled-000{k:02d}-of-00020.tfrecord'
@@ -333,7 +327,7 @@ def run_example_generation(
         t, v = rejected_examples_metric.get_latest_value()
         if t:
           examples_processed += int(v)
-        progress_bar.update(examples_processed, num_buildings)
+        progress_bar.update({'value': examples_processed, 'max': num_buildings})
       if i == 2:
         child.close()
         break
@@ -370,11 +364,11 @@ class LabelingJob:
     }
 
   def get_info(self):
-    '''Return the percentage of data items labeled.
+    """Return the percentage of data items labeled.
 
     Warning: There is a long lag between when items are labeled and when this
     value is updated.
-    '''
+    """
     parent = (f'projects/{self._project}/locations/{self._location}/'
               f'dataLabelingJobs/{self._labeling_job}')
     url = f'https://{self._endpoint}/v1/{parent}'
@@ -385,11 +379,11 @@ class LabelingJob:
     return r.json()
 
   def get_completion_percentage(self):
-    '''Return the percentage of data items labeled.
+    """Return the percentage of data items labeled.
 
     Warning: There is a long lag between when items are labeled and when this
     value is updated.
-    '''
+    """
     info = self.get_info()
     return info.get('labelingProgress', 0)
 
@@ -504,11 +498,10 @@ def run_labeling_task_creation(create_label_task_args,
       data = make_gcp_http_request(url)
       data = list(
           filter(
-              lambda d: create_label_task_args['dataset_name']
-              in d['displayName'],
+              lambda d: create_label_task_args['dataset_name'] in d[
+                  'displayName'],
               data['dataLabelingJobs'],
-          )
-      )[0]
+          ))[0]
 
       dataset_id = int(data['datasets'][0].split('/')[-1])
       dataset_name = data['displayName']
@@ -525,20 +518,14 @@ def run_labeling_task_creation(create_label_task_args,
           labelingjob_id,
       )
 
-      print(
-          'Instruction URL: {}'.format(
-              labelingjob_instruction.replace(
-                  'gs://', 'https://storage.cloud.google.com/'
-              )
-          )
-      )
+      print('Instruction URL: {}'.format(
+          labelingjob_instruction.replace('gs://',
+                                          'https://storage.cloud.google.com/')))
       print(f'Worker URL: {labeling_job.get_worker_url()}')
       print(f'Manager URL: {labeling_job.get_manager_url()}')
-      print(
-          'Detailed monitoring page: '
-          'https://console.cloud.google.com/vertex-ai/locations/'
-          f'{location}/labeling-tasks/{labelingjob_id}?project={project}'
-      )
+      print('Detailed monitoring page: '
+            'https://console.cloud.google.com/vertex-ai/locations/'
+            f'{location}/labeling-tasks/{labelingjob_id}?project={project}')
 
       break
     elif i == 2:
@@ -559,7 +546,8 @@ def create_labeled_dataset(create_labeled_dataset_args, path_dir_args):
   child = launch_pexpect_process('create_labeled_dataset.py',
                                  create_labeled_dataset_args, path_dir_args,
                                  True)
-
+  print('Labeling dataset used for labeled datasets creation :'
+        f'{create_labeled_dataset_args["cloud_dataset_id"]}')
   print('Creating labeled datasets...')
   child.expect(pexpect.EOF, timeout=None)
   child.close()
@@ -651,68 +639,15 @@ def visualize_labeled_examples(path, max_examples=None):
   return total_example_num
 
 
-def write_train_and_eval_launch_script(**args):
-  """Builds shell command for launching training and evaluation jobs."""
-  args['hyper_parameters_args'] = ''
-
-  submission_ending = '''
-source {python_env}; export GOOGLE_APPLICATION_CREDENTIALS={path_cred};
-python {path_skai}/src/launch_vertex_job.py \\
-  --location={cloud_region} \\
-  --project={cloud_project} \\
-  --job_type=train \\
-  --display_name={display_name_train} \\
-  --dataset_name={dataset_name} \\
-  --train_worker_machine_type=n1-highmem-16 \\
-  --train_docker_image_uri_path={train_docker_image_uri_path} \\
-  --service_account={service_account} \\
-  --train_dir={train_dir} \\
-  --train_unlabel_examples={train_unlabel_examples} \\
-  --train_label_examples={train_label_examples} \\
-  --test_examples={test_examples} & \\
-sleep 60 ; python {path_skai}/src/launch_vertex_job.py \\
-  --location={cloud_region} \\
-  --project={cloud_project} \\
-  --job_type=eval \\
-  --display_name={display_name_eval} \\
-  --dataset_name={dataset_name} \\
-  --eval_docker_image_uri_path={eval_docker_image_uri_path} \\
-  --service_account={service_account} \\
-  --train_dir={train_dir} \\
-  --train_unlabel_examples={train_unlabel_examples} \\
-  --train_label_examples={train_label_examples} \\
-  --test_examples={test_examples}'''.format(**args)
-  print(submission_ending)
-  with open(args['path_run'], 'w+') as file:
-    file.write(submission_ending)
-
-
-def format_training_metrics(train_label_acc, train_label_auc, test_acc,
-                            test_auc, train_epoch, test_epoch, time):
-  """Format the trining metrics with HTML display."""
-  html = """
-         <h2>Metrics (updated as training progresses {timestamp}):</h2>
-         <h3>Labeled Training Set, Epoch {train_epoch}</h3>
-         <p>Accuracy: {train_label_acc}% | AUC: {train_label_auc}</p>
-         <h3>Test Set, Epoch {test_epoch}</h3>
-         <p>Accuracy: {test_acc}% | AUC: {test_auc}</p>
-        """.format(
-      train_label_acc=train_label_acc,
-      train_label_auc=train_label_auc,
-      test_acc=test_acc,
-      test_auc=test_auc,
-      train_epoch=train_epoch,
-      test_epoch=test_epoch,
-      timestamp=time)
-  return HTML(html)
-
-
 def timestamp_to_datetime(timestamp):
   return pd.to_datetime(timestamp)
 
 
-def run_train_and_eval_job(path_file,
+def run_train_and_eval_job(run_train_eval_args,
+                           path_dir_args,
                            email_manager,
+                           sleep=None,
+                           pretty_output=True,
                            load_tensorboard=False,
                            path_log_tensorboard=None):
   """Run the shell launch_vertex_job.py command for training and evaluation job.
@@ -721,9 +656,18 @@ def run_train_and_eval_job(path_file,
   tensorboard is display to track the progress of the training job and
   performance metrics.
   """
+
+  if not pretty_output:
+    launch_pexpect_process(['launch_vertex_job.py', 'launch_vertex_job.py'],
+                           run_train_eval_args,
+                           sleep,
+                           path_dir_args,
+                           use_pexpect=False)
+    return
+
   # Create the progress bar and metrics displays.
-  progress_display = display(progress(0, 100), display_id=True)
-  metrics_display = None
+  progress_bar = ProgressBar({'value': 0, 'max': 100})
+  metrics_display = False
 
   # Store Job IDs of training and evaluation jobs.
   # Keep track of timestamp of most recent logs to process only fresher logs.
@@ -731,13 +675,19 @@ def run_train_and_eval_job(path_file,
   curr_epoch = None
   total_num_epochs = None
   total_num_img = None
+  progress_args = None
   train_most_recent_timestamp = pd.Timestamp.utcnow()
   eval_most_recent_timestamp = pd.Timestamp.utcnow()
 
   train_state, eval_state = None, None
 
   # Run the child program.
-  child = pexpect.spawn(f'sh {path_file}')
+  child = launch_pexpect_process(
+      ['launch_vertex_job.py', 'launch_vertex_job.py'],
+      run_train_eval_args,
+      path_dir_args,
+      use_pexpect=True,
+      sleep=sleep)
   while not child.closed:
     # Expects 5 different patterns, or EOF (meaning the program terminated).
     # Each pattern is a regex and you can use regex match groups "()" to extract
@@ -747,47 +697,48 @@ def run_train_and_eval_job(path_file,
             'I.*] Creating CustomJob',
             'I.*] CustomJob created\\. Resource name: .*/([0-9]*)',
             'I.*] View Custom Job:\r\n(.*)\r\nCustomJob',
-            (
-                'I.*] CustomJob .*/([0-9]*) current'
-                ' state:\r\nJobState.JOB_STATE_PENDING'
-            ),
-            (
-                'I.*] CustomJob .*/([0-9]*) current'
-                ' state:\r\nJobState.JOB_STATE_RUNNING'
-            ),
+            ('I.*] CustomJob .*/([0-9]*) current'
+             ' state:\r\nJobState.JOB_STATE_PENDING'),
+            ('I.*] CustomJob .*/([0-9]*) current'
+             ' state:\r\nJobState.JOB_STATE_RUNNING'),
             'I.*] CustomJob run completed.',
             pexpect.EOF,
         ],
         timeout=None,
     )
     if pattern_idx == 0:
-      progress_display.update(progress(0, 100))
-
+      progress_bar.update({'value': 0, 'max': 100})
     elif pattern_idx == 1:  # A job was created, so store its ID.
       job_id = child.match.group(1).decode()
       if train_job_id is None:
         train_job_id = job_id
-        progress_display.update(progress(1, 100))
+        progress_bar.update({'value': 1, 'max': 100})
+        print(
+            f'Checkpoints will be saved here :\n{run_train_eval_args[0]["train_dir"]}'
+        )
+        print(
+            f'Your Training CustomJob is :\n{run_train_eval_args[0]["display_name"]}'
+        )
       elif eval_job_id is None:
         if job_id != train_job_id:
           eval_job_id = job_id
+          print(
+              f'Your Evaluation CustomJob is :\n{run_train_eval_args[1]["display_name"]}'
+          )
 
     elif pattern_idx == 2:  # Jobs are created.
       if job_id == train_job_id:
-        print(
-            'Training CustomJob created\nDetailed monitoring page - '
-            f'Train job id {job_id} : {child.match.group(1).decode()}'
-        )
+        print('Training CustomJob created\nDetailed monitoring page - '
+              f'Train job id {job_id} : {child.match.group(1).decode()}')
       else:
-        print(
-            'Evaluation CustomJob created\nDetailed monitoring page - '
-            f'Eval job id {job_id} : {child.match.group(1).decode()}'
-        )
+        print('Evaluation CustomJob created\nDetailed monitoring page - '
+              f'Eval job id {job_id} : {child.match.group(1).decode()}')
 
     elif pattern_idx == 3:  # Jobs are pending, so update progress bar.
       job_id = child.match.group(1).decode()
       if job_id == train_job_id:
-        progress_display.update(progress(5, 100))
+        progress_args = {'value': 5, 'max': 100}
+        progress_bar.update(progress_args)
         if train_state is None:
           train_state = 'PENDING'
           print(f'Training CustomJob state: {train_state}')
@@ -798,118 +749,137 @@ def run_train_and_eval_job(path_file,
 
     elif pattern_idx == 4:  # Jobs are running, update progress bar or metrics.
       job_id = child.match.group(1).decode()
-      get_logs_status = os.system(
-          'gcloud logging read'
-          f'"resource.labels.job_id={job_id} severity=ERROR "Epoch""'
-          f'--format json > /tmp/{job_id}_log'
-      )
-      if get_logs_status == 0:
-        with open(f'/tmp/{job_id}_log', 'r') as log_file:
-          log_data = json.load(log_file)
-          if job_id == train_job_id:
-            if train_state == 'PENDING':
-              train_state = 'RUNNING'
-              print(f'Training CustomJob state: {train_state}')
-            # If training job, then update the progress bar.
-            curr_epoch = None
-            for log in log_data:
-              log_timestamp = timestamp_to_datetime(log['timestamp'])
-              if log_timestamp < train_most_recent_timestamp:
-                # If logs have not been refreshed, ignore them.
-                break
-              else:
-                train_most_recent_timestamp = log_timestamp
-              if log_timestamp == train_most_recent_timestamp:
-                matches = re.search(
-                    'Epoch ([0-9]*/[0-9]*):   [0-9]*%.* [0-9]*/([0-9]*)',
-                    log['jsonPayload']['message'])
-                if matches:
-                  matches = matches.groups()
-                  log_epoch = int(matches[0].split('/')[0])
-                  if total_num_epochs is None:
-                    total_num_epochs = int(matches[0].split('/')[1])
-                  if total_num_img is None:
-                    total_num_img = int(matches[-1])
-                  if curr_epoch is None or log_epoch > curr_epoch:
-                    # Logs can be received at different times, so check for the
-                    # highest epoch number logged.
-                    curr_epoch = log_epoch
-                    progress_display.update(
-                        progress(
-                            5 + int(95. * curr_epoch / (total_num_epochs + 1)),
-                            100))
-                    break
-          else:
-            # If evaluation job, then update the metrics display.
-            if eval_state == 'PENDING':
-              eval_state = 'RUNNING'
-              print(f'Evaluation CustomJob state: {eval_state}\n')
+      if job_id == train_job_id:
+        if train_state == 'PENDING':
+          train_state = 'RUNNING'
+          print(f'Training CustomJob state: {train_state}')
+      else:
+        if eval_state == 'PENDING':
+          eval_state = 'RUNNING'
+          print(f'Evaluation CustomJob state: {eval_state}\n')
 
-            train_label_acc = None
-            train_label_auc = None
-            test_acc = None
-            test_auc = None
-            for log in log_data:
-              log_timestamp = timestamp_to_datetime(log['timestamp'])
-              if log_timestamp < eval_most_recent_timestamp:
-                # If logs have not been refreshed, ignore them.
-                break
-              if train_label_acc is None:
-                train_label_matches = re.search(
-                    r'Epoch: ([0-9]*), .* Train_Label AUC: ([0-9]*\.[0-9]*), ' +
-                    r'Train_Label Accuracy: ([0-9]*\.[0-9]*)',
-                    log['jsonPayload']['message'])
-                if train_label_matches:
-                  train_label_epoch = min(
-                      (int(train_label_matches.groups()[0]) // total_num_img) +
-                      1, total_num_epochs)
-                  train_label_epoch = f'{train_label_epoch}/{total_num_epochs}'
-                  train_label_auc = train_label_matches.groups()[1]
-                  train_label_acc = train_label_matches.groups()[2]
-              elif test_acc is None:
-                test_matches = re.search(
-                    r'Epoch: ([0-9]*), .* Test AUC: ([0-9]*\.[0-9]*), '
-                    r'Test Accuracy: ([0-9]*\.[0-9]*)',
-                    log['jsonPayload']['message'])
-                if test_matches:
-                  test_epoch = min(
-                      (int(test_matches.groups()[0]) // total_num_img) + 1,
-                      total_num_epochs)
-                  test_epoch = f'{test_epoch}/{total_num_epochs}'
-                  test_auc = test_matches.groups()[1]
-                  test_acc = test_matches.groups()[2]
-              else:
-                eval_most_recent_timestamp = log_timestamp
-                break
-            if train_label_acc is not None and test_acc is not None:
-              if metrics_display is None:
-                metrics_display = display(
-                    format_training_metrics(
-                        0, 0, 0, 0, 0, 0,
-                        eval_most_recent_timestamp.strftime(
-                            '%Y-%m-%d, %H:%M:%S')),
-                    display_id=True)
-                print('\n')
-                if load_tensorboard:
-                  load_start_tensorboard(path_log_tensorboard)
-              else:
-                metrics_display.update(
-                    format_training_metrics(
-                        train_label_acc, train_label_auc, test_acc, test_auc,
-                        train_label_epoch, test_epoch,
-                        eval_most_recent_timestamp.strftime(
-                            '%Y-%m-%d, %H:%M:%S')))
+      log_data = _download_eval_job_log(job_id)
+      if log_data:
+        if job_id == train_job_id:
+          # If training job, then update the progress bar.
+          curr_epoch = None
+          for log in log_data:
+            log_timestamp = timestamp_to_datetime(log['timestamp'])
+            if log_timestamp < train_most_recent_timestamp:
+              # If logs have not been refreshed, ignore them.
+              break
+            else:
+              train_most_recent_timestamp = log_timestamp
+            if log_timestamp == train_most_recent_timestamp:
+              matches = re.search(
+                  'Epoch ([0-9]*/[0-9]*):   [0-9]*%.* [0-9]*/([0-9]*)',
+                  log['jsonPayload']['message'])
+              if matches:
+                matches = matches.groups()
+                log_epoch = int(matches[0].split('/')[0])
+                if total_num_epochs is None:
+                  total_num_epochs = int(matches[0].split('/')[1])
+                if total_num_img is None:
+                  total_num_img = int(matches[-1])
+                if curr_epoch is None or log_epoch > curr_epoch:
+                  # Logs can be received at different times, so check for the
+                  # highest epoch number logged.
+                  curr_epoch = log_epoch
+                  progress_args.update({
+                      'value':
+                          5 + int(95. * curr_epoch / (total_num_epochs + 1))
+                  })
+                  progress_bar.update(progress_args)
+                  break
+        else:
+          # If evaluation job, then update the metrics display.
+          train_label_acc = None
+          train_label_auc = None
+          test_acc = None
+          test_auc = None
+          for log in log_data:
+            log_timestamp = timestamp_to_datetime(log['timestamp'])
+            if log_timestamp < eval_most_recent_timestamp:
+              # If logs have not been refreshed, ignore them.
+              break
+            if train_label_acc is None:
+              train_label_matches = re.search(
+                  r'Epoch: ([0-9]*), .* Train_Label AUC: ([0-9]*\.[0-9]*), ' +
+                  r'Train_Label Accuracy: ([0-9]*\.[0-9]*)',
+                  log['jsonPayload']['message'])
+              if train_label_matches:
+                train_label_epoch = min(
+                    (int(train_label_matches.groups()[0]) // total_num_img) + 1,
+                    total_num_epochs)
+                train_label_epoch = f'{train_label_epoch}/{total_num_epochs}'
+                train_label_auc = train_label_matches.groups()[1]
+                train_label_acc = train_label_matches.groups()[2]
+            elif test_acc is None:
+              test_matches = re.search(
+                  r'Epoch: ([0-9]*), .* Test AUC: ([0-9]*\.[0-9]*), '
+                  r'Test Accuracy: ([0-9]*\.[0-9]*)',
+                  log['jsonPayload']['message'])
+              if test_matches:
+                test_epoch = min(
+                    (int(test_matches.groups()[0]) // total_num_img) + 1,
+                    total_num_epochs)
+                test_epoch = f'{test_epoch}/{total_num_epochs}'
+                test_auc = test_matches.groups()[1]
+                test_acc = test_matches.groups()[2]
+            else:
+              eval_most_recent_timestamp = log_timestamp
+              break
+          if train_label_acc is not None and test_acc is not None:
+            if not metrics_display:
+              progress_bar._job_type = 'training_progress'
+              progress_args.update({
+                  'timestamp':
+                      eval_most_recent_timestamp.strftime('%Y-%m-%d, %H:%M:%S'),
+                  'train_epoch':
+                      0,
+                  'train_label_acc':
+                      0,
+                  'train_label_auc':
+                      0,
+                  'test_epoch':
+                      0,
+                  'test_acc':
+                      0,
+                  'test_auc':
+                      0
+              })
+              progress_bar.update(progress_args)
+              metrics_display = True
+              if load_tensorboard:
+                load_start_tensorboard(path_log_tensorboard)
+            else:
+              progress_args.update({
+                  'timestamp':
+                      eval_most_recent_timestamp.strftime('%Y-%m-%d, %H:%M:%S'),
+                  'train_epoch':
+                      train_label_epoch,
+                  'train_label_acc':
+                      train_label_acc,
+                  'train_label_auc':
+                      train_label_auc,
+                  'test_epoch':
+                      test_epoch,
+                  'test_acc':
+                      test_acc,
+                  'test_auc':
+                      test_auc
+              })
+              progress_bar.update(progress_args)
 
     elif pattern_idx == 5:  # Job completed. Email user a notification.
       print('Training CustomJob state: DONE\n')
       email_subject = 'Skai Training Complete'
       email_body = ('Training has completed! Please return to the Colab to '
                     'visualize results.')
-      os.system(
-          f'printf "Subject: {email_subject}\n\n{email_body}" '
-          f'| msmtp {email_manager}'
-      )
-      progress_display.update(progress(100, 100))
+      os.system(f'printf "Subject: {email_subject}\n\n{email_body}" '
+                f'| msmtp {email_manager}')
+      progress_args.update({'value': 100})
+      progress_bar.update(progress_args)
     else:
       child.close()
 
@@ -922,6 +892,16 @@ def _download_eval_job_log(eval_job_id):
     if os.system(command) == 0:
       return json.load(output)
     return None
+
+
+def get_train_eval_job_id(project, location, job_name):
+  """Return the job id of the train or evaluation job name."""
+  url = 'https://{}-aiplatform.googleapis.com/v1/projects/{}/locations/{}/customJobs'.format(
+      location, project, location)
+  data = make_gcp_http_request(url)
+  data = list(
+      filter(lambda d: job_name in d['displayName'], data['customJobs']))[0]
+  return int(data['name'].split('/')[-1])
 
 
 def get_epoch_number(path_experiment, id_eval_job, checkpoint_selection,
@@ -944,8 +924,7 @@ def get_epoch_number(path_experiment, id_eval_job, checkpoint_selection,
       for log in log_data:
         test_matches = re.search(
             r'Epoch: ([0-9]*),.*Test AUC: ([0-9]*\.[0-9]*), '
-            r'Test Accuracy: ([0-9]*\.[0-9]*)',
-            log['jsonPayload']['message'])
+            r'Test Accuracy: ([0-9]*\.[0-9]*)', log['jsonPayload']['message'])
         if test_matches:
 
           if epoch_num_acc is None:
@@ -981,8 +960,7 @@ def get_epoch_number(path_experiment, id_eval_job, checkpoint_selection,
     for log in log_data:
       test_matches = re.search(
           r'Epoch: ([0-9]*),.*Test AUC: ([0-9]*\.[0-9]*), '
-          r'Test Accuracy: ([0-9]*\.[0-9]*)',
-          log['jsonPayload']['message'])
+          r'Test Accuracy: ([0-9]*\.[0-9]*)', log['jsonPayload']['message'])
       if test_matches:
         if int(test_matches.groups()[0]) == int(epoch_num):
           metrics_acc = test_matches.groups()[2]
@@ -990,88 +968,94 @@ def get_epoch_number(path_experiment, id_eval_job, checkpoint_selection,
           break
 
   if checkpoint_selection == "top_auc_test":
-    print(
-        f'Checkpoint used: {epoch_num}, '
-        f'Test AUC (best): {metrics_auc}, '
-        f'Test Accuracy: {metrics_acc}'
-    )
+    print(f'Checkpoint used: {epoch_num}, '
+          f'Test AUC (best): {metrics_auc}, '
+          f'Test Accuracy: {metrics_acc}')
   elif checkpoint_selection == "top_acc_test":
-    print(
-        f'Checkpoint used: {epoch_num}, '
-        f'Test AUC: {metrics_auc}, '
-        f'Test Accuracy (best): {metrics_acc}'
-    )
+    print(f'Checkpoint used: {epoch_num}, '
+          f'Test AUC: {metrics_auc}, '
+          f'Test Accuracy (best): {metrics_acc}')
   else:
-    print(
-        f'Checkpoint used: {epoch_num}, '
-        f'Test AUC: {metrics_auc}, '
-        f'Test Accuracy: {metrics_acc}'
-    )
+    print(f'Checkpoint used: {epoch_num}, '
+          f'Test AUC: {metrics_auc}, '
+          f'Test Accuracy: {metrics_acc}')
 
   return epoch_num.zfill(8)
 
 
-def write_generate_inference_script(**args):
-  """Build the shell launch_vertex_job.py command for inference job."""
-  submission_ending = '''
-source {python_env}; export GOOGLE_APPLICATION_CREDENTIALS={path_cred};
-python {path_skai}/src/launch_vertex_job.py \\
-  --location={cloud_region} \\
-  --project={cloud_project} \\
-  --job_type=eval \\
-  --display_name={display_name_infer} \\
-  --eval_worker_machine_type=n1-highmem-16 \\
-  --dataset_name={dataset_name} \\
-  --eval_docker_image_uri_path={eval_docker_image_uri_path} \\
-  --service_account={service_account} \\
-  --train_dir={train_dir} \\
-  --test_examples={test_examples} \\
-  --eval_ckpt={eval_model_ckpt} \\
-  --inference_mode=True \\
-  --save_predictions=True'''.format(**args)
-  print(submission_ending)
-  with open(args['path_run'], 'w+') as file:
-    file.write(submission_ending)
-
-
-def run_inference_and_prediction_job(path_file):
+def run_inference_and_prediction_job(run_infer_args,
+                                     path_dir_args,
+                                     epoch,
+                                     pretty_output=True):
   """Run the shell launch_vertex_job.py command for inference job."""
+
+  if not pretty_output:
+    launch_pexpect_process(
+        'launch_vertex_job.py',
+        run_infer_args,
+        path_dir_args,
+        use_pexpect=False)
+    return
+
   # Initialize progress bar.
-  progress_display = display(progress(0, 100), display_id=True)
+  progress_bar = ProgressBar({'value': 0, 'max': 100})
   curr_idx = 0
-  map = None
+  job_state = None
 
   # Run the child program.
-  child = pexpect.spawn(f'sh {path_file}')
+  child = launch_pexpect_process(
+      'launch_vertex_job.py', run_infer_args, path_dir_args, use_pexpect=True)
+
   while not child.closed:
     # Expects 5 different patterns, or EOF (meaning the program terminated).
     # Each pattern is a regex and you can use regex match groups "()" to extract
     # a part of the matched text for later use.
     pattern_idx = child.expect([
-        r'CustomJob created\.',
-        r'JobState\.JOB_STATE_PENDING\r\n',
-        r'JobState\.JOB_STATE_RUNNING\r\n',
-        r'JobState\.JOB_STATE_SUCCEEDED\r\n',
-        r'CustomJob run completed\.',
-        pexpect.EOF
+        'I.*] CustomJob created\\.',
+        ('I.*] CustomJob .*/([0-9]*) current'
+         ' state:\r\nJobState.JOB_STATE_PENDING'),
+        ('I.*] CustomJob .*/([0-9]*) current'
+         ' state:\r\nJobState.JOB_STATE_RUNNING'),
+        ('I.*] CustomJob .*/([0-9]*) current'
+         ' state:\r\nJobState.JOB_STATE_SUCCEEDED'),
+        'I.*] CustomJob run completed.', pexpect.EOF
     ],
                                timeout=None)
+
     if pattern_idx == 0:  # A job was created.
-      progress_display.update(progress(5, 100))
+      progress_bar.update({'value': 5, 'max': 100})
+      print('Inference CustomJob created')
+      print('Checkpoint used for inference :\n'
+            f'{run_infer_args["eval_ckpt"]}.data-00000-of-00001')
     elif pattern_idx == 1:  # Job Pending.
-      progress_display.update(progress(10, 100))
+      if job_state != 'PENDING':
+        job_state = 'PENDING'
+        print(f'Inference CustomJob state: {job_state}')
+      progress_bar.update({'value': 10, 'max': 100})
     elif pattern_idx == 2:  # Job Running.
+      if job_state != 'RUNNING':
+        job_state = 'RUNNING'
+        print(f'Inference CustomJob state: {job_state}')
       starting_progress = 20
       max_progress = 90
       curr_progress = starting_progress + (curr_idx * 2)
       if curr_idx == 0:
-        progress_display.update(progress(starting_progress, 100))
+        progress_bar.update({'value': starting_progress, 'max': 100})
       elif curr_progress < max_progress:
         # Update while job is running only until progress hits 90.
-        progress_display.update(progress(curr_progress, 100))
+        progress_bar.update({'value': curr_progress, 'max': 100})
       curr_idx += 1
-    elif pattern_idx == 3 or pattern_idx == 4:  # Job Completed.
-      progress_display.update(progress(100, 100))
+    elif pattern_idx == 3:  # Job Succeeded.
+      progress_bar.update({'value': 99, 'max': 100})
+    elif pattern_idx == 4:  # Job Completed.
+      if job_state != 'DONE':
+        job_state = 'DONE'
+        print(f'Inference CustomJob state: {job_state}')
+      progress_bar.update({'value': 100, 'max': 100})
+      preds_file = os.path.join(f'{run_infer_args["train_dir"]}', 'predictions',
+                                f'test_ckpt_{int(epoch)}.geojson')
+      os.system(f'gsutil cp {preds_file} /tmp/predictions.geojson')
+      print(f'Predictions saved in :\n{preds_file}')
     else:
       child.close()
 
@@ -1148,8 +1132,7 @@ def create_folium_map(geojson_path, pathgcp_before, pathgcp_after):
     print(
         'The following TIFF image(s) need to be Cloud Optimzed GeoTIFF file(s) '
         'in order to be visualized in the map using EarthEngine:\n'
-        f'{no_cog_file}'
-    )
+        f'{no_cog_file}')
 
   else:
     for image_path in pathgcp_before.split(','):
