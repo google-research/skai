@@ -59,7 +59,7 @@ def launch_pexpect_process(script,
       for argument in arguments
   ]
   commands = '; '.join([
-      f'set -e', f'source {dir_args["python_env"]}',
+      'set -e', f'source {dir_args["python_env"]}',
       f'export GOOGLE_APPLICATION_CREDENTIALS={dir_args["path_cred"]}',
       f'python {dir_args["path_skai"]}/src/{script[0]} {flags_str[0]}'
   ])
