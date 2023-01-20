@@ -51,7 +51,7 @@ def launch_pexpect_process(script,
   if sleep is None and len(script) > 1:
     sleep = [0] * (len(script) - 1)
   elif len(script) == 1:
-    sleep == None
+    sleep = None
 
   flags_str = [
       ' '.join(f"--{f}='{v}'"
