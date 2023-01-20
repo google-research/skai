@@ -48,7 +48,7 @@ def launch_pexpect_process(script,
     script = [script]
     arguments = [arguments]
 
-  if sleep == None and len(script) > 1:
+  if sleep is None and len(script) > 1:
     sleep = [0] * (len(script) - 1)
   elif len(script) == 1:
     sleep == None
