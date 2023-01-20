@@ -191,13 +191,15 @@ def main(args):
 
   # If using Dataflow, check that the container image is valid.
   dataflow_container_image = FLAGS.dataflow_container_image
-  py_version = platform.python_version()[:3]
+  py_version = '.'.join(platform.python_version().split('.')[:2])
   if FLAGS.use_dataflow and dataflow_container_image is None:
     dataflow_container_image = generate_examples.get_dataflow_container_image(
         py_version)
     if dataflow_container_image is None:
-      raise ValueError('dataflow_container_image must be specified when using '
-                       'Dataflow and your Python version != 3.7, 3.8, or 3.9.')
+      raise ValueError(
+          'Using Dataflow, your Python version should be 3.7, 3.8, 3.9 or'
+          f' 3.10, not {py_version}.'
+      )
 
   gdal_env = generate_examples.parse_gdal_env(FLAGS.gdal_env)
   if FLAGS.before_image_patterns:
