@@ -38,6 +38,54 @@ from google.cloud import monitoring_v3
 from PIL import Image, ImageDraw, ImageFont
 
 
+def launch_pexpect_process(script,
+                           arguments,
+                           dir_args,
+                           use_pexpect,
+                           sleep=None):
+  """Build and run the shell command."""
+  if not isinstance(script, list):
+    script = [script]
+    arguments = [arguments]
+
+  if sleep is None and len(script) > 1:
+    sleep = [0] * (len(script) - 1)
+  elif len(script) == 1:
+    sleep = None
+
+  flags_str = [
+      ' '.join(f"--{f}='{v}'"
+               for f, v in argument.items())
+      for argument in arguments
+  ]
+  commands = '; '.join([
+      'set -e', f'source {dir_args["python_env"]}',
+      f'export GOOGLE_APPLICATION_CREDENTIALS={dir_args["path_cred"]}',
+      f'python {dir_args["path_skai"]}/src/{script[0]} {flags_str[0]}'
+  ])
+
+  if sleep is not None:
+    commands_bis = ' '.join([
+        '; '.join([
+            f'& sleep {sleep[i-1]} ',
+            f'python {dir_args["path_skai"]}/src/{script[i]} {flags_str[i]}'
+        ]) for i in range(1, len(script))
+    ])
+
+    commands = ' '.join([commands, commands_bis])
+
+  sh_command = f'bash -c "{commands}" | tee /tmp/output.txt'
+  print(sh_command, '\n')
+
+  if use_pexpect:
+    return pexpect.spawn(sh_command)
+  else:
+    with open('/tmp/shell_command.sh', 'w') as f:
+      f.write(commands)
+    return subprocess.call(
+        '/tmp/shell_command.sh | tee /tmp/output.txt', shell=True)
+
+
 def make_gcp_http_request(url):
   """Run GET GCP API request using url provided."""
   token = subprocess.check_output(
@@ -660,9 +708,9 @@ def run_train_and_eval_job(run_train_eval_args,
   if not pretty_output:
     launch_pexpect_process(['launch_vertex_job.py', 'launch_vertex_job.py'],
                            run_train_eval_args,
-                           sleep,
                            path_dir_args,
-                           use_pexpect=False)
+                           use_pexpect=False,
+                           sleep=sleep)
     return
 
   # Create the progress bar and metrics displays.
