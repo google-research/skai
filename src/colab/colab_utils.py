@@ -708,9 +708,9 @@ def run_train_and_eval_job(run_train_eval_args,
   if not pretty_output:
     launch_pexpect_process(['launch_vertex_job.py', 'launch_vertex_job.py'],
                            run_train_eval_args,
-                           sleep,
                            path_dir_args,
-                           use_pexpect=False)
+                           use_pexpect=False,
+                           sleep=sleep)
     return
 
   # Create the progress bar and metrics displays.
