@@ -15,7 +15,9 @@
 """Functions for performing data labeling in GCP Vertex AI."""
 
 import collections
+import functools
 import json
+import multiprocessing
 import os
 import random
 import time
@@ -305,11 +307,13 @@ def create_cloud_labeling_job(
     logging.info('Data labeling job created: "%s"', data_labeling_job.name)
 
 
-def create_specialist_pool(project: str,
-                           location: str,
-                           display_name: str,
-                           manager_emails: List[str],
-                           worker_emails: List[str]) -> str:
+def create_specialist_pool(
+    project: str,
+    location: str,
+    display_name: str,
+    manager_emails: List[str],
+    worker_emails: List[str],
+) -> str:
   """Creates a specialist labeling pool in Vertex AI.
 
   Args:
@@ -425,11 +429,57 @@ def _split_examples(
   return train_examples, test_examples
 
 
-def _merge_examples_and_labels(examples_pattern: str,
-                               labels: Dict[str, str],
-                               test_fraction: float,
-                               train_output_path: str,
-                               test_output_path: str) -> None:
+def _merge_single_example_file_and_labels(
+    example_file: str, labels: Dict[str, str]) -> List[Example]:
+  """Merges TF records from single example_file with corresponding labels.
+
+  Args:
+    example_file: Path to file containing TF records.
+    labels: Dictionary of example ids to labels.
+
+  Returns:
+    List of TF examples merged with labels for a single example_file.
+  """
+  labeled_examples = []
+  logging.info('Processing unlabeled example file "%s".', example_file)
+  for record in tf.data.TFRecordDataset([example_file]):
+    example = Example()
+    example.ParseFromString(record.numpy())
+    if 'example_id' in example.features.feature:
+      example_id = (
+          example.features.feature['example_id'].bytes_list.value[0].decode()
+      )
+    else:
+      # If the example doesn't have an "example_id" feature, fall back on
+      # using "encoded_coordinates". This maintains backwards compatibility
+      # with older datasets.
+      # TODO(jzxu): Remove this branch when backward compatibility is no
+      # longer needed.
+      example_id = (
+          example.features.feature['encoded_coordinates']
+          .bytes_list.value[0]
+          .decode()
+      )
+
+    if example_id in labels:
+      label = _string_to_float_label(labels[example_id])
+      label_feature = example.features.feature['label'].float_list
+      if not label_feature.value:
+        label_feature.value.append(label)
+      else:
+        label_feature.value[0] = label
+      labeled_examples.append(example)
+
+  return labeled_examples
+
+
+def _merge_examples_and_labels(
+    examples_pattern: str,
+    labels: Dict[str, str],
+    test_fraction: float,
+    train_output_path: str,
+    test_output_path: str,
+) -> None:
   """Merges examples with labels into train and test TFRecords.
 
   Args:
@@ -440,39 +490,35 @@ def _merge_examples_and_labels(examples_pattern: str,
     test_output_path: Path to test examples TFRecord output.
   """
   example_files = tf.io.gfile.glob(examples_pattern)
-  labeled_examples = []
-  for example_file in example_files:
-    logging.info('Processing unlabeled example file "%s".', example_file)
-    for record in tf.data.TFRecordDataset([example_file]):
-      example = Example()
-      example.ParseFromString(record.numpy())
-      if 'example_id' in example.features.feature:
-        example_id = (
-            example.features.feature['example_id'].bytes_list.value[0]
-            .decode())
-      else:
-        # If the example doesn't have an "example_id" feature, fall back on
-        # using "encoded_coordinates". This maintains backwards compatibility
-        # with older datasets.
-        # TODO(jzxu): Remove this branch when backward compatibility is no
-        # longer needed.
-        example_id = (
-            example.features.feature['encoded_coordinates'].bytes_list.value[0]
-            .decode())
+  num_workers = min(
+      multiprocessing.cpu_count(), len(example_files)
+  )
 
-      if example_id in labels:
-        label = _string_to_float_label(labels[example_id])
-        label_feature = example.features.feature['label'].float_list
-        if not label_feature.value:
-          label_feature.value.append(label)
-        else:
-          label_feature.value[0] = label
-        labeled_examples.append(example)
-    if len(labeled_examples) == len(labels):
-      break
+  if not example_files:
+    raise ValueError(f'File pattern {examples_pattern} did not match anything')
+  if not labels:
+    raise ValueError(
+        'Dictionary of labels is empty. Ensure that the dictionary of'
+        ' labels is not empty'
+    )
 
-  train_examples, test_examples = _split_examples(labeled_examples,
-                                                  test_fraction)
+  with multiprocessing.Pool(num_workers) as pool_executor:
+    logging.info(
+        'Multiprocessing using %s CPUs', num_workers
+    )
+    results = pool_executor.map(
+        functools.partial(_merge_single_example_file_and_labels, labels=labels),
+        example_files,
+    )
+
+  all_labeled_examples = []
+  for result, example_file in zip(results, example_files):
+    all_labeled_examples.extend(result)
+    logging.info('Finished processing %s.', example_file)
+
+  train_examples, test_examples = _split_examples(
+      all_labeled_examples, test_fraction
+  )
   _write_tfrecord(train_examples, train_output_path)
   _write_tfrecord(test_examples, test_output_path)
 
@@ -536,5 +582,10 @@ def create_labeled_examples(
   """
 
   labels = _get_labels(project, location, dataset_id, export_dir)
-  _merge_examples_and_labels(examples_pattern, labels, test_fraction,
-                             train_output_path, test_output_path)
+  _merge_examples_and_labels(
+      examples_pattern,
+      labels,
+      test_fraction,
+      train_output_path,
+      test_output_path,
+  )
