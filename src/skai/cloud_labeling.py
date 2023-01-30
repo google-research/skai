@@ -145,6 +145,9 @@ def create_labeling_images(
     Tuple of number of images written and file path for the import file.
   """
   example_files = tf.io.gfile.glob(examples_pattern)
+  if not example_files:
+    raise ValueError(
+        f'Example pattern {examples_pattern} did not match any files.')
   image_paths = []
   excluded_example_ids = set()
   for pattern in excluded_import_file_patterns:
