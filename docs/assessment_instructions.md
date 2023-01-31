@@ -109,9 +109,14 @@ After running this command, you should be able to see a new Dataflow job in the
 [Cloud console](https://console.cloud.google.com/dataflow/jobs). Clicking on the
 job will show a real-time monitoring page of the job's progress.
 
-When the Dataflow job finishes, it should have generated a set of sharded
-TFRecord files containing unlabeled examples of buildings in the output
-directory you specified.
+When the Dataflow job finishes, it should have generated two sets of sharded
+TFRecord files, one set under the "unlabeled" directory, and one set under the
+"unlabeled-large" directory. Both file sets contain unlabeled examples of
+all buildings found in the Area Of Interest. The difference is that the images
+in the "unlabeled-large" file set include more context around the building and
+are larger (by default, 256x256). These examples will be used for labeling. The
+images in the "unlabeled" file set are smaller (by default, 64x64), and will be
+used for model training and inference.
 
 ### Building Detection
 
@@ -137,7 +142,11 @@ be set to the path of the CSV file that contains the building centroids.
 
 ## Step 5: Create example labeling task
 
-To train a SKAI model, a small number of examples generated in the previous step must be manually labeled. We use the [Vertex AI labeling tool](https://cloud.google.com/vertex-ai/docs/datasets/data-labeling-job) to do this. Run this command to create a labeling task in Vertex AI, and assign the task to a number of human labelers.
+To train a SKAI model, a small number of examples generated in the previous step
+must be manually labeled. We use the
+[Vertex AI labeling tool](https://cloud.google.com/vertex-ai/docs/datasets/data-labeling-job)
+to do this. Run this command to create a labeling task in Vertex AI, and assign
+the task to a number of human labelers.
 
 
 ```
@@ -153,15 +162,17 @@ $ python create_cloud_labeling_task.py \
 `<dataset name>` is a name you assign to the dataset to identify it.
 
 `<examples pattern>` is the file pattern matching the TFRecord containing
-unlabeled examples generated in the previous step. It should look something like
-`gs://$BUCKET/test_run/examples/unlabeled/unlabeled-*.tfrecord`.
+*large* unlabeled examples generated in the previous step. It should look
+something like
+`gs://$BUCKET/test_run/examples/unlabeled-large/unlabeled-*.tfrecord`.
 
 `<images dir>` is a temporary directory to write labeling images to. This can be
 set to any Google Cloud Storage path. For example,
 `gs://$BUCKET/test_run/examples/labeling_images`. After the command is finished,
 you can see the images generated for labeling in this directory.
 
-`<labeler-emails>` is a comma-delimited list of the emails of people who will be labeling example images. They must be Google email accounts, such as GMail or
+`<labeler-emails>` is a comma-delimited list of the emails of people who will be
+labeling example images. They must be Google email accounts, such as GMail or
 GSuite email accounts.
 
 An example labeling task will also be created in Vertex AI, and instructions for
