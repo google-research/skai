@@ -16,16 +16,22 @@
 import dataclasses
 import hashlib
 import itertools
+import json
 import logging
 import os
 import pathlib
 import pickle
 from typing import Any, Dict, Iterable, Iterator, List, Optional, Tuple
+
 import apache_beam as beam
 import cv2
 import geopandas as gpd
 import numpy as np
 from openlocationcode import openlocationcode
+import shapely.geometry
+from skai import buildings
+from skai import earth_engine
+from skai import open_street_map
 from skai import read_raster
 from skai import utils
 import tensorflow as tf
@@ -33,6 +39,7 @@ import tensorflow as tf
 
 Example = tf.train.Example
 Metrics = beam.metrics.Metrics
+Polygon = shapely.geometry.polygon.Polygon
 PipelineOptions = beam.options.pipeline_options.PipelineOptions
 
 # If more than this fraction of a before or after image is blank, discard this
@@ -51,6 +58,116 @@ _PLUS_CODE_LENGTH = 14
 
 
 @dataclasses.dataclass
+class ExamplesGenerationConfig:
+  """A configuration for generate_examples_main."""
+
+  dataset_name: str
+  output_dir: str
+  before_image_patterns: Optional[List[str]] = dataclasses.field(
+      default_factory=list
+  )
+  after_image_patterns: Optional[List[str]] = dataclasses.field(
+      default_factory=list
+  )
+  aoi_path: Optional[str] = None
+  before_image_config: Optional[str] = None
+  after_image_config: Optional[str] = None
+  cloud_project: Optional[str] = None
+  cloud_region: Optional[str] = None
+  use_dataflow: bool = False
+  worker_service_account: Optional[str] = None
+  max_dataflow_workers: int = 20
+  example_patch_size: int = 64
+  large_patch_size: int = 256
+  resolution: float = 0.5
+  output_shards: int = 20
+  dataflow_container_image: Optional[str] = None
+  gdal_env: List[str] = dataclasses.field(default_factory=list)
+  buildings_method: str = 'file'  # file, open_street_map, open_buildings, none
+  buildings_file: Optional[str] = None
+  overpass_url: Optional[str] = 'https://lz4.overpass-api.de/api/interpreter'
+  open_buildings_feature_collection: Optional[str] = (
+      'GOOGLE/Research/open-buildings/v2/polygons'
+  )
+  earth_engine_service_account: Optional[str] = ''
+  earth_engine_private_key: Optional[str] = None
+  labels_file: Optional[str] = None
+  label_property: Optional[str] = None
+  labels_to_classes: Optional[List[str]] = None
+  num_keep_labeled_examples: int = 1000
+  configuration_path: Optional[str] = None
+
+  # TODO(mohammedelfatihsalah): Add a type for flagvalues argument in init_from_flags.
+  @staticmethod
+  def init_from_flags(flagvalues):
+    """Intialize configuration from command flags.
+
+    Args:
+      flagvalues: The flage values for configuration values.
+
+    Returns:
+      An ExampleGenerationConfig.
+    Raises:
+      AttributeError: if dataset_name or output_dir doesnot exist in the
+      flagvalues.
+    """
+    dataset_name = flagvalues.__getattr__('dataset_name')
+    output_dir = flagvalues.__getattr__('output_dir')
+    config = ExamplesGenerationConfig(
+        dataset_name=dataset_name, output_dir=output_dir
+    )
+    for field in dataclasses.fields(ExamplesGenerationConfig):
+      try:
+        val = flagvalues.__getattr__(field.name)
+        if val:
+          config.__setattr__(field.name, val)
+      except AttributeError:
+        logging.info(
+            (
+                '%s is not found so a default value will be used for it with a'
+                ' a value %f'
+            ),
+            field.name,
+            val,
+        )
+    return config
+
+  @staticmethod
+  def init_from_json_path(json_path: str):
+    """Intialize configuration from json file.
+
+    Args:
+      json_path: the path to the json file that contain configuration values.
+
+    Returns:
+     An ExampleGenerationConfig.
+    Raises:
+      KeyError if dataset_name or output_dir are not in the json file.
+    """
+    with open(json_path, 'r') as f:
+      data = json.load(f)
+      output_dir = data['output_dir']
+      dataset_name = data['dataset_name']
+      config = ExamplesGenerationConfig(
+          dataset_name=dataset_name, output_dir=output_dir
+      )
+      for field in dataclasses.fields(ExamplesGenerationConfig):
+        try:
+          val = data[field.name]
+          config.__setattr__(field.name, val)
+        except KeyError:
+          logging.info(
+              (
+                  '%s is not given in the json config file so a default value'
+                  ' will be it %s will be used.'
+              ),
+              field.name,
+              val
+          )
+    return config
+
+
+@dataclasses.dataclass
 class _FeatureUnion:
   """Class that holds all possible feature types for an example.
 
@@ -66,6 +183,66 @@ class _FeatureUnion:
   scalar_features: Dict[str, Any] = None
   before_image: Tuple[str, np.ndarray] = None
   after_image: Tuple[str, np.ndarray] = None
+
+
+class NoBuildingFoundError(Exception):
+  """Raised when no building found in the area of interest."""
+
+  def __init__(self):
+    super().__init__('No building found.')
+
+
+class NotInitializedEarthEngineError(Exception):
+  """Raised when earth engine couldnot be initialized."""
+
+  def __init__(self):
+    super().__init__('Earth Engine could not be initialized.')
+
+
+def get_building_centroids(
+    config, regions: List[Polygon]
+) -> List[Tuple[float, float]]:
+  """Finds building centroids based on flag settings.
+
+  This function is meant to be called from generate_examples_main.py.
+
+  Args:
+    config: A configuration object that specify how to get the building
+      centroids.
+    regions: List of polygons of regions to find buildings in.
+
+  Returns:
+    List of building centroids in (longitude, latitude) format.
+
+  Raises:
+    ValueError: if buildings_method flag has unknown value.
+    NotInitializedEarthEngineError: if earth couldnot be initialized.
+    NoBuildingFoundError: if no building is found in the area of interest.
+  """
+  if config.buildings_method == 'file':
+    return buildings.read_buildings_file(config.buildings_file, regions)
+  elif config.buildings_method == 'open_street_map':
+    return open_street_map.get_building_centroids_in_regions(
+        regions, config.overpass_url
+    )
+  elif config.buildings_method == 'open_buildings':
+    if not earth_engine.initialize(
+        config.earth_engine_service_account, config.earth_engine_private_key
+    ):
+      raise NotInitializedEarthEngineError()
+    logging.info('Querying Open Buildings centroids. This may take a while.')
+    output_path = os.path.join(
+        config.output_dir, 'open_buildings_centroids.csv'
+    )
+    centroids = earth_engine.get_open_buildings_centroids(
+        regions, config.open_buildings_feature_collection, output_path
+    )
+    if not centroids:
+      raise NoBuildingFoundError()
+    logging.info('Open Buildings centroids saved to %s', output_path)
+    return centroids
+
+  raise ValueError('Invalid value for "buildings_method" flag.')
 
 
 def _to_grayscale(image: np.ndarray) -> np.ndarray:

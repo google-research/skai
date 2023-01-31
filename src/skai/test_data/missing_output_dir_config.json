@@ -1,0 +1,13 @@
+{
+  "dataset_name":"dummy dataset name",
+  "before_image_config": "path/to/before_image_config",
+  "after_image_config": "path/to/after_image_config",
+  "buildings_method": "file",
+  "buildings_file": "path/to/building_file",
+  "resolution": 0.3,
+  "use_dataflow": true,
+  "cloud_project": "project name",
+  "cloud_region": "region",
+  "worker_service_account": "account",
+  "max_dataflow_workers": 100
+}

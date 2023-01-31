@@ -32,6 +32,11 @@ import tensorflow as tf
 
 
 TEST_IMAGE_PATH = 'test_data/blank.tif'
+TEST_CONFIG_PATH = 'test_data/config.json'
+TEST_MISSING_DATASET_NAME_CONFIG_PATH = (
+    'test_data/missing_dataset_name_config.json'
+)
+TEST_MISSING_OUPTUT_DIR_CONFIG_PATH = 'test_data/missing_output_dir_config.json'
 
 
 def _get_before_image_id(example):
@@ -182,6 +187,13 @@ class GenerateExamplesTest(absltest.TestCase):
     self.test_image_path = str(current_dir / TEST_IMAGE_PATH)
     self.coordinates_path = str(current_dir / 'coordinates')
     self.test_image_path_patterns = str(current_dir / 'test_data/country_*.tif')
+    self.test_config_path = str(current_dir / TEST_CONFIG_PATH)
+    self.test_missing_dataset_name_config_path = str(
+        current_dir / TEST_MISSING_DATASET_NAME_CONFIG_PATH
+    )
+    self.test_missing_output_dir_config_path = str(
+        current_dir / TEST_MISSING_OUPTUT_DIR_CONFIG_PATH
+    )
 
   def testGenerateExamplesFn(self):
     """Tests GenerateExamplesFn class."""
@@ -365,6 +377,63 @@ class GenerateExamplesTest(absltest.TestCase):
 
     tfrecords = os.listdir(os.path.join(output_dir, 'examples', 'unlabeled'))
     self.assertSameElements(tfrecords, ['unlabeled-00000-of-00001.tfrecord'])
+
+  def testConfigLoadedCorrectlyFromJsonFile(self):
+    config = generate_examples.ExamplesGenerationConfig.init_from_json_path(
+        self.test_config_path
+    )
+    # Passed values.
+    self.assertEqual(config.dataset_name, 'dummy dataset name')
+    self.assertEqual(config.output_dir, 'path/to/output_dir')
+    self.assertEqual(config.before_image_config, 'path/to/before_image_config')
+    self.assertEqual(config.after_image_config, 'path/to/after_image_config')
+    self.assertEqual(config.buildings_method, 'file')
+    self.assertEqual(config.buildings_file, 'path/to/building_file')
+    self.assertEqual(config.resolution, 0.3)
+    self.assertEqual(config.use_dataflow, True)
+    self.assertEqual(config.cloud_project, 'project name')
+    self.assertEqual(config.cloud_region, 'region')
+    self.assertEqual(
+        config.worker_service_account,
+        'account',
+    )
+    self.assertEqual(config.max_dataflow_workers, 100)
+    self.assertEqual(config.resolution, 0.3)
+
+    # Default values.
+    self.assertEqual(config.before_image_patterns, [])
+    self.assertEqual(config.after_image_patterns, [])
+    self.assertIsNone(config.aoi_path)
+    self.assertEqual(config.example_patch_size, 64)
+    self.assertEqual(config.large_patch_size, 256)
+    self.assertEqual(config.output_shards, 20)
+    self.assertEqual(
+        config.overpass_url, 'https://lz4.overpass-api.de/api/interpreter'
+    )
+    self.assertIsNone(config.dataflow_container_image)
+    self.assertEqual(
+        config.open_buildings_feature_collection,
+        'GOOGLE/Research/open-buildings/v2/polygons',
+    )
+    self.assertEqual(config.earth_engine_service_account, '')
+    self.assertIsNone(config.earth_engine_private_key)
+    self.assertIsNone(config.labels_file)
+    self.assertIsNone(config.label_property)
+    self.assertIsNone(config.labels_to_classes)
+    self.assertEqual(config.num_keep_labeled_examples, 1000)
+    self.assertIsNone(config.configuration_path)
+
+  def testConfigRaiseErrorOnMissingDatasetName(self):
+    with self.assertRaisesRegex(KeyError, ''):
+      generate_examples.ExamplesGenerationConfig.init_from_json_path(
+          self.test_missing_dataset_name_config_path
+      )
+
+  def testConfigRaiseErrorOnMissingOutputDir(self):
+    with self.assertRaisesRegex(KeyError, ''):
+      generate_examples.ExamplesGenerationConfig.init_from_json_path(
+          self.test_missing_output_dir_config_path
+      )
 
 
 if __name__ == '__main__':
