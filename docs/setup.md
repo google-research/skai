@@ -53,7 +53,10 @@ Please grant the service account the "Owner" role, which will give it all necess
 
 After the service account is created, please generate a private key for it to simplify authentication following these [instructions](https://cloud.google.com/iam/docs/creating-managing-service-account-keys#creating). Download the key to the workstation where you will run the SKAI pipeline.
 
-**Note**: Anyone who has this key file will be able to authenticate as the service account without needing to know your email or password. So please keep the key private and safe.
+**Note**:
+
+*   Anyone who has this key file will be able to authenticate as the service account without needing to know your email or password. So please keep the key private and safe.
+*   The "Owner" role provides full access to the entire Google Cloud project and it's only good for testing purposes. It is recommended to follow [the principle of least privilege](https://cloud.google.com/blog/products/identity-security/dont-get-pwned-practicing-the-principle-of-least-privilege) and [best practices of handling service accounts](https://cloud.google.com/iam/docs/best-practices-service-accounts) for sensitive environments.
 
 
 ### Enable Earth Engine API (Optional)

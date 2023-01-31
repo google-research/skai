@@ -234,15 +234,13 @@ This will generate two TFRecord files, one containing examples for training and 
 
 
 ```
-$ gcloud ai tensorboards create –display-name <Tensorboard name>
+$ gcloud ai tensorboards create --display-name <Tensorboard name>
 
 Using endpoint [https://us-central1-aiplatform.googleapis.com/]
 Waiting for operation [999391182737489573628]...done.
 Created Vertex AI Tensorboard: projects/123456789012/locations/us-central1/tensorboards/874419473951.
 ```
 
-
-The last line of the output is the tensorboard resource name. Pass this value into the flag `--tensorboard_resource_name `flag in the commands below.
 
 **Start the training job:**
 
@@ -256,7 +254,6 @@ $ python launch_vertex_job.py \
 --job_type=train \
 --display_name=train_job \
 --train_docker_image_uri_path=gcr.io/disaster-assessment/ssl-train-uri \
---tensorboard_resource_name=<tensorboard resource name> \
 --service_account=$SERVICE_ACCOUNT \
 --dataset_name=dataset_name \
 --train_dir=gs://$BUCKET/models/train_dir_name \
@@ -318,8 +315,7 @@ $ python3 launch_vertex_job.py \
 
 **Note:** If you would like to run inference using a specific checkpoint, use the `--eval_ckpt `flag. Example: `--eval_ckpt=gs://$BUCKET/models/train_dir_name/checkpoints/model.ckpt-00851968`. Do NOT include the extension, e.g. ‘.meta’, ‘.data’, or ‘.index’, and only use the prefix.
 
-The predictions will be saved in a directory called `gs://$BUCKET/models/train_dir_name/predictions `as GeoJSON files. The number in each filename refers to the epoch of the checkpoint.
-
+The predictions will be saved in a directory called `gs://$BUCKET/models/train_dir_name/predictions `as GeoJSON files. The number in each filename refers to the epoch of the checkpoint. In the GeoJSON files, `class_1` attribute is the "probability" of the building being damaged. `class_0` and `class_1` should sum up to 1.0.
 
 ## Feedback
 
