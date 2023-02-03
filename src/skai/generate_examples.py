@@ -97,6 +97,14 @@ class ExamplesGenerationConfig:
   num_keep_labeled_examples: int = 1000
   configuration_path: Optional[str] = None
 
+  # Parameters for auto-selecting before images.
+  auto_select_before_images: bool = False
+  before_image_collection_id: str = ''
+  before_image_project_ids: List[int] = dataclasses.field(default_factory=list)
+  before_image_start_date: str = ''
+  before_image_end_date: str = ''
+  max_before_images: int = 100
+
   # TODO(mohammedelfatihsalah): Add a type for flagvalues argument in init_from_flags.
   @staticmethod
   def init_from_flags(flagvalues):
@@ -162,7 +170,7 @@ class ExamplesGenerationConfig:
                   ' will be it %s will be used.'
               ),
               field.name,
-              val
+              field.default
           )
     return config
 
