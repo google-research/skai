@@ -144,7 +144,7 @@ class ExamplesGenerationConfig:
     Raises:
       KeyError if dataset_name or output_dir are not in the json file.
     """
-    with open(json_path, 'r') as f:
+    with tf.io.gfile.GFile(json_path) as f:
       data = json.load(f)
       output_dir = data['output_dir']
       dataset_name = data['dataset_name']
