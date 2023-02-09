@@ -388,9 +388,17 @@ def get_raster_bounds(
     gdal_env: GDAL environment variables.
 
   Returns
-    Polygon of bounds of raster.
+    Bounds of raster in longitude, latitude polygon.
   """
   with rasterio.Env(**gdal_env):
     raster = rasterio.open(raster_path)
-    return shapely.geometry.box(raster.bounds.left, raster.bounds.bottom,
-                                raster.bounds.right, raster.bounds.top)
+    transformer = pyproj.Transformer.from_crs(
+        raster.crs, 'epsg:4326', always_xy=True
+    )
+    x1, y1 = transformer.transform(
+        raster.bounds.left, raster.bounds.bottom, errcheck=True
+    )
+    x2, y2 = transformer.transform(
+        raster.bounds.right, raster.bounds.top, errcheck=True
+    )
+    return shapely.geometry.box(x1, y1, x2, y2)
