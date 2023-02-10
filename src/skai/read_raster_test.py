@@ -115,7 +115,7 @@ class ReadRasterTest(absltest.TestCase):
   def test_get_raster_bounds(self):
     bounds = read_raster.get_raster_bounds(self.test_image_path, {})
     self.assertSequenceAlmostEqual(
-        bounds.bounds, [19868555.0, -1878200.3724, 19868705.0, -1878059.3724])
+        bounds.bounds, [178.4822663, -16.6334717, 178.4836138, -16.6322581])
 
 
 if __name__ == '__main__':
