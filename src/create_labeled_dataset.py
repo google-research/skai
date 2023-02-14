@@ -41,6 +41,17 @@ flags.DEFINE_integer('random_seed', None,
                      'If specified, random seed for train/test split.')
 flags.DEFINE_float('test_fraction', 0.2,
                    'Fraction of labeled examples to use for testing.')
+flags.DEFINE_list(
+    'string_to_numeric_labels',
+    [
+        'bad_example=0',
+        'undamaged=0',
+        'minor_damage=1',
+        'major_damage=1',
+        'destroyed=1',
+    ],
+    'List of "class=label" strings, e.g. "undamaged=0,minor_damage=0,...".',
+)
 
 
 def main(unused_argv):
@@ -51,6 +62,7 @@ def main(unused_argv):
       FLAGS.cloud_project,
       FLAGS.cloud_location,
       FLAGS.cloud_dataset_id,
+      FLAGS.string_to_numeric_labels,
       FLAGS.cloud_temp_dir,
       FLAGS.examples_pattern,
       FLAGS.test_fraction,

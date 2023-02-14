@@ -82,6 +82,10 @@ flags.DEFINE_bool('generate_images_only', False,
                   'If true, script will only create labeling images and import '
                   'file, but will not upload the dataset to VertexAI or create '
                   'a labeling task.')
+flags.DEFINE_string(
+    'allowed_example_ids_path',
+    None,
+    'If specified, only allow example ids found in this text file.')
 
 
 def _get_labeling_dataset_region(project_region: str) -> str:
@@ -111,8 +115,16 @@ def main(unused_argv):
     import_file_path = FLAGS.import_file_path
   else:
     num_images, import_file_path = cloud_labeling.create_labeling_images(
-        FLAGS.examples_pattern, FLAGS.max_images,
-        FLAGS.exclude_import_file_patterns, FLAGS.images_dir)
+        FLAGS.examples_pattern,
+        FLAGS.max_images,
+        FLAGS.allowed_example_ids_path,
+        FLAGS.exclude_import_file_patterns,
+        FLAGS.images_dir)
+
+    if num_images == 0:
+      logging.fatal('No labeling images found.')
+      return
+
     logging.info('Wrote %d labeling images.', num_images)
     logging.info('Wrote import file %s.', import_file_path)
     if FLAGS.generate_images_only:

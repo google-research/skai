@@ -127,8 +127,9 @@ def create_labeling_image(before_image: Image, after_image: Image) -> Image:
 def create_labeling_images(
     examples_pattern: str,
     max_images: int,
+    allowed_example_ids_path: str,
     excluded_import_file_patterns: List[str],
-    output_dir: str) -> Tuple[int, str]:
+    output_dir: str) -> Tuple[int, Optional[str]]:
   """Creates PNGs used for labeling from TFRecords.
 
   Also writes an import file in CSV format that is used to upload the images
@@ -137,6 +138,9 @@ def create_labeling_images(
   Args:
     examples_pattern: File pattern for input TFRecords.
     max_images: Maximum number of images to create.
+    allowed_example_ids_path: Path of file containing example ids that are
+      allowed to be in the labeling set. The file should have one example id per
+      line.
     excluded_import_file_patterns: List of import file patterns containing
       images to exclude.
     output_dir: Output directory.
@@ -148,14 +152,22 @@ def create_labeling_images(
   if not example_files:
     raise ValueError(
         f'Example pattern {examples_pattern} did not match any files.')
-  image_paths = []
-  excluded_example_ids = set()
-  for pattern in excluded_import_file_patterns:
-    for path in tf.io.gfile.glob(pattern):
-      logging.info('Excluding example ids from "%s"', path)
-      excluded_example_ids.update(_read_example_ids_from_import_file(path))
 
-  logging.info('Excluding %d example ids', len(excluded_example_ids))
+  excluded_example_ids = set()
+  if excluded_import_file_patterns:
+    for pattern in excluded_import_file_patterns:
+      for path in tf.io.gfile.glob(pattern):
+        logging.info('Excluding example ids from "%s"', path)
+        excluded_example_ids.update(_read_example_ids_from_import_file(path))
+    logging.info('Excluding %d example ids', len(excluded_example_ids))
+
+  allowed_example_ids = None
+  if allowed_example_ids_path:
+    with tf.io.gfile.GFile(allowed_example_ids_path, 'r') as f:
+      allowed_example_ids = set(line.strip() for line in f)
+    logging.info('Allowing %d example ids', len(allowed_example_ids))
+
+  image_paths = []
   for record in tf.data.TFRecordDataset(example_files):
     example = Example()
     example.ParseFromString(record.numpy())
@@ -172,6 +184,10 @@ def create_labeling_images(
       example_id = (
           example.features.feature['encoded_coordinates'].bytes_list.value[0]
           .decode())
+
+    if (allowed_example_ids is not None
+        and example_id not in allowed_example_ids):
+      continue
 
     if example_id in excluded_example_ids:
       logging.info('"%s" excluded', example_id)
@@ -191,6 +207,9 @@ def create_labeling_images(
     image_paths.append(path)
     if len(image_paths) >= max_images:
       break
+
+  if not image_paths:
+    return 0, None
 
   import_file_path = os.path.join(output_dir, 'import_file.csv')
   with tf.io.gfile.GFile(import_file_path, 'w') as f:
@@ -390,14 +409,6 @@ def _write_tfrecord(examples: Iterable[Example], path: str) -> None:
       writer.write(example.SerializeToString())
 
 
-def _string_to_float_label(label: str) -> float:
-  """Converts string labels supplied by labelers to binary float labels."""
-  # TODO(jzxu): Make the mapping from string to float values configurable.
-  if label in ['minor_damage', 'major_damage', 'destroyed']:
-    return 1.0
-  return 0.0
-
-
 def _split_examples(
     examples: List[Example],
     test_fraction: float
@@ -433,7 +444,7 @@ def _split_examples(
 
 
 def _merge_single_example_file_and_labels(
-    example_file: str, labels: Dict[str, str]) -> List[Example]:
+    example_file: str, labels: Dict[str, Tuple[str, float]]) -> List[Example]:
   """Merges TF records from single example_file with corresponding labels.
 
   Args:
@@ -464,13 +475,17 @@ def _merge_single_example_file_and_labels(
           .decode()
       )
 
-    if example_id in labels:
-      label = _string_to_float_label(labels[example_id])
+    label = labels.get(example_id, None)
+    if label is not None:
+      string_label = label[0]
+      numeric_label = label[1]
+      example.features.feature['string_label'].bytes_list.value.append(
+          string_label.encode())
       label_feature = example.features.feature['label'].float_list
       if not label_feature.value:
-        label_feature.value.append(label)
+        label_feature.value.append(numeric_label)
       else:
-        label_feature.value[0] = label
+        label_feature.value[0] = numeric_label
       labeled_examples.append(example)
 
   return labeled_examples
@@ -478,7 +493,7 @@ def _merge_single_example_file_and_labels(
 
 def _merge_examples_and_labels(
     examples_pattern: str,
-    labels: Dict[str, str],
+    labels: Dict[str, Tuple[str, float]],
     test_fraction: float,
     train_output_path: str,
     test_output_path: str,
@@ -566,6 +581,7 @@ def create_labeled_examples(
     project: str,
     location: str,
     dataset_id: str,
+    string_to_numeric_labels: List[str],
     export_dir: str,
     examples_pattern: str,
     test_fraction: float,
@@ -577,17 +593,38 @@ def create_labeled_examples(
     project: Cloud project name.
     location: Dataset location, e.g. us-central1.
     dataset_id: Numeric id of the dataset to export.
+    string_to_numeric_labels: List of strings in the form
+      "<string label>=<numeric label>", e.g. "undamaged=0"
     export_dir: GCS directory to export annotations to.
     examples_pattern: Pattern for unlabeled examples.
     test_fraction: Fraction of examples to write to test output.
     train_output_path: Path to training examples TFRecord output.
     test_output_path: Path to test examples TFRecord output.
   """
+  string_to_numeric_map = {}
+  for string_to_numeric_label in string_to_numeric_labels:
+    if '=' not in string_to_numeric_label:
+      raise ValueError(
+          f'Invalid label mapping "{string_to_numeric_label}", should have '
+          'form "label=0 or 1".')
+    label, numeric_label = string_to_numeric_label.split('=')
+    try:
+      string_to_numeric_map[label] = float(numeric_label)
+    except TypeError:
+      logging.error('Class %s is not numeric.', numeric_label)
+      raise
+  ids_to_labels = _get_labels(project, location, dataset_id, export_dir)
 
-  labels = _get_labels(project, location, dataset_id, export_dir)
+  ids_to_label_pairs = {}
+  for example_id, string_label in ids_to_labels.items():
+    numeric_label = string_to_numeric_map.get(string_label, None)
+    if numeric_label is None:
+      raise ValueError(f'Label "{string_label}" has no numeric mapping.')
+    ids_to_label_pairs[example_id] = (string_label, numeric_label)
+
   _merge_examples_and_labels(
       examples_pattern,
-      labels,
+      ids_to_label_pairs,
       test_fraction,
       train_output_path,
       test_output_path,
