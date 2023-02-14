@@ -80,6 +80,7 @@ def _download_feature_collection(
 
 def get_open_buildings(regions: List[ShapelyGeometry],
                        collection: str,
+                       confidence: float,
                        as_centroids: bool,
                        output_path: str) -> gpd.GeoDataFrame:
   """Downloads Open Buildings footprints for the Area of Interest from EE.
@@ -87,6 +88,7 @@ def get_open_buildings(regions: List[ShapelyGeometry],
   Args:
     regions: List of shapely Geometries to extract buildings from.
     collection: Name of Earth Engine FeatureCollection containing footprints.
+    confidence: Confidence threshold for included buildings.
     as_centroids: If true, download centroids instead of full footprints.
     output_path: Save footprints to this file in addition to returning the
       GeoDataFrame.
@@ -97,6 +99,7 @@ def get_open_buildings(regions: List[ShapelyGeometry],
   bounds = ee.FeatureCollection([_shapely_to_ee_feature(r) for r in regions])
   open_buildings = ee.FeatureCollection(collection)
   aoi_buildings = open_buildings.filterBounds(bounds)
+  aoi_buildings = aoi_buildings.filter(f'confidence >= {confidence}')
   if as_centroids:
     centroids = aoi_buildings.map(_get_open_building_feature_centroid)
     return _download_feature_collection(centroids, ['longitude', 'latitude'],
@@ -108,19 +111,21 @@ def get_open_buildings(regions: List[ShapelyGeometry],
 def get_open_buildings_centroids(
     regions: List[ShapelyGeometry],
     collection: str,
+    confidence: float,
     output_path: str) -> List[Tuple[float, float]]:
   """Downloads Open Buildings footprints as centroids of regions of interest.
 
   Args:
     regions: List of regions as shapely geometries.
     collection: Name of Earth Engine FeatureCollection containing footprints.
+    confidence: Confidence threshold for included buildings.
     output_path: Save footprints to this file in addition to returning the
       GeoDataFrame.
 
   Returns:
     List of (longitude, latitude) building centroids.
   """
-  gdf = get_open_buildings(regions, collection, True, output_path)
+  gdf = get_open_buildings(regions, collection, confidence, True, output_path)
   return list(zip(gdf['geometry'].x, gdf['geometry'].y))
 
 

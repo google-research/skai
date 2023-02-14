@@ -89,6 +89,7 @@ class ExamplesGenerationConfig:
   open_buildings_feature_collection: Optional[str] = (
       'GOOGLE/Research/open-buildings/v2/polygons'
   )
+  open_buildings_confidence: float = 0.0
   earth_engine_service_account: Optional[str] = ''
   earth_engine_private_key: Optional[str] = None
   labels_file: Optional[str] = None
@@ -235,7 +236,8 @@ def get_building_centroids(
         config.output_dir, 'open_buildings_centroids.csv'
     )
     centroids = earth_engine.get_open_buildings_centroids(
-        regions, config.open_buildings_feature_collection, output_path
+        regions, config.open_buildings_feature_collection,
+        config.open_buildings_confidence, output_path
     )
     if not centroids:
       raise NoBuildingFoundError()
