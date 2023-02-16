@@ -444,12 +444,14 @@ def _split_examples(
 
 
 def _merge_single_example_file_and_labels(
-    example_file: str, labels: Dict[str, Tuple[str, float]]) -> List[Example]:
+    example_file: str, labels: Dict[str, List[Tuple[str, float, str]]]
+) -> List[Example]:
   """Merges TF records from single example_file with corresponding labels.
 
   Args:
     example_file: Path to file containing TF records.
-    labels: Dictionary of example ids to labels.
+    labels: Dictionary of example id to a list of tuples
+        (string label, numeric label, source dataset id).
 
   Returns:
     List of TF examples merged with labels for a single example_file.
@@ -475,25 +477,28 @@ def _merge_single_example_file_and_labels(
           .decode()
       )
 
-    label = labels.get(example_id, None)
-    if label is not None:
-      string_label = label[0]
-      numeric_label = label[1]
-      example.features.feature['string_label'].bytes_list.value.append(
+    label_tuples = labels.get(example_id, [])
+    for string_label, numeric_label, dataset_id in label_tuples:
+      labeled_example = Example()
+      labeled_example.CopyFrom(example)
+      features = labeled_example.features
+      features.feature['string_label'].bytes_list.value.append(
           string_label.encode())
-      label_feature = example.features.feature['label'].float_list
+      features.feature['label_dataset_id'].bytes_list.value.append(
+          dataset_id.encode())
+      label_feature = features.feature['label'].float_list
       if not label_feature.value:
         label_feature.value.append(numeric_label)
       else:
         label_feature.value[0] = numeric_label
-      labeled_examples.append(example)
+      labeled_examples.append(labeled_example)
 
   return labeled_examples
 
 
 def _merge_examples_and_labels(
     examples_pattern: str,
-    labels: Dict[str, Tuple[str, float]],
+    labels: Dict[str, List[Tuple[str, float, str]]],
     test_fraction: float,
     train_output_path: str,
     test_output_path: str,
@@ -502,7 +507,8 @@ def _merge_examples_and_labels(
 
   Args:
     examples_pattern: File pattern for input examples.
-    labels: Dictionary of example ids to labels.
+    labels: Dictionary of example ids to a list of tuples
+        (string label, numeric label, source dataset id).
     test_fraction: Fraction of examples to write to test output.
     train_output_path: Path to training examples TFRecord output.
     test_output_path: Path to test examples TFRecord output.
@@ -580,7 +586,7 @@ def _get_labels(
 def create_labeled_examples(
     project: str,
     location: str,
-    dataset_id: str,
+    dataset_ids: List[str],
     string_to_numeric_labels: List[str],
     export_dir: str,
     examples_pattern: str,
@@ -592,7 +598,7 @@ def create_labeled_examples(
   Args:
     project: Cloud project name.
     location: Dataset location, e.g. us-central1.
-    dataset_id: Numeric id of the dataset to export.
+    dataset_ids: List of numeric dataset ids to export.
     string_to_numeric_labels: List of strings in the form
       "<string label>=<numeric label>", e.g. "undamaged=0"
     export_dir: GCS directory to export annotations to.
@@ -613,18 +619,23 @@ def create_labeled_examples(
     except TypeError:
       logging.error('Class %s is not numeric.', numeric_label)
       raise
-  ids_to_labels = _get_labels(project, location, dataset_id, export_dir)
 
-  ids_to_label_pairs = {}
-  for example_id, string_label in ids_to_labels.items():
-    numeric_label = string_to_numeric_map.get(string_label, None)
-    if numeric_label is None:
-      raise ValueError(f'Label "{string_label}" has no numeric mapping.')
-    ids_to_label_pairs[example_id] = (string_label, numeric_label)
+  ids_to_labels = collections.defaultdict(list)
+  for dataset_id in dataset_ids:
+    dataset_labels = _get_labels(project, location, dataset_id, export_dir)
+    for example_id, string_label in dataset_labels.items():
+      example_labels = ids_to_labels[example_id]
+      if string_label in [l[0] for l in example_labels]:
+        # Don't add multiple labels with the same value for a single example.
+        continue
+      numeric_label = string_to_numeric_map.get(string_label, None)
+      if numeric_label is None:
+        raise ValueError(f'Label "{string_label}" has no numeric mapping.')
+      example_labels.append((string_label, numeric_label, dataset_id))
 
   _merge_examples_and_labels(
       examples_pattern,
-      ids_to_label_pairs,
+      ids_to_labels,
       test_fraction,
       train_output_path,
       test_output_path,

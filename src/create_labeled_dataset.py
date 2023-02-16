@@ -28,7 +28,7 @@ from skai import cloud_labeling
 FLAGS = flags.FLAGS
 flags.DEFINE_string('cloud_project', None, 'GCP project name.', required=True)
 flags.DEFINE_string('cloud_location', None, 'Project location.', required=True)
-flags.DEFINE_string('cloud_dataset_id', None, 'Dataset ID.', required=True)
+flags.DEFINE_list('cloud_dataset_ids', None, 'Dataset IDs.', required=True)
 flags.DEFINE_string('cloud_temp_dir', None, 'GCS temporary directory.')
 flags.DEFINE_string('examples_pattern', None,
                     'Pattern for TFRecords of examples to merge with labels.',
@@ -61,7 +61,7 @@ def main(unused_argv):
   cloud_labeling.create_labeled_examples(
       FLAGS.cloud_project,
       FLAGS.cloud_location,
-      FLAGS.cloud_dataset_id,
+      FLAGS.cloud_dataset_ids,
       FLAGS.string_to_numeric_labels,
       FLAGS.cloud_temp_dir,
       FLAGS.examples_pattern,
