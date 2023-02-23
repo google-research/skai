@@ -28,7 +28,7 @@ class CloudLabelingTest(absltest.TestCase):
     before_image = PIL.Image.new('RGB', (64, 64))
     after_image = PIL.Image.new('RGB', (64, 64))
     labeling_image = cloud_labeling.create_labeling_image(
-        before_image, after_image)
+        before_image, after_image, 'example_id', 'plus_code')
     self.assertEqual(labeling_image.width, 158)
     self.assertEqual(labeling_image.height, 116)
 

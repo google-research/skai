@@ -98,7 +98,9 @@ def _read_example_ids_from_import_file(path: str) -> Iterable[str]:
       yield os.path.splitext(os.path.basename(line.strip()))[0]
 
 
-def create_labeling_image(before_image: Image, after_image: Image) -> Image:
+def create_labeling_image(
+    before_image: Image, after_image: Image, example_id: str, plus_code: str
+) -> Image:
   """Creates an image used for labeling.
 
   The image is composed of the before and after images from the input example
@@ -107,9 +109,11 @@ def create_labeling_image(before_image: Image, after_image: Image) -> Image:
   Args:
     before_image: Before image.
     after_image: After image.
+    example_id: Example id.
+    plus_code: Plus code.
 
   Returns:
-    Combined image.
+    Annotated and combined image.
 
   """
   before_annotated = _annotate_image(before_image, 'BEFORE')
@@ -121,6 +125,14 @@ def create_labeling_image(before_image: Image, after_image: Image) -> Image:
   combined.paste(after_annotated,
                  (before_annotated.width + 2 * BEFORE_AFTER_GAP,
                   BEFORE_AFTER_GAP))
+  caption = PIL.ImageDraw.Draw(combined)
+  bottom_text = f'Example id: {example_id}   Plus code: {plus_code}'
+  caption.text(
+      (10, combined.height - 10),
+      bottom_text,
+      fill='black',
+      anchor='lb',
+  )
   return combined
 
 
@@ -173,8 +185,8 @@ def create_labeling_images(
     example.ParseFromString(record.numpy())
     if 'example_id' in example.features.feature:
       example_id = (
-          example.features.feature['example_id'].bytes_list.value[0]
-          .decode())
+          example.features.feature['example_id'].bytes_list.value[0].decode()
+      )
     else:
       # If the example doesn't have an "example_id" feature, fall back on using
       # "encoded_coordinates". This maintains backwards compatibility with
@@ -184,6 +196,13 @@ def create_labeling_images(
       example_id = (
           example.features.feature['encoded_coordinates'].bytes_list.value[0]
           .decode())
+
+    if 'plus_code' in example.features.feature:
+      plus_code = (
+          example.features.feature['plus_code'].bytes_list.value[0].decode()
+      )
+    else:
+      plus_code = 'unknown'
 
     if (allowed_example_ids is not None
         and example_id not in allowed_example_ids):
@@ -199,7 +218,8 @@ def create_labeling_images(
     after_image = utils.deserialize_image(
         example.features.feature['post_image_png_large'].bytes_list.value[0],
         'png')
-    labeling_image = create_labeling_image(before_image, after_image)
+    labeling_image = create_labeling_image(
+        before_image, after_image, example_id, plus_code)
     labeling_image_bytes = utils.serialize_image(labeling_image, 'png')
     path = os.path.join(output_dir, f'{example_id}.png')
     with tf.io.gfile.GFile(path, 'w') as writer:
