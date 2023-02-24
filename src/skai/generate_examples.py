@@ -812,7 +812,7 @@ def generate_examples_pipeline(before_image_patterns: List[str],
         os.path.join(output_dir, 'examples', 'unlabeled', 'unlabeled'))
     large_examples_output_prefix = (
         os.path.join(output_dir, 'examples', 'unlabeled-large', 'unlabeled'))
-    labeled_coordinates = [(longitude, latitude, -1.0, 'no_label')
+    labeled_coordinates = [(longitude, latitude, -1.0, '')
                            for longitude, latitude in unlabeled_coordinates]
     utils.write_coordinates_file(labeled_coordinates, coordinates_path)
 
