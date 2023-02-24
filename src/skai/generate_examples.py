@@ -21,7 +21,7 @@ import logging
 import os
 import pathlib
 import pickle
-from typing import Any, Dict, Iterable, Iterator, List, Optional, Tuple
+from typing import Any, Dict, Iterable, Iterator, List, Optional, Tuple,Union
 
 import apache_beam as beam
 import cv2
@@ -374,7 +374,7 @@ class GenerateExamplesFn(beam.DoFn):
       before_image: np.ndarray,
       after_image_id: str,
       after_image: np.ndarray,
-      scalar_features: Dict[str, Any]) -> Optional[Example]:
+      scalar_features: Dict[str, List[Union[float, str]]]) -> Optional[Example]:
     """Create Tensorflow Example from inputs.
 
     Args:
@@ -426,8 +426,8 @@ class GenerateExamplesFn(beam.DoFn):
                             tf.io.encode_png(after_crop).numpy(), example)
     utils.add_bytes_feature('post_image_id', after_image_id.encode(), example)
     for name, value in scalar_features.items():
-      if isinstance(value, str):
-        utils.add_bytes_feature(name,value.encode(), example)
+      if all(isinstance(v, str) for v in value):
+        utils.add_bytes_list_feature(name,[v.encode() for v in value], example)
       else:
         utils.add_float_list_feature(name, value, example)
     return example

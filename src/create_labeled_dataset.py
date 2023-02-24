@@ -50,7 +50,7 @@ flags.DEFINE_list(
         'major_damage=1',
         'destroyed=1',
     ],
-    'List of "class=label" strings, e.g. "no_damaged=0,minor_damage=0,...".',
+    'List of "class=label" strings, e.g. "no_damage=0,minor_damage=0,...".',
 )
 
 
