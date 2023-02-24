@@ -95,7 +95,7 @@ class ExamplesGenerationConfig:
   labels_file: Optional[str] = None
   label_property: Optional[str] = None
   labels_to_classes: Optional[List[str]] = None
-  num_keep_labeled_examples: int = 1000
+  num_keep_labeled_examples: int = None
   configuration_path: Optional[str] = None
 
   # TODO(mohammedelfatihsalah): Add a type for flagvalues argument in init_from_flags.
