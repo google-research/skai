@@ -538,7 +538,7 @@ def _coordinates_to_scalar_features(coordinates_path: str):
     feature = _FeatureUnion(scalar_features={
         'coordinates': [longitude, latitude],
         'label': [label],
-        'string_label' : string_label
+        'string_label' : [string_label]
     })
     yield (encoded_coords, feature)
 
