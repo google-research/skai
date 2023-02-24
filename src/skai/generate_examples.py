@@ -427,7 +427,7 @@ class GenerateExamplesFn(beam.DoFn):
     utils.add_bytes_feature('post_image_id', after_image_id.encode(), example)
     for name, value in scalar_features.items():
       if all(isinstance(v, str) for v in value):
-        utils.add_bytes_list_feature(name,[v.encode() for v in value], example)
+        utils.add_bytes_list_feature(name, [v.encode() for v in value], example)
       else:
         utils.add_float_list_feature(name, value, example)
     return example
