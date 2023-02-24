@@ -102,6 +102,7 @@ def _check_examples(
           'label',
           'example_id',
           'plus_code',
+          'string_label'
       ])
       if expect_large_patch:
         expected_feature_names.update(
@@ -198,8 +199,8 @@ class GenerateExamplesTest(absltest.TestCase):
   def testGenerateExamplesFn(self):
     """Tests GenerateExamplesFn class."""
 
-    unlabeled_coordinates = [(178.482925, -16.632893, -1.0),
-                             (178.482283, -16.632279, -1.0)]
+    unlabeled_coordinates = [(178.482925, -16.632893, -1.0, ''),
+                             (178.482283, -16.632279, -1.0, '')]
     utils.write_coordinates_file(unlabeled_coordinates, self.coordinates_path)
 
     with test_pipeline.TestPipeline() as pipeline:
@@ -216,7 +217,7 @@ class GenerateExamplesTest(absltest.TestCase):
               self.test_image_path,
               32,
               62,
-              [(178.482925, -16.632893, -1.0)],
+              [(178.482925, -16.632893, -1.0, '')],
               ['5VMW9F8M+R5V8F4'],
               False,
               True,
@@ -230,7 +231,7 @@ class GenerateExamplesTest(absltest.TestCase):
               self.test_image_path,
               32,
               62,
-              [(178.482925, -16.632893, -1.0)],
+              [(178.482925, -16.632893, -1.0, '')],
               ['5VMW9F8M+R5V8F4'],
               False,
               False,
@@ -241,8 +242,8 @@ class GenerateExamplesTest(absltest.TestCase):
   def testGenerateExamplesFnLabeled(self):
     """Tests GenerateExamplesFn class."""
 
-    labeled_coordinates = [(178.482925, -16.632893, 0),
-                           (178.482924, -16.632894, 1)]
+    labeled_coordinates = [(178.482925, -16.632893, 0, 'no_damage'),
+                           (178.482924, -16.632894, 1, 'destroyed')]
     utils.write_coordinates_file(labeled_coordinates, self.coordinates_path)
 
     with test_pipeline.TestPipeline() as pipeline:
@@ -257,7 +258,7 @@ class GenerateExamplesTest(absltest.TestCase):
               self.test_image_path,
               32,
               62,
-              [(178.482925, -16.632893, 0.0), (178.482924, -16.632894, 1.0)],
+              [(178.482925, -16.632893, 0.0, 'no_damage'), (178.482924, -16.632894, 1.0, 'destroyed')],
               ['5VMW9F8M+R5V8F4', '5VMW9F8M+R5V872'],
               False,
               True,
@@ -272,7 +273,7 @@ class GenerateExamplesTest(absltest.TestCase):
               self.test_image_path,
               32,
               62,
-              [(178.482925, -16.632893, 0.0), (178.482924, -16.632894, 1.0)],
+              [(178.482925, -16.632893, 0.0, 'no_damage'), (178.482924, -16.632894, 1.0, 'destroyed')],
               ['5VMW9F8M+R5V8F4', '5VMW9F8M+R5V872'],
               False,
               False,
@@ -283,8 +284,8 @@ class GenerateExamplesTest(absltest.TestCase):
   def testGenerateExamplesFnNoBefore(self):
     """Tests GenerateExamplesFn class without before image."""
 
-    coordinates = [(178.482925, -16.632893, -1.0),
-                   (178.482283, -16.632279, -1.0)]
+    coordinates = [(178.482925, -16.632893, -1.0, ''),
+                   (178.482283, -16.632279, -1.0, '')]
     utils.write_coordinates_file(coordinates, self.coordinates_path)
 
     with test_pipeline.TestPipeline() as pipeline:
@@ -301,7 +302,7 @@ class GenerateExamplesTest(absltest.TestCase):
               self.test_image_path,
               32,
               62,
-              [(178.482925, -16.632893, -1.0)],
+              [(178.482925, -16.632893, -1.0, '')],
               ['5VMW9F8M+R5V8F4'],
               True,
               True,
@@ -316,7 +317,7 @@ class GenerateExamplesTest(absltest.TestCase):
               self.test_image_path,
               32,
               62,
-              [(178.482925, -16.632893, -1.0)],
+              [(178.482925, -16.632893, -1.0, '')],
               ['5VMW9F8M+R5V8F4'],
               True,
               False,
@@ -326,7 +327,7 @@ class GenerateExamplesTest(absltest.TestCase):
 
   def testGenerateExampleFnPathPattern(self):
     """Test GenerateExampleFn class with a path pattern."""
-    coordinates = [(178.482925, -16.632893, -1.0)]
+    coordinates = [(178.482925, -16.632893, -1.0, '')]
     utils.write_coordinates_file(coordinates, self.coordinates_path)
 
     expected_before_image_ids = glob.glob(self.test_image_path_patterns)
