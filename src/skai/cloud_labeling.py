@@ -620,7 +620,7 @@ def create_labeled_examples(
     location: Dataset location, e.g. us-central1.
     dataset_ids: List of numeric dataset ids to export.
     string_to_numeric_labels: List of strings in the form
-      "<string label>=<numeric label>", e.g. "undamaged=0"
+      "<string label>=<numeric label>", e.g. "no_damage=0"
     export_dir: GCS directory to export annotations to.
     examples_pattern: Pattern for unlabeled examples.
     test_fraction: Fraction of examples to write to test output.
@@ -644,13 +644,15 @@ def create_labeled_examples(
   for dataset_id in dataset_ids:
     dataset_labels = _get_labels(project, location, dataset_id, export_dir)
     for example_id, string_label in dataset_labels.items():
+      numeric_label = string_to_numeric_map.get(string_label, None)
+      # examples with string label not in the input string to numeric map are excluded
+      if numeric_label is None:
+        logging.warning(f'Label "{string_label}" has no numeric mapping.')
+        continue
       example_labels = ids_to_labels[example_id]
       if string_label in [l[0] for l in example_labels]:
         # Don't add multiple labels with the same value for a single example.
         continue
-      numeric_label = string_to_numeric_map.get(string_label, None)
-      if numeric_label is None:
-        raise ValueError(f'Label "{string_label}" has no numeric mapping.')
       example_labels.append((string_label, numeric_label, dataset_id))
 
   _merge_examples_and_labels(

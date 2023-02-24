@@ -45,12 +45,12 @@ flags.DEFINE_list(
     'string_to_numeric_labels',
     [
         'bad_example=0',
-        'undamaged=0',
+        'no_damage=0',
         'minor_damage=1',
         'major_damage=1',
         'destroyed=1',
     ],
-    'List of "class=label" strings, e.g. "undamaged=0,minor_damage=0,...".',
+    'List of "class=label" strings, e.g. "no_damaged=0,minor_damage=0,...".',
 )
 
 

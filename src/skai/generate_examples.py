@@ -374,7 +374,7 @@ class GenerateExamplesFn(beam.DoFn):
       before_image: np.ndarray,
       after_image_id: str,
       after_image: np.ndarray,
-      scalar_features: Dict[str, List[float]]) -> Optional[Example]:
+      scalar_features: Dict[str, Any]) -> Optional[Example]:
     """Create Tensorflow Example from inputs.
 
     Args:
@@ -426,7 +426,10 @@ class GenerateExamplesFn(beam.DoFn):
                             tf.io.encode_png(after_crop).numpy(), example)
     utils.add_bytes_feature('post_image_id', after_image_id.encode(), example)
     for name, value in scalar_features.items():
-      utils.add_float_list_feature(name, value, example)
+      if isinstance(value, str):
+        utils.add_bytes_feature(name,value.encode(), example)
+      else:
+        utils.add_float_list_feature(name, value, example)
     return example
 
   def process(
@@ -530,11 +533,12 @@ def _get_local_pipeline_options() -> PipelineOptions:
 
 def _coordinates_to_scalar_features(coordinates_path: str):
   coordinates = utils.read_coordinates_file(coordinates_path)
-  for longitude, latitude, label in coordinates:
+  for longitude, latitude, label, string_label in coordinates:
     encoded_coords = utils.encode_coordinates(longitude, latitude)
     feature = _FeatureUnion(scalar_features={
         'coordinates': [longitude, latitude],
-        'label': [label]
+        'label': [label],
+        'string_label' : string_label
     })
     yield (encoded_coords, feature)
 
@@ -647,7 +651,7 @@ def read_labels_file(
     label_property: str,
     labels_to_classes: List[str] = None,
     max_points: int = None
-) -> List[Tuple[float, float, float]]:
+) -> List[Tuple[float, float, float, str]]:
   """Reads labels from a GIS file.
 
   If the "label_property" is a string, then it is assumed to be the name of a
@@ -660,9 +664,9 @@ def read_labels_file(
 
   Args:
     path: Path to the file to be read.
-    label_property: The property to use as the label, e.g. "Main_Damag".
+    label_property: The property to use as the label, e.g. "string_label".
     labels_to_classes: List of string in "class=label" format, e.g.
-      ["undamaged=0", "damaged=1", "destroyed=1"].
+      ["no_damage=0", "damaged=1", "destroyed=1"].
     max_points: Number of labeled examples to keep
 
   Returns:
@@ -692,14 +696,14 @@ def read_labels_file(
     if isinstance(label, str):
       try:
         float_label = label_to_class_dict[label]
+        coordinates.append((centroid.x, centroid.y, float_label, label))
       except KeyError:
         logging.warning('Label %s is not recognized.', label)
     elif isinstance(label, (int, float)):
       float_label = float(label)
+      coordinates.append((centroid.x, centroid.y, float_label, str(label)))
     else:
       raise ValueError(f'Unrecognized label property type {type(label)}')
-
-    coordinates.append((centroid.x, centroid.y, float_label))
 
   if max_points:
     coordinates = coordinates[:max_points]
@@ -754,7 +758,7 @@ def generate_examples_pipeline(before_image_patterns: List[str],
                                num_output_shards: int,
                                unlabeled_coordinates: List[Tuple[float, float]],
                                labeled_coordinates: List[Tuple[float, float,
-                                                               float]],
+                                                               float, str]],
                                use_dataflow: bool, gdal_env: Dict[str, str],
                                dataflow_job_name: Optional[str],
                                dataflow_container_image: Optional[str],
@@ -775,7 +779,7 @@ def generate_examples_pipeline(before_image_patterns: List[str],
     num_output_shards: Number of output shards.
     unlabeled_coordinates: List of coordinates (longitude, latitude) to extract
       unlabeled examples for.
-    labeled_coordinates: List of coordinates (longitude, latitude, label) to
+    labeled_coordinates: List of coordinates (longitude, latitude, label, string_label) to
       extract labeled examples for.
     use_dataflow: If true, run pipeline on GCP Dataflow.
     gdal_env: GDAL environment configuration.
@@ -808,7 +812,7 @@ def generate_examples_pipeline(before_image_patterns: List[str],
         os.path.join(output_dir, 'examples', 'unlabeled', 'unlabeled'))
     large_examples_output_prefix = (
         os.path.join(output_dir, 'examples', 'unlabeled-large', 'unlabeled'))
-    labeled_coordinates = [(longitude, latitude, -1.0)
+    labeled_coordinates = [(longitude, latitude, -1.0, 'no_label')
                            for longitude, latitude in unlabeled_coordinates]
     utils.write_coordinates_file(labeled_coordinates, coordinates_path)
 
