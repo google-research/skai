@@ -27,6 +27,7 @@ from absl import logging
 
 from google.cloud import aiplatform
 from google.cloud import aiplatform_v1
+import pandas as pd
 import PIL.Image
 import PIL.ImageDraw
 import PIL.ImageFont
@@ -567,11 +568,11 @@ def _merge_examples_and_labels(
   _write_tfrecord(test_examples, test_output_path)
 
 
-def _get_labels(
+def _get_labels_from_dataset(
     project: str,
     location: str,
     dataset_id: str,
-    export_dir: str) -> Dict[str, str]:
+    export_dir: str) -> List[Tuple[str, str, str]]:
   """Reads labels from completed cloud labeling job.
 
   Args:
@@ -581,7 +582,7 @@ def _get_labels(
     export_dir: GCS directory to export annotations to.
 
   Returns:
-    Dictionary of example ids to string labels.
+    List of (example id, string label) tuples.
   """
 
   aiplatform.init(project=project, location=location)
@@ -598,15 +599,42 @@ def _get_labels(
         path.endswith('jsonl')):
       logging.info('Reading annotation file "%s"', path)
       labels.update(_read_label_annotations_file(path))
+    tf.io.gfile.remove(path)
 
   logging.info('Read %d labels total.', len(labels))
-  return labels
+  return [
+      (example_id, label, dataset_id) for example_id, label in labels.items()
+  ]
+
+
+def _read_label_file(path: str) -> List[Tuple[str, str, str]]:
+  """Reads a label file.
+
+  The file should be a CSV containing at least an "example_id" column
+  and a "string_label" column. In the future example_ids will also be supported.
+
+  Args:
+    path: Path to file.
+
+  Returns:
+    List of (example id, string label) tuples.
+  """
+  with tf.io.gfile.GFile(path) as f:
+    df = pd.read_csv(f)
+
+  if 'example_id' not in df.columns:
+    raise ValueError('Label file must contain "example_id" column.')
+  if 'string_label' not in df.columns:
+    raise ValueError('Label file must contain "string_label" column.')
+
+  return [(row.example_id, row.string_label, path) for _, row in df.iterrows()]
 
 
 def create_labeled_examples(
     project: str,
     location: str,
     dataset_ids: List[str],
+    label_file_paths: List[str],
     string_to_numeric_labels: List[str],
     export_dir: str,
     examples_pattern: str,
@@ -619,6 +647,7 @@ def create_labeled_examples(
     project: Cloud project name.
     location: Dataset location, e.g. us-central1.
     dataset_ids: List of numeric dataset ids to export.
+    label_file_paths: Paths to files to read labels from.
     string_to_numeric_labels: List of strings in the form
       "<string label>=<numeric label>", e.g. "undamaged=0"
     export_dir: GCS directory to export annotations to.
@@ -640,18 +669,25 @@ def create_labeled_examples(
       logging.error('Class %s is not numeric.', numeric_label)
       raise
 
-  ids_to_labels = collections.defaultdict(list)
+  labels = []
   for dataset_id in dataset_ids:
-    dataset_labels = _get_labels(project, location, dataset_id, export_dir)
-    for example_id, string_label in dataset_labels.items():
-      example_labels = ids_to_labels[example_id]
-      if string_label in [l[0] for l in example_labels]:
-        # Don't add multiple labels with the same value for a single example.
-        continue
-      numeric_label = string_to_numeric_map.get(string_label, None)
-      if numeric_label is None:
-        raise ValueError(f'Label "{string_label}" has no numeric mapping.')
-      example_labels.append((string_label, numeric_label, dataset_id))
+    labels.extend(
+        _get_labels_from_dataset(project, location, dataset_id, export_dir)
+    )
+
+  for path in label_file_paths:
+    labels.extend(_read_label_file(path))
+
+  ids_to_labels = collections.defaultdict(list)
+  for example_id, string_label, dataset_id in labels:
+    example_labels = ids_to_labels[example_id]
+    if string_label in [l[0] for l in example_labels]:
+      # Don't add multiple labels with the same value for a single example.
+      continue
+    numeric_label = string_to_numeric_map.get(string_label, None)
+    if numeric_label is None:
+      raise ValueError(f'Label "{string_label}" has no numeric mapping.')
+    example_labels.append((string_label, numeric_label, dataset_id))
 
   _merge_examples_and_labels(
       examples_pattern,
