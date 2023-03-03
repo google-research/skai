@@ -19,9 +19,10 @@ import functools
 import json
 import multiprocessing
 import os
+import queue
 import random
 import time
-from typing import Dict, Iterable, List, Optional, Tuple
+from typing import Dict, Iterable, List, Optional, Tuple, Set
 
 from absl import logging
 
@@ -180,8 +181,56 @@ def create_labeling_images(
       allowed_example_ids = set(line.strip() for line in f)
     logging.info('Allowing %d example ids', len(allowed_example_ids))
 
-  image_paths = []
-  for record in tf.data.TFRecordDataset(example_files):
+  image_paths_queue = multiprocessing.Manager().Queue(maxsize=max_images)
+
+  num_workers = min(multiprocessing.cpu_count(), len(example_files))
+
+  args = (
+      output_dir,
+      allowed_example_ids,
+      excluded_example_ids,
+      image_paths_queue,
+  )
+
+  with multiprocessing.Pool(num_workers) as pool_executor:
+    _ = pool_executor.starmap(
+        _create_labeling_images_from_example_file,
+        [(example_file, *args) for example_file in example_files],
+    )
+
+  if image_paths_queue.empty():
+    return 0, None
+
+  import_file_path = os.path.join(output_dir, 'import_file.csv')
+  num_images = image_paths_queue.qsize()
+  with tf.io.gfile.GFile(import_file_path, 'w') as f:
+    while not image_paths_queue.empty():
+      f.write(image_paths_queue.get() + '\n')
+
+  return num_images, import_file_path
+
+
+def _create_labeling_images_from_example_file(
+    example_file: str,
+    output_dir: str,
+    allowed_example_ids: Set[str],
+    excluded_example_ids: Set[str],
+    image_paths_queue: queue.Queue[str],
+) -> None:
+  """Creates PNGs used for labeling from TFRecords for a single example_file.
+
+  Also writes an import file in CSV format that is used to upload the images
+  into the VertexAI labeling tool.
+
+  Args:
+    example_file: Path to file containing TF records.
+    output_dir: Output directory.
+    allowed_example_ids: Set of example_id from which a subset will be used in
+      creating labeling task.
+    excluded_example_ids: Set of example_id to be excluded.
+    image_paths_queue: List of paths to images created for labeling task.
+  """
+  for record in tf.data.TFRecordDataset([example_file]):
     example = Example()
     example.ParseFromString(record.numpy())
     if 'example_id' in example.features.feature:
@@ -223,19 +272,14 @@ def create_labeling_images(
         before_image, after_image, example_id, plus_code)
     labeling_image_bytes = utils.serialize_image(labeling_image, 'png')
     path = os.path.join(output_dir, f'{example_id}.png')
-    with tf.io.gfile.GFile(path, 'w') as writer:
-      writer.write(labeling_image_bytes)
-    image_paths.append(path)
-    if len(image_paths) >= max_images:
+
+    try:
+      _ = image_paths_queue.put_nowait(path)
+      with tf.io.gfile.GFile(path, 'w') as writer:
+        writer.write(labeling_image_bytes)
+
+    except queue.Full:
       break
-
-  if not image_paths:
-    return 0, None
-
-  import_file_path = os.path.join(output_dir, 'import_file.csv')
-  with tf.io.gfile.GFile(import_file_path, 'w') as f:
-    f.write('\n'.join(image_paths))
-  return len(image_paths), import_file_path
 
 
 def write_import_file(
