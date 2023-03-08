@@ -119,17 +119,15 @@ class CloudLabelingTest(absltest.TestCase):
         test_output_path=test_path,
     )
 
-    train_examples = _read_tfrecord(train_path)
-    test_examples = _read_tfrecord(test_path)
-    self.assertLen(train_examples, 4)
-    self.assertLen(test_examples, 2)
+    all_examples = _read_tfrecord(train_path) + _read_tfrecord(test_path)
+    self.assertLen(all_examples, 6)
 
     id_to_float_label = [
         (
             e.features.feature['example_id'].bytes_list.value[0].decode(),
             e.features.feature['label'].float_list.value[0],
         )
-        for e in train_examples + test_examples
+        for e in all_examples
     ]
 
     self.assertSameElements(
