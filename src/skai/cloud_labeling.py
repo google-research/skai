@@ -522,7 +522,6 @@ def _merge_single_example_file_and_labels(
     List of TF examples merged with labels for a single example_file.
   """
   labeled_examples = []
-  logging.info('Processing unlabeled example file "%s".', example_file)
   for record in tf.data.TFRecordDataset([example_file]):
     example = Example()
     example.ParseFromString(record.numpy())
@@ -567,6 +566,7 @@ def _merge_examples_and_labels(
     test_fraction: float,
     train_output_path: str,
     test_output_path: str,
+    use_multiprocessing: bool,
 ) -> None:
   """Merges examples with labels into train and test TFRecords.
 
@@ -577,11 +577,10 @@ def _merge_examples_and_labels(
     test_fraction: Fraction of examples to write to test output.
     train_output_path: Path to training examples TFRecord output.
     test_output_path: Path to test examples TFRecord output.
+    use_multiprocessing: If true, create multiple processes to create labeled
+      examples.
   """
   example_files = tf.io.gfile.glob(examples_pattern)
-  num_workers = min(
-      multiprocessing.cpu_count(), len(example_files)
-  )
 
   if not example_files:
     raise ValueError(f'File pattern {examples_pattern} did not match anything')
@@ -591,23 +590,31 @@ def _merge_examples_and_labels(
         ' labels is not empty'
     )
 
-  with multiprocessing.Pool(num_workers) as pool_executor:
-    logging.info(
-        'Multiprocessing using %s CPUs', num_workers
-    )
-    results = pool_executor.map(
-        functools.partial(_merge_single_example_file_and_labels, labels=labels),
-        example_files,
-    )
+  if use_multiprocessing:
+    num_workers = min(multiprocessing.cpu_count(), len(example_files))
+    with multiprocessing.Pool(num_workers) as pool_executor:
+      logging.info('Using multiprocessing with %d processes.', num_workers)
+      results = pool_executor.map(
+          functools.partial(
+              _merge_single_example_file_and_labels, labels=labels
+          ),
+          example_files,
+      )
+  else:
+    logging.info('Not using multiprocessing.')
+    results = [
+        _merge_single_example_file_and_labels(example_file, labels)
+        for example_file in example_files
+    ]
 
   all_labeled_examples = []
-  for result, example_file in zip(results, example_files):
+  for result in results:
     all_labeled_examples.extend(result)
-    logging.info('Finished processing %s.', example_file)
 
   train_examples, test_examples = _split_examples(
       all_labeled_examples, test_fraction
   )
+
   _write_tfrecord(train_examples, train_output_path)
   _write_tfrecord(test_examples, test_output_path)
 
@@ -684,7 +691,8 @@ def create_labeled_examples(
     examples_pattern: str,
     test_fraction: float,
     train_output_path: str,
-    test_output_path: str) -> None:
+    test_output_path: str,
+    use_multiprocessing: bool) -> None:
   """Creates a labeled dataset by merging cloud labels and unlabeled examples.
 
   Args:
@@ -699,6 +707,8 @@ def create_labeled_examples(
     test_fraction: Fraction of examples to write to test output.
     train_output_path: Path to training examples TFRecord output.
     test_output_path: Path to test examples TFRecord output.
+    use_multiprocessing: If true, create multiple processes to create labeled
+      examples.
   """
   string_to_numeric_map = {}
   for string_to_numeric_label in string_to_numeric_labels:
@@ -739,4 +749,5 @@ def create_labeled_examples(
       test_fraction,
       train_output_path,
       test_output_path,
+      use_multiprocessing,
   )

@@ -53,6 +53,11 @@ flags.DEFINE_list(
     ],
     'List of "class=label" strings, e.g. "undamaged=0,minor_damage=0,...".',
 )
+flags.DEFINE_bool(
+    'use_multiprocessing',
+    True,
+    'If true, starts multiple processes to run task.',
+)
 
 
 def main(unused_argv):
@@ -69,7 +74,8 @@ def main(unused_argv):
       FLAGS.examples_pattern,
       FLAGS.test_fraction,
       FLAGS.train_output_path,
-      FLAGS.test_output_path)
+      FLAGS.test_output_path,
+      FLAGS.use_multiprocessing)
 
 
 if __name__ == '__main__':
