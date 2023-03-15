@@ -143,7 +143,8 @@ def create_labeling_images(
     max_images: int,
     allowed_example_ids_path: str,
     excluded_import_file_patterns: List[str],
-    output_dir: str) -> Tuple[int, Optional[str]]:
+    output_dir: str,
+    use_multiprocessing: bool) -> Tuple[int, Optional[str]]:
   """Creates PNGs used for labeling from TFRecords.
 
   Also writes an import file in CSV format that is used to upload the images
@@ -158,6 +159,8 @@ def create_labeling_images(
     excluded_import_file_patterns: List of import file patterns containing
       images to exclude.
     output_dir: Output directory.
+    use_multiprocessing: If true, create multiple processes to create labeling
+      images.
 
   Returns:
     Tuple of number of images written and file path for the import file.
@@ -181,22 +184,35 @@ def create_labeling_images(
       allowed_example_ids = set(line.strip() for line in f)
     logging.info('Allowing %d example ids', len(allowed_example_ids))
 
-  image_paths_queue = multiprocessing.Manager().Queue(maxsize=max_images)
+  if use_multiprocessing:
+    image_paths_queue = multiprocessing.Manager().Queue(maxsize=max_images)
+    num_workers = min(multiprocessing.cpu_count(), len(example_files))
 
-  num_workers = min(multiprocessing.cpu_count(), len(example_files))
+    arg_list = []
+    for example_file in example_files:
+      arg_list.append((
+          example_file,
+          output_dir,
+          allowed_example_ids,
+          excluded_example_ids,
+          image_paths_queue,
+      ))
 
-  args = (
-      output_dir,
-      allowed_example_ids,
-      excluded_example_ids,
-      image_paths_queue,
-  )
-
-  with multiprocessing.Pool(num_workers) as pool_executor:
-    _ = pool_executor.starmap(
-        _create_labeling_images_from_example_file,
-        [(example_file, *args) for example_file in example_files],
-    )
+    with multiprocessing.Pool(num_workers) as pool_executor:
+      _ = pool_executor.starmap(
+          _create_labeling_images_from_example_file,
+          arg_list,
+      )
+  else:
+    image_paths_queue = queue.Queue(maxsize=max_images)
+    for example_file in example_files:
+      _create_labeling_images_from_example_file(
+          example_file,
+          output_dir,
+          allowed_example_ids,
+          excluded_example_ids,
+          image_paths_queue,
+      )
 
   if image_paths_queue.empty():
     return 0, None
