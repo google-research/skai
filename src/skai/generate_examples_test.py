@@ -63,6 +63,7 @@ def _check_examples(
     small_patch_size: int,
     large_patch_size: int,
     expected_coordinates: List[Tuple[float, float, float]],
+    expected_string_labels: List[str],
     expected_plus_codes: List[str],
     expect_blank_before: bool,
     expect_large_patch: bool,
@@ -85,6 +86,7 @@ def _check_examples(
 
   def _check_examples_internal(actual_examples):
     actual_coordinates = set()
+    actual_string_labels = []
     actual_plus_codes = []
     expected_small_shape = (small_patch_size, small_patch_size, 3)
     expected_large_shape = (large_patch_size, large_patch_size, 3)
@@ -162,12 +164,14 @@ def _check_examples(
             f'actual = {large_after_image.shape}')
 
       actual_coordinates.add((longitude, latitude, label))
+      actual_string_labels.append(
+          example.features.feature['string_label'].bytes_list.value[0].decode())
       actual_plus_codes.append(
           example.features.feature['plus_code'].bytes_list.value[0].decode()
       )
 
     assert _unordered_all_close(expected_coordinates, actual_coordinates)
-
+    assert set(expected_string_labels) == set(actual_string_labels)
     assert len(expected_plus_codes) == len(actual_plus_codes)
 
     expected_plus_codes_sorted = sorted(expected_plus_codes)
@@ -217,7 +221,8 @@ class GenerateExamplesTest(absltest.TestCase):
               self.test_image_path,
               32,
               62,
-              [(178.482925, -16.632893, -1.0, '')],
+              [(178.482925, -16.632893, -1.0)],
+              [''],
               ['5VMW9F8M+R5V8F4'],
               False,
               True,
@@ -231,7 +236,8 @@ class GenerateExamplesTest(absltest.TestCase):
               self.test_image_path,
               32,
               62,
-              [(178.482925, -16.632893, -1.0, '')],
+              [(178.482925, -16.632893, -1.0)],
+              [''],
               ['5VMW9F8M+R5V8F4'],
               False,
               False,
@@ -258,7 +264,8 @@ class GenerateExamplesTest(absltest.TestCase):
               self.test_image_path,
               32,
               62,
-              [(178.482925, -16.632893, 0.0, 'no_damage'), (178.482924, -16.632894, 1.0, 'destroyed')],
+              [(178.482925, -16.632893, 0.0), (178.482924, -16.632894, 1.0)],
+              ['no_damage', 'destroyed'],
               ['5VMW9F8M+R5V8F4', '5VMW9F8M+R5V872'],
               False,
               True,
@@ -273,7 +280,8 @@ class GenerateExamplesTest(absltest.TestCase):
               self.test_image_path,
               32,
               62,
-              [(178.482925, -16.632893, 0.0, 'no_damage'), (178.482924, -16.632894, 1.0, 'destroyed')],
+              [(178.482925, -16.632893, 0.0), (178.482924, -16.632894, 1.0)],
+              ['no_damage', 'destroyed'],
               ['5VMW9F8M+R5V8F4', '5VMW9F8M+R5V872'],
               False,
               False,
@@ -302,7 +310,8 @@ class GenerateExamplesTest(absltest.TestCase):
               self.test_image_path,
               32,
               62,
-              [(178.482925, -16.632893, -1.0, '')],
+              [(178.482925, -16.632893, -1.0)],
+              [''],
               ['5VMW9F8M+R5V8F4'],
               True,
               True,
@@ -317,7 +326,8 @@ class GenerateExamplesTest(absltest.TestCase):
               self.test_image_path,
               32,
               62,
-              [(178.482925, -16.632893, -1.0, '')],
+              [(178.482925, -16.632893, -1.0)],
+              [''],
               ['5VMW9F8M+R5V8F4'],
               True,
               False,
@@ -421,7 +431,7 @@ class GenerateExamplesTest(absltest.TestCase):
     self.assertIsNone(config.labels_file)
     self.assertIsNone(config.label_property)
     self.assertIsNone(config.labels_to_classes)
-    self.assertEqual(config.num_keep_labeled_examples, 1000)
+    self.assertIsNone(config.num_keep_labeled_examples)
     self.assertIsNone(config.configuration_path)
 
   def testConfigRaiseErrorOnMissingDatasetName(self):

@@ -101,9 +101,9 @@ class ReadRasterTest(absltest.TestCase):
 
   def test_coordinates_to_groups(self):
     coordinates = [
-        (178.482925, -16.632893, -1.0),
-        (178.482283, -16.632279, -1.0),
-        (178.482284, -16.632279, -1.0)]
+        (178.482925, -16.632893, -1.0, 'no_damage'),
+        (178.482283, -16.632279, -1.0, 'no_damage'),
+        (178.482284, -16.632279, -1.0, 'no_damage')]
 
     with tempfile.NamedTemporaryFile(dir=absltest.TEST_TMPDIR.value) as f:
       coordinates_path = f.name
