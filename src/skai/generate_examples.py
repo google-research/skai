@@ -22,7 +22,7 @@ import logging
 import os
 import pathlib
 import pickle
-from typing import Any, Dict, Iterable, Iterator, List, Optional, Tuple,Union
+from typing import Any, Dict, Iterable, Iterator, List, Optional, Tuple, Union
 
 import apache_beam as beam
 import cv2
@@ -539,7 +539,7 @@ def _coordinates_to_scalar_features(coordinates_path: str):
     feature = _FeatureUnion(scalar_features={
         'coordinates': [longitude, latitude],
         'label': [label],
-        'string_label' : [string_label]
+        'string_label': [string_label]
     })
     yield (encoded_coords, feature)
 
@@ -780,8 +780,8 @@ def generate_examples_pipeline(before_image_patterns: List[str],
     num_output_shards: Number of output shards.
     unlabeled_coordinates: List of coordinates (longitude, latitude) to extract
       unlabeled examples for.
-    labeled_coordinates: List of coordinates (longitude, latitude, label, string_label) to
-      extract labeled examples for.
+    labeled_coordinates: List of coordinates (longitude, latitude, label,
+      string_label) to extract labeled examples for.
     use_dataflow: If true, run pipeline on GCP Dataflow.
     gdal_env: GDAL environment configuration.
     dataflow_job_name: Name of dataflow job.

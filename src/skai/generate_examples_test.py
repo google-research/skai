@@ -67,8 +67,7 @@ def _check_examples(
     expected_string_labels: List[str],
     expected_plus_codes: List[str],
     expect_blank_before: bool,
-    expect_large_patch: bool,
-):
+    expect_large_patch: bool):
   """Validates examples generated from beam pipeline.
 
   Args:
@@ -77,6 +76,7 @@ def _check_examples(
     small_patch_size: The expected size of small patches.
     large_patch_size: The expected size of large patches.
     expected_coordinates: List of coordinates that examples should have.
+    expected_string_labels: List of string labels that examples should have.
     expected_plus_codes: List of plus codes that examples should have.
     expect_blank_before: If true, the before image should be all zeros.
     expect_large_patch: If true, the examples should contain large patches.
