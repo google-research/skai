@@ -13,18 +13,31 @@
 # limitations under the License.
 """Tests for buildings.py."""
 
+import pathlib
 from absl.testing import absltest
 import shapely.geometry
 from skai import buildings
-from skai import utils
 
 Polygon = shapely.geometry.polygon.Polygon
+
+
+def get_test_file_path(relative_test_data_path: str) -> str:
+  """Returns path to a test data file.
+
+  Args:
+    relative_test_data_path: Relative data path, e.g. "test_data/blank.tif".
+
+  Returns:
+    Absolute path to test data.
+  """
+  current_dir = pathlib.Path(__file__).parent
+  return str(current_dir / relative_test_data_path)
 
 
 class BuildingsTest(absltest.TestCase):
 
   def testReadBuildingsFileGeoJSON(self):
-    path = utils.get_test_file_path('test_data/building_centroids.geojson')
+    path = get_test_file_path('test_data/building_centroids.geojson')
     regions = [Polygon.from_bounds(178.78737, -16.65851, 178.81098, -16.63617)]
     coords = buildings.read_buildings_file(path, regions)
 
@@ -34,7 +47,7 @@ class BuildingsTest(absltest.TestCase):
     self.assertLen(coords, 101)
 
   def testReadBuildingsFileCSV(self):
-    path = utils.get_test_file_path('test_data/building_centroids.csv')
+    path = get_test_file_path('test_data/building_centroids.csv')
     regions = [Polygon.from_bounds(178.78737, -16.65851, 178.81098, -16.63617)]
     coords = buildings.read_buildings_file(path, regions)
 
@@ -44,7 +57,7 @@ class BuildingsTest(absltest.TestCase):
     self.assertLen(coords, 101)
 
   def testReadAOIs(self):
-    path = utils.get_test_file_path('test_data/aoi.geojson')
+    path = get_test_file_path('test_data/aoi.geojson')
     aois = buildings.read_aois(path)
     self.assertLen(aois, 2)
     self.assertTrue(aois[0].almost_equals(

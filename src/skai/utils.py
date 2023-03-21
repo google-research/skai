@@ -76,20 +76,6 @@ def add_bytes_feature(feature_name: str,
   example.features.feature[feature_name].bytes_list.value.append(value)
 
 
-def get_test_file_path(relative_test_data_path: str) -> str:
-  """Returns path to a test data file.
-
-  Args:
-    relative_test_data_path: Relative data path, e.g. "test_data/blank.tif".
-
-  Returns:
-    Absolute path to test data.
-  """
-  import pathlib
-  current_dir = pathlib.Path(__file__).parent
-  return str(current_dir / relative_test_data_path)
-
-
 def reformat_flags(flags_list: List[flags.Flag]) -> List[str]:
   """Converts Flag objects to strings formatted as command line arguments.
 
