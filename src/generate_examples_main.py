@@ -214,6 +214,10 @@ def main(args):
   else:
     after_image_patterns = []
 
+  # Validate before_image_patterns and after_image_patterns
+  generate_examples.validate_image_patterns(before_image_patterns, False)
+  generate_examples.validate_image_patterns(after_image_patterns, True)
+
   if not config.labels_file and config.buildings_method == 'none':
     raise ValueError('At least labels_file (for labeled examples extraction) '
                      'or buildings_method != none (for unlabeled data) should '

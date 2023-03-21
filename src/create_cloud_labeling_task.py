@@ -86,6 +86,11 @@ flags.DEFINE_string(
     'allowed_example_ids_path',
     None,
     'If specified, only allow example ids found in this text file.')
+flags.DEFINE_bool(
+    'use_multiprocessing',
+    True,
+    'If true, starts multiple processes to run task.',
+)
 
 
 def _get_labeling_dataset_region(project_region: str) -> str:
@@ -119,7 +124,8 @@ def main(unused_argv):
         FLAGS.max_images,
         FLAGS.allowed_example_ids_path,
         FLAGS.exclude_import_file_patterns,
-        FLAGS.images_dir)
+        FLAGS.images_dir,
+        FLAGS.use_multiprocessing)
 
     if num_images == 0:
       logging.fatal('No labeling images found.')

@@ -19,14 +19,16 @@ import functools
 import json
 import multiprocessing
 import os
+import queue
 import random
 import time
-from typing import Dict, Iterable, List, Optional, Tuple
+from typing import Dict, Iterable, List, Optional, Tuple, Set
 
 from absl import logging
 
 from google.cloud import aiplatform
 from google.cloud import aiplatform_v1
+import pandas as pd
 import PIL.Image
 import PIL.ImageDraw
 import PIL.ImageFont
@@ -141,7 +143,8 @@ def create_labeling_images(
     max_images: int,
     allowed_example_ids_path: str,
     excluded_import_file_patterns: List[str],
-    output_dir: str) -> Tuple[int, Optional[str]]:
+    output_dir: str,
+    use_multiprocessing: bool) -> Tuple[int, Optional[str]]:
   """Creates PNGs used for labeling from TFRecords.
 
   Also writes an import file in CSV format that is used to upload the images
@@ -156,6 +159,8 @@ def create_labeling_images(
     excluded_import_file_patterns: List of import file patterns containing
       images to exclude.
     output_dir: Output directory.
+    use_multiprocessing: If true, create multiple processes to create labeling
+      images.
 
   Returns:
     Tuple of number of images written and file path for the import file.
@@ -179,8 +184,69 @@ def create_labeling_images(
       allowed_example_ids = set(line.strip() for line in f)
     logging.info('Allowing %d example ids', len(allowed_example_ids))
 
-  image_paths = []
-  for record in tf.data.TFRecordDataset(example_files):
+  if use_multiprocessing:
+    image_paths_queue = multiprocessing.Manager().Queue(maxsize=max_images)
+    num_workers = min(multiprocessing.cpu_count(), len(example_files))
+
+    arg_list = []
+    for example_file in example_files:
+      arg_list.append((
+          example_file,
+          output_dir,
+          allowed_example_ids,
+          excluded_example_ids,
+          image_paths_queue,
+      ))
+
+    with multiprocessing.Pool(num_workers) as pool_executor:
+      _ = pool_executor.starmap(
+          _create_labeling_images_from_example_file,
+          arg_list,
+      )
+  else:
+    image_paths_queue = queue.Queue(maxsize=max_images)
+    for example_file in example_files:
+      _create_labeling_images_from_example_file(
+          example_file,
+          output_dir,
+          allowed_example_ids,
+          excluded_example_ids,
+          image_paths_queue,
+      )
+
+  if image_paths_queue.empty():
+    return 0, None
+
+  import_file_path = os.path.join(output_dir, 'import_file.csv')
+  num_images = image_paths_queue.qsize()
+  with tf.io.gfile.GFile(import_file_path, 'w') as f:
+    while not image_paths_queue.empty():
+      f.write(image_paths_queue.get() + '\n')
+
+  return num_images, import_file_path
+
+
+def _create_labeling_images_from_example_file(
+    example_file: str,
+    output_dir: str,
+    allowed_example_ids: Set[str],
+    excluded_example_ids: Set[str],
+    image_paths_queue: queue.Queue[str],
+) -> None:
+  """Creates PNGs used for labeling from TFRecords for a single example_file.
+
+  Also writes an import file in CSV format that is used to upload the images
+  into the VertexAI labeling tool.
+
+  Args:
+    example_file: Path to file containing TF records.
+    output_dir: Output directory.
+    allowed_example_ids: Set of example_id from which a subset will be used in
+      creating labeling task.
+    excluded_example_ids: Set of example_id to be excluded.
+    image_paths_queue: List of paths to images created for labeling task.
+  """
+  for record in tf.data.TFRecordDataset([example_file]):
     example = Example()
     example.ParseFromString(record.numpy())
     if 'example_id' in example.features.feature:
@@ -222,19 +288,14 @@ def create_labeling_images(
         before_image, after_image, example_id, plus_code)
     labeling_image_bytes = utils.serialize_image(labeling_image, 'png')
     path = os.path.join(output_dir, f'{example_id}.png')
-    with tf.io.gfile.GFile(path, 'w') as writer:
-      writer.write(labeling_image_bytes)
-    image_paths.append(path)
-    if len(image_paths) >= max_images:
+
+    try:
+      _ = image_paths_queue.put_nowait(path)
+      with tf.io.gfile.GFile(path, 'w') as writer:
+        writer.write(labeling_image_bytes)
+
+    except queue.Full:
       break
-
-  if not image_paths:
-    return 0, None
-
-  import_file_path = os.path.join(output_dir, 'import_file.csv')
-  with tf.io.gfile.GFile(import_file_path, 'w') as f:
-    f.write('\n'.join(image_paths))
-  return len(image_paths), import_file_path
 
 
 def write_import_file(
@@ -477,7 +538,6 @@ def _merge_single_example_file_and_labels(
     List of TF examples merged with labels for a single example_file.
   """
   labeled_examples = []
-  logging.info('Processing unlabeled example file "%s".', example_file)
   for record in tf.data.TFRecordDataset([example_file]):
     example = Example()
     example.ParseFromString(record.numpy())
@@ -522,6 +582,7 @@ def _merge_examples_and_labels(
     test_fraction: float,
     train_output_path: str,
     test_output_path: str,
+    use_multiprocessing: bool,
 ) -> None:
   """Merges examples with labels into train and test TFRecords.
 
@@ -532,11 +593,10 @@ def _merge_examples_and_labels(
     test_fraction: Fraction of examples to write to test output.
     train_output_path: Path to training examples TFRecord output.
     test_output_path: Path to test examples TFRecord output.
+    use_multiprocessing: If true, create multiple processes to create labeled
+      examples.
   """
   example_files = tf.io.gfile.glob(examples_pattern)
-  num_workers = min(
-      multiprocessing.cpu_count(), len(example_files)
-  )
 
   if not example_files:
     raise ValueError(f'File pattern {examples_pattern} did not match anything')
@@ -546,32 +606,40 @@ def _merge_examples_and_labels(
         ' labels is not empty'
     )
 
-  with multiprocessing.Pool(num_workers) as pool_executor:
-    logging.info(
-        'Multiprocessing using %s CPUs', num_workers
-    )
-    results = pool_executor.map(
-        functools.partial(_merge_single_example_file_and_labels, labels=labels),
-        example_files,
-    )
+  if use_multiprocessing:
+    num_workers = min(multiprocessing.cpu_count(), len(example_files))
+    with multiprocessing.Pool(num_workers) as pool_executor:
+      logging.info('Using multiprocessing with %d processes.', num_workers)
+      results = pool_executor.map(
+          functools.partial(
+              _merge_single_example_file_and_labels, labels=labels
+          ),
+          example_files,
+      )
+  else:
+    logging.info('Not using multiprocessing.')
+    results = [
+        _merge_single_example_file_and_labels(example_file, labels)
+        for example_file in example_files
+    ]
 
   all_labeled_examples = []
-  for result, example_file in zip(results, example_files):
+  for result in results:
     all_labeled_examples.extend(result)
-    logging.info('Finished processing %s.', example_file)
 
   train_examples, test_examples = _split_examples(
       all_labeled_examples, test_fraction
   )
+
   _write_tfrecord(train_examples, train_output_path)
   _write_tfrecord(test_examples, test_output_path)
 
 
-def _get_labels(
+def _get_labels_from_dataset(
     project: str,
     location: str,
     dataset_id: str,
-    export_dir: str) -> Dict[str, str]:
+    export_dir: str) -> List[Tuple[str, str, str]]:
   """Reads labels from completed cloud labeling job.
 
   Args:
@@ -581,7 +649,7 @@ def _get_labels(
     export_dir: GCS directory to export annotations to.
 
   Returns:
-    Dictionary of example ids to string labels.
+    List of (example id, string label) tuples.
   """
 
   aiplatform.init(project=project, location=location)
@@ -598,27 +666,56 @@ def _get_labels(
         path.endswith('jsonl')):
       logging.info('Reading annotation file "%s"', path)
       labels.update(_read_label_annotations_file(path))
+    tf.io.gfile.remove(path)
 
   logging.info('Read %d labels total.', len(labels))
-  return labels
+  return [
+      (example_id, label, dataset_id) for example_id, label in labels.items()
+  ]
+
+
+def _read_label_file(path: str) -> List[Tuple[str, str, str]]:
+  """Reads a label file.
+
+  The file should be a CSV containing at least an "example_id" column
+  and a "string_label" column. In the future example_ids will also be supported.
+
+  Args:
+    path: Path to file.
+
+  Returns:
+    List of (example id, string label) tuples.
+  """
+  with tf.io.gfile.GFile(path) as f:
+    df = pd.read_csv(f)
+
+  if 'example_id' not in df.columns:
+    raise ValueError('Label file must contain "example_id" column.')
+  if 'string_label' not in df.columns:
+    raise ValueError('Label file must contain "string_label" column.')
+
+  return [(row.example_id, row.string_label, path) for _, row in df.iterrows()]
 
 
 def create_labeled_examples(
     project: str,
     location: str,
     dataset_ids: List[str],
+    label_file_paths: List[str],
     string_to_numeric_labels: List[str],
     export_dir: str,
     examples_pattern: str,
     test_fraction: float,
     train_output_path: str,
-    test_output_path: str) -> None:
+    test_output_path: str,
+    use_multiprocessing: bool) -> None:
   """Creates a labeled dataset by merging cloud labels and unlabeled examples.
 
   Args:
     project: Cloud project name.
     location: Dataset location, e.g. us-central1.
     dataset_ids: List of numeric dataset ids to export.
+    label_file_paths: Paths to files to read labels from.
     string_to_numeric_labels: List of strings in the form
       "<string label>=<numeric label>", e.g. "no_damage=0"
     export_dir: GCS directory to export annotations to.
@@ -626,6 +723,8 @@ def create_labeled_examples(
     test_fraction: Fraction of examples to write to test output.
     train_output_path: Path to training examples TFRecord output.
     test_output_path: Path to test examples TFRecord output.
+    use_multiprocessing: If true, create multiple processes to create labeled
+      examples.
   """
   string_to_numeric_map = {}
   for string_to_numeric_label in string_to_numeric_labels:
@@ -640,20 +739,25 @@ def create_labeled_examples(
       logging.error('Class %s is not numeric.', numeric_label)
       raise
 
-  ids_to_labels = collections.defaultdict(list)
+  labels = []
   for dataset_id in dataset_ids:
-    dataset_labels = _get_labels(project, location, dataset_id, export_dir)
-    for example_id, string_label in dataset_labels.items():
-      numeric_label = string_to_numeric_map.get(string_label, None)
-      # examples with string label not in the input string to numeric map are excluded
-      if numeric_label is None:
-        logging.warning(f'Label "{string_label}" has no numeric mapping.')
-        continue
-      example_labels = ids_to_labels[example_id]
-      if string_label in [l[0] for l in example_labels]:
-        # Don't add multiple labels with the same value for a single example.
-        continue
-      example_labels.append((string_label, numeric_label, dataset_id))
+    labels.extend(
+        _get_labels_from_dataset(project, location, dataset_id, export_dir)
+    )
+
+  for path in label_file_paths:
+    labels.extend(_read_label_file(path))
+
+  ids_to_labels = collections.defaultdict(list)
+  for example_id, string_label, dataset_id in labels:
+    example_labels = ids_to_labels[example_id]
+    if string_label in [l[0] for l in example_labels]:
+      # Don't add multiple labels with the same value for a single example.
+      continue
+    numeric_label = string_to_numeric_map.get(string_label, None)
+    if numeric_label is None:
+      raise ValueError(f'Label "{string_label}" has no numeric mapping.')
+    example_labels.append((string_label, numeric_label, dataset_id))
 
   _merge_examples_and_labels(
       examples_pattern,
@@ -661,4 +765,5 @@ def create_labeled_examples(
       test_fraction,
       train_output_path,
       test_output_path,
+      use_multiprocessing,
   )

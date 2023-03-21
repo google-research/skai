@@ -21,6 +21,7 @@ import tempfile
 from typing import Any, List, Tuple
 
 from absl.testing import absltest
+from absl.testing import parameterized
 import apache_beam as beam
 from apache_beam.testing import test_pipeline
 from apache_beam.testing.util import assert_that
@@ -184,7 +185,7 @@ def _check_examples(
   return _check_examples_internal
 
 
-class GenerateExamplesTest(absltest.TestCase):
+class GenerateExamplesTest(parameterized.TestCase):
 
   def setUp(self):
     super().setUp()
@@ -445,6 +446,65 @@ class GenerateExamplesTest(absltest.TestCase):
       generate_examples.ExamplesGenerationConfig.init_from_json_path(
           self.test_missing_output_dir_config_path
       )
+
+  @parameterized.named_parameters(
+      dict(
+          testcase_name='empty_before_and_after_image_patterns',
+          before_image_patterns=[],
+          after_image_patterns=[],
+      ),
+      dict(
+          testcase_name='empty_after_image_patterns',
+          before_image_patterns=['pattern_a', 'pattern_b'],
+          after_image_patterns=[],
+      ),
+      dict(
+          testcase_name='duplicate_after_image_patterns',
+          before_image_patterns=['pattern_a', 'pattern_b'],
+          after_image_patterns=[
+              'pattern_c',
+              'pattern_d',
+              'pattern_c',
+              'pattern_c',
+              'pattern_d',
+              'pattern_e'
+          ],
+      ),
+      dict(
+          testcase_name='duplicate_before_image_patterns',
+          before_image_patterns=['pattern_a', 'pattern_b', 'pattern_a'],
+          after_image_patterns=['pattern_c'],
+      ),
+      dict(
+          testcase_name='duplicate_before_and_empty_after_image_patterns',
+          before_image_patterns=['pattern_a', 'pattern_b', 'pattern_a'],
+          after_image_patterns=[],
+      ),
+  )
+  def testValidateImagePatternsRaises(
+      self, before_image_patterns, after_image_patterns
+  ):
+    with self.assertRaises(ValueError):
+      generate_examples.validate_image_patterns(before_image_patterns, False)
+      generate_examples.validate_image_patterns(after_image_patterns, True)
+
+  @parameterized.named_parameters(
+      dict(
+          testcase_name='empty_before_image_patterns',
+          before_image_patterns=[],
+          after_image_patterns=['pattern_a', 'pattern_b'],
+      ),
+      dict(
+          testcase_name='no_empty_before_and_after_image_patterns',
+          before_image_patterns=['pattern_a', 'pattern_b'],
+          after_image_patterns=['pattern_c'],
+      ),
+  )
+  def testValidateImagePatternsNoRaises(
+      self, before_image_patterns, after_image_patterns
+  ):
+    generate_examples.validate_image_patterns(before_image_patterns, False)
+    generate_examples.validate_image_patterns(after_image_patterns, True)
 
 
 if __name__ == '__main__':

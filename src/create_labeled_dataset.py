@@ -26,9 +26,10 @@ from absl import flags
 from skai import cloud_labeling
 
 FLAGS = flags.FLAGS
-flags.DEFINE_string('cloud_project', None, 'GCP project name.', required=True)
-flags.DEFINE_string('cloud_location', None, 'Project location.', required=True)
-flags.DEFINE_list('cloud_dataset_ids', None, 'Dataset IDs.', required=True)
+flags.DEFINE_string('cloud_project', None, 'GCP project name.')
+flags.DEFINE_string('cloud_location', None, 'Project location.')
+flags.DEFINE_list('cloud_dataset_ids', [], 'Dataset IDs.')
+flags.DEFINE_list('label_file_paths', [], 'List of paths to label files')
 flags.DEFINE_string('cloud_temp_dir', None, 'GCS temporary directory.')
 flags.DEFINE_string('examples_pattern', None,
                     'Pattern for TFRecords of examples to merge with labels.',
@@ -52,6 +53,11 @@ flags.DEFINE_list(
     ],
     'List of "class=label" strings, e.g. "no_damage=0,minor_damage=0,...".',
 )
+flags.DEFINE_bool(
+    'use_multiprocessing',
+    True,
+    'If true, starts multiple processes to run task.',
+)
 
 
 def main(unused_argv):
@@ -62,12 +68,14 @@ def main(unused_argv):
       FLAGS.cloud_project,
       FLAGS.cloud_location,
       FLAGS.cloud_dataset_ids,
+      FLAGS.label_file_paths,
       FLAGS.string_to_numeric_labels,
       FLAGS.cloud_temp_dir,
       FLAGS.examples_pattern,
       FLAGS.test_fraction,
       FLAGS.train_output_path,
-      FLAGS.test_output_path)
+      FLAGS.test_output_path,
+      FLAGS.use_multiprocessing)
 
 
 if __name__ == '__main__':

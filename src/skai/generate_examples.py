@@ -13,6 +13,7 @@
 # limitations under the License.
 """Pipeline for generating tensorflow examples from satellite images."""
 
+import collections
 import dataclasses
 import hashlib
 import itertools
@@ -845,3 +846,31 @@ def generate_examples_pipeline(before_image_patterns: List[str],
             large_examples_output_prefix,
             file_name_suffix='.tfrecord',
             num_shards=num_output_shards))
+
+
+def validate_image_patterns(
+    image_patterns: List[str], check_for_empty: bool
+) -> None:
+  """Validates input image patterns.
+
+  Checks if before_image_pattern and after_image_pattern occurs more than once
+  or after_image_pattern is empty.
+
+  Args:
+    image_patterns: List containing image path patterns.
+    check_for_empty: Boolean to check for empty image pattern if true.
+  """
+  duplicates = [
+      pattern
+      for pattern, pattern_count in collections.Counter(image_patterns).items()
+      if pattern_count != 1
+  ]
+
+  if check_for_empty and not image_patterns:
+    raise ValueError('No after_image_patterns specified.')
+
+  elif duplicates:
+    raise ValueError(
+        'The following patterns occur more than once: '
+        + ', '.join(sorted(duplicates))
+    )
