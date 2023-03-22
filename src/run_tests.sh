@@ -27,9 +27,16 @@ else
 fi
 
 function setup {
-  which python
-  python --version
-  python -m venv "${VIRTUALENV_PATH}"
+  if ! which python && which python3
+  then
+    PYTHON=python3
+  else
+    PYTHON=python
+  fi
+
+  which $PYTHON
+  $PYTHON --version
+  $PYTHON -m venv "${VIRTUALENV_PATH}"
   source "${VIRTUALENV_PATH}/bin/activate"
   pushd "${SKAI_DIR}"
   which pip

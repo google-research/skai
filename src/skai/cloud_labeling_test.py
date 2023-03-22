@@ -117,7 +117,7 @@ class CloudLabelingTest(absltest.TestCase):
         test_fraction=0.333,
         train_output_path=train_path,
         test_output_path=test_path,
-    )
+        use_multiprocessing=False)
 
     all_examples = _read_tfrecord(train_path) + _read_tfrecord(test_path)
     self.assertLen(all_examples, 6)

@@ -149,7 +149,7 @@ flags.DEFINE_string(
     'labels_file', None, 'If specified, read labels for dataset from this file.'
 )
 flags.DEFINE_string(
-    'label_property', None, 'Property to use as label, e.g. "Main_Damag".'
+    'label_property', None, 'Property to use as label, e.g. "string_label".'
 )
 flags.DEFINE_list(
     'labels_to_classes',

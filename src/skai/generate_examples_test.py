@@ -64,10 +64,10 @@ def _check_examples(
     small_patch_size: int,
     large_patch_size: int,
     expected_coordinates: List[Tuple[float, float, float]],
+    expected_string_labels: List[str],
     expected_plus_codes: List[str],
     expect_blank_before: bool,
-    expect_large_patch: bool,
-):
+    expect_large_patch: bool):
   """Validates examples generated from beam pipeline.
 
   Args:
@@ -76,6 +76,7 @@ def _check_examples(
     small_patch_size: The expected size of small patches.
     large_patch_size: The expected size of large patches.
     expected_coordinates: List of coordinates that examples should have.
+    expected_string_labels: List of string labels that examples should have.
     expected_plus_codes: List of plus codes that examples should have.
     expect_blank_before: If true, the before image should be all zeros.
     expect_large_patch: If true, the examples should contain large patches.
@@ -86,6 +87,7 @@ def _check_examples(
 
   def _check_examples_internal(actual_examples):
     actual_coordinates = set()
+    actual_string_labels = []
     actual_plus_codes = []
     expected_small_shape = (small_patch_size, small_patch_size, 3)
     expected_large_shape = (large_patch_size, large_patch_size, 3)
@@ -103,6 +105,7 @@ def _check_examples(
           'label',
           'example_id',
           'plus_code',
+          'string_label'
       ])
       if expect_large_patch:
         expected_feature_names.update(
@@ -162,12 +165,14 @@ def _check_examples(
             f'actual = {large_after_image.shape}')
 
       actual_coordinates.add((longitude, latitude, label))
+      actual_string_labels.append(
+          example.features.feature['string_label'].bytes_list.value[0].decode())
       actual_plus_codes.append(
           example.features.feature['plus_code'].bytes_list.value[0].decode()
       )
 
     assert _unordered_all_close(expected_coordinates, actual_coordinates)
-
+    assert set(expected_string_labels) == set(actual_string_labels)
     assert len(expected_plus_codes) == len(actual_plus_codes)
 
     expected_plus_codes_sorted = sorted(expected_plus_codes)
@@ -199,8 +204,8 @@ class GenerateExamplesTest(parameterized.TestCase):
   def testGenerateExamplesFn(self):
     """Tests GenerateExamplesFn class."""
 
-    unlabeled_coordinates = [(178.482925, -16.632893, -1.0),
-                             (178.482283, -16.632279, -1.0)]
+    unlabeled_coordinates = [(178.482925, -16.632893, -1.0, ''),
+                             (178.482283, -16.632279, -1.0, '')]
     utils.write_coordinates_file(unlabeled_coordinates, self.coordinates_path)
 
     with test_pipeline.TestPipeline() as pipeline:
@@ -218,6 +223,7 @@ class GenerateExamplesTest(parameterized.TestCase):
               32,
               62,
               [(178.482925, -16.632893, -1.0)],
+              [''],
               ['5VMW9F8M+R5V8F4'],
               False,
               True,
@@ -232,6 +238,7 @@ class GenerateExamplesTest(parameterized.TestCase):
               32,
               62,
               [(178.482925, -16.632893, -1.0)],
+              [''],
               ['5VMW9F8M+R5V8F4'],
               False,
               False,
@@ -242,8 +249,8 @@ class GenerateExamplesTest(parameterized.TestCase):
   def testGenerateExamplesFnLabeled(self):
     """Tests GenerateExamplesFn class."""
 
-    labeled_coordinates = [(178.482925, -16.632893, 0),
-                           (178.482924, -16.632894, 1)]
+    labeled_coordinates = [(178.482925, -16.632893, 0, 'no_damage'),
+                           (178.482924, -16.632894, 1, 'destroyed')]
     utils.write_coordinates_file(labeled_coordinates, self.coordinates_path)
 
     with test_pipeline.TestPipeline() as pipeline:
@@ -259,6 +266,7 @@ class GenerateExamplesTest(parameterized.TestCase):
               32,
               62,
               [(178.482925, -16.632893, 0.0), (178.482924, -16.632894, 1.0)],
+              ['no_damage', 'destroyed'],
               ['5VMW9F8M+R5V8F4', '5VMW9F8M+R5V872'],
               False,
               True,
@@ -274,6 +282,7 @@ class GenerateExamplesTest(parameterized.TestCase):
               32,
               62,
               [(178.482925, -16.632893, 0.0), (178.482924, -16.632894, 1.0)],
+              ['no_damage', 'destroyed'],
               ['5VMW9F8M+R5V8F4', '5VMW9F8M+R5V872'],
               False,
               False,
@@ -284,8 +293,8 @@ class GenerateExamplesTest(parameterized.TestCase):
   def testGenerateExamplesFnNoBefore(self):
     """Tests GenerateExamplesFn class without before image."""
 
-    coordinates = [(178.482925, -16.632893, -1.0),
-                   (178.482283, -16.632279, -1.0)]
+    coordinates = [(178.482925, -16.632893, -1.0, ''),
+                   (178.482283, -16.632279, -1.0, '')]
     utils.write_coordinates_file(coordinates, self.coordinates_path)
 
     with test_pipeline.TestPipeline() as pipeline:
@@ -303,6 +312,7 @@ class GenerateExamplesTest(parameterized.TestCase):
               32,
               62,
               [(178.482925, -16.632893, -1.0)],
+              [''],
               ['5VMW9F8M+R5V8F4'],
               True,
               True,
@@ -318,6 +328,7 @@ class GenerateExamplesTest(parameterized.TestCase):
               32,
               62,
               [(178.482925, -16.632893, -1.0)],
+              [''],
               ['5VMW9F8M+R5V8F4'],
               True,
               False,
@@ -327,7 +338,7 @@ class GenerateExamplesTest(parameterized.TestCase):
 
   def testGenerateExampleFnPathPattern(self):
     """Test GenerateExampleFn class with a path pattern."""
-    coordinates = [(178.482925, -16.632893, -1.0)]
+    coordinates = [(178.482925, -16.632893, -1.0, '')]
     utils.write_coordinates_file(coordinates, self.coordinates_path)
 
     expected_before_image_ids = glob.glob(self.test_image_path_patterns)
@@ -421,7 +432,7 @@ class GenerateExamplesTest(parameterized.TestCase):
     self.assertIsNone(config.labels_file)
     self.assertIsNone(config.label_property)
     self.assertIsNone(config.labels_to_classes)
-    self.assertEqual(config.num_keep_labeled_examples, 1000)
+    self.assertIsNone(config.num_keep_labeled_examples)
     self.assertIsNone(config.configuration_path)
 
   def testConfigRaiseErrorOnMissingDatasetName(self):

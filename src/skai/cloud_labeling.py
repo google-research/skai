@@ -717,7 +717,7 @@ def create_labeled_examples(
     dataset_ids: List of numeric dataset ids to export.
     label_file_paths: Paths to files to read labels from.
     string_to_numeric_labels: List of strings in the form
-      "<string label>=<numeric label>", e.g. "undamaged=0"
+      "<string label>=<numeric label>", e.g. "no_damage=0"
     export_dir: GCS directory to export annotations to.
     examples_pattern: Pattern for unlabeled examples.
     test_fraction: Fraction of examples to write to test output.

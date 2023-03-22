@@ -69,6 +69,13 @@ def add_float_list_feature(feature_name: str,
   example.features.feature[feature_name].float_list.value.extend(value)
 
 
+def add_bytes_list_feature(feature_name: str,
+                           value: Iterable[bytes],
+                           example: Example) -> None:
+  """Add bytes list feature to tensorflow Example."""
+  example.features.feature[feature_name].bytes_list.value.extend(value)
+
+
 def add_bytes_feature(feature_name: str,
                       value: bytes,
                       example: Example) -> None:

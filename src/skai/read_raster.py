@@ -263,7 +263,7 @@ def _coordinates_to_groups(
   coordinates = utils.read_coordinates_file(coordinates_path)
   coords_with_ids = [(utils.encode_coordinates(longitude,
                                                latitude), longitude, latitude)
-                     for longitude, latitude, _ in coordinates]
+                     for longitude, latitude, _, _ in coordinates]
   with rasterio.Env(**gdal_env):
     raster = rasterio.open(raster_path)
     raster_res = _get_raster_resolution_in_meters(raster)
