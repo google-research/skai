@@ -270,6 +270,7 @@ def main(args):
       config.cloud_region,
       config.worker_service_account,
       config.max_dataflow_workers,
+      config.cloud_detector_model_path
   )
 
 
