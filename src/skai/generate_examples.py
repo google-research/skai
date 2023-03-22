@@ -31,6 +31,7 @@ import numpy as np
 from openlocationcode import openlocationcode
 import shapely.geometry
 from skai import buildings
+from skai import cloud_detector
 from skai import earth_engine
 from skai import open_street_map
 from skai import read_raster
@@ -98,6 +99,7 @@ class ExamplesGenerationConfig:
   labels_to_classes: Optional[List[str]] = None
   num_keep_labeled_examples: int = 1000
   configuration_path: Optional[str] = None
+  cloud_detector_model_path: Optional[str] = None
 
   # TODO(mohammedelfatihsalah): Add a type for flagvalues argument in init_from_flags.
   @staticmethod
@@ -353,10 +355,14 @@ class GenerateExamplesFn(beam.DoFn):
     _use_before_image: Whether to include before images in the examples.
   """
 
-  def __init__(self,
-               large_patch_size: int,
-               example_patch_size: int,
-               use_before_image: bool) -> None:
+  def __init__(
+      self,
+      large_patch_size: int,
+      example_patch_size: int,
+      use_before_image: bool,
+      cloud_detector_model_path: Optional[str] = None,
+  ) -> None:
+    self._cloud_detector_model_path = cloud_detector_model_path
     self._large_patch_size = large_patch_size
     self._example_patch_size = example_patch_size
     self._use_before_image = use_before_image
@@ -367,6 +373,14 @@ class GenerateExamplesFn(beam.DoFn):
         'skai', 'before_patch_blank_count')
     self._after_patch_blank_count = Metrics.counter(
         'skai', 'after_patch_blank_count')
+
+  def setup(self):
+    if self._cloud_detector_model_path:
+      self.cloud_detector = cloud_detector.CloudDetectorTFlite(
+          self._cloud_detector_model_path
+      )
+    else:
+      self.cloud_detector = None
 
   def _create_example(
       self,
@@ -405,8 +419,9 @@ class GenerateExamplesFn(beam.DoFn):
     example = Example()
     # TODO(jzxu): Use constants for these feature name strings.
 
-    utils.add_bytes_feature('encoded_coordinates', encoded_coordinates.encode(),
-                            example)
+    utils.add_bytes_feature(
+        'encoded_coordinates', encoded_coordinates.encode(), example
+    )
     longitude, latitude = scalar_features['coordinates']
     example_id = _make_example_id(
         longitude, latitude, before_image_id, after_image_id
@@ -416,24 +431,38 @@ class GenerateExamplesFn(beam.DoFn):
     )
     utils.add_bytes_feature('plus_code', plus_code.encode(), example)
     utils.add_bytes_feature('example_id', example_id.encode(), example)
-    utils.add_bytes_feature('pre_image_png_large',
-                            tf.io.encode_png(before_image).numpy(), example)
-    utils.add_bytes_feature('pre_image_png',
-                            tf.io.encode_png(before_crop).numpy(), example)
+    utils.add_bytes_feature(
+        'pre_image_png_large', tf.io.encode_png(before_image).numpy(), example
+    )
+    utils.add_bytes_feature(
+        'pre_image_png', tf.io.encode_png(before_crop).numpy(), example
+    )
     utils.add_bytes_feature('pre_image_id', before_image_id.encode(), example)
-    utils.add_bytes_feature('post_image_png_large',
-                            tf.io.encode_png(after_image).numpy(), example)
-    utils.add_bytes_feature('post_image_png',
-                            tf.io.encode_png(after_crop).numpy(), example)
+    utils.add_bytes_feature(
+        'post_image_png_large', tf.io.encode_png(after_image).numpy(), example
+    )
+    utils.add_bytes_feature(
+        'post_image_png', tf.io.encode_png(after_crop).numpy(), example
+    )
     utils.add_bytes_feature('post_image_id', after_image_id.encode(), example)
+
+    if self.cloud_detector:
+      before_image_cloudiness = self.cloud_detector.detect_single(before_crop)
+      after_image_cloudiness = self.cloud_detector.detect_single(after_crop)
+      utils.add_float_feature(
+          'before_image_cloudiness', before_image_cloudiness, example
+      )
+      utils.add_float_feature(
+          'after_image_cloudiness', after_image_cloudiness, example
+      )
+
     for name, value in scalar_features.items():
       utils.add_float_list_feature(name, value, example)
     return example
 
   def process(
-      self,
-      grouped_features: Tuple[str,
-                              Iterable[_FeatureUnion]]) -> Iterator[Example]:
+      self, grouped_features: Tuple[str, Iterable[_FeatureUnion]]
+  ) -> Iterator[Example]:
     """Extract patches from before and after images and output as tf Example.
 
     Args:
@@ -570,10 +599,17 @@ def _expand_patterns(patterns: Iterable[str]) -> List[str]:
 
 
 def _generate_examples(
-    pipeline, before_image_patterns: List[str], after_image_patterns: List[str],
-    coordinates_path: str, large_patch_size: int, example_patch_size: int,
-    resolution: float, gdal_env: Dict[str, str],
-    stage_prefix: str) -> Tuple[beam.PCollection, beam.PCollection]:
+    pipeline,
+    before_image_patterns: List[str],
+    after_image_patterns: List[str],
+    coordinates_path: str,
+    large_patch_size: int,
+    example_patch_size: int,
+    resolution: float,
+    gdal_env: Dict[str, str],
+    stage_prefix: str,
+    cloud_detector_model_path: Optional[str] = None,
+) -> Tuple[beam.PCollection, beam.PCollection]:
   """Generates examples and labeling images from source images.
 
   Args:
@@ -587,6 +623,7 @@ def _generate_examples(
     resolution: Desired resolution of image patches.
     gdal_env: GDAL environment configuration.
     stage_prefix: Beam stage name prefix.
+    cloud_detector_model_path: Path to tflite cloud detector model.
 
   Returns:
     PCollection of examples and PCollection of labeling images.
@@ -631,9 +668,16 @@ def _generate_examples(
       input_collections
       | stage_prefix + '_merge_features' >> beam.Flatten()
       | stage_prefix + '_group_by_example_id' >> beam.GroupByKey()
-      | stage_prefix + '_generate_examples' >> beam.ParDo(
-          GenerateExamplesFn(large_patch_size, example_patch_size,
-                             use_before_image)))
+      | stage_prefix + '_generate_examples'
+      >> beam.ParDo(
+          GenerateExamplesFn(
+              large_patch_size,
+              example_patch_size,
+              use_before_image,
+              cloud_detector_model_path,
+          )
+      )
+  )
 
   small_examples = (
       large_examples
@@ -742,27 +786,33 @@ def parse_gdal_env(settings: List[str]) -> Dict[str, str]:
   for setting in settings:
     if '=' not in setting:
       raise ValueError(
-          'Each GDAL environment setting should have the form "var=value".')
+          'Each GDAL environment setting should have the form "var=value".'
+      )
     var, _, value = setting.partition('=')
     gdal_env[var] = value
   return gdal_env
 
 
-def generate_examples_pipeline(before_image_patterns: List[str],
-                               after_image_patterns: List[str],
-                               large_patch_size: int, example_patch_size: int,
-                               resolution: float, output_dir: str,
-                               num_output_shards: int,
-                               unlabeled_coordinates: List[Tuple[float, float]],
-                               labeled_coordinates: List[Tuple[float, float,
-                                                               float]],
-                               use_dataflow: bool, gdal_env: Dict[str, str],
-                               dataflow_job_name: Optional[str],
-                               dataflow_container_image: Optional[str],
-                               cloud_project: Optional[str],
-                               cloud_region: Optional[str],
-                               worker_service_account: Optional[str],
-                               max_workers: int) -> None:
+def generate_examples_pipeline(
+    before_image_patterns: List[str],
+    after_image_patterns: List[str],
+    large_patch_size: int,
+    example_patch_size: int,
+    resolution: float,
+    output_dir: str,
+    num_output_shards: int,
+    unlabeled_coordinates: List[Tuple[float, float]],
+    labeled_coordinates: List[Tuple[float, float, float]],
+    use_dataflow: bool,
+    gdal_env: Dict[str, str],
+    dataflow_job_name: Optional[str],
+    dataflow_container_image: Optional[str],
+    cloud_project: Optional[str],
+    cloud_region: Optional[str],
+    worker_service_account: Optional[str],
+    max_workers: int,
+    cloud_detector_model_path: Optional[str] = None,
+) -> None:
   """Runs example generation pipeline.
 
   Args:
@@ -786,6 +836,7 @@ def generate_examples_pipeline(before_image_patterns: List[str],
     cloud_region: Cloud region, e.g. us-central1.
     worker_service_account: Email of service account that will launch workers.
     max_workers: Maximum number of workers to use.
+    cloud_detector_model_path: Path to tflite cloud detector model.
   """
 
   temp_dir = os.path.join(output_dir, 'temp')
@@ -824,7 +875,7 @@ def generate_examples_pipeline(before_image_patterns: List[str],
     large_examples, small_examples = _generate_examples(
         pipeline, before_image_patterns, after_image_patterns, coordinates_path,
         large_patch_size, example_patch_size, resolution, gdal_env,
-        'generate_examples')
+        'generate_examples', cloud_detector_model_path)
 
     _ = (
         small_examples
