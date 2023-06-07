@@ -62,7 +62,6 @@ class ModelTrainingParameters:
     return ModelTrainingParameters(**kwargs)
 
 
-@register_model('resnet50v1')
 @tf.keras.saving.register_keras_serializable('resnet50v1')
 class ResNet50v1(tf.keras.Model):
   """Defines a ResNet50v1 model class with two output heads.

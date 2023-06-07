@@ -300,7 +300,8 @@ def evaluate_model(
   if save_model_checkpoints and tf.io.gfile.listdir(checkpoint_dir):
     best_latest_checkpoint = tf.train.latest_checkpoint(checkpoint_dir)
     load_status = model.load_weights(best_latest_checkpoint)
-    load_status.assert_consumed()
+    # Variables of optimizer are loaded lazily, so assert_consumed will break.
+    load_status.assert_existing_objects_matched()
     for ds_name in eval_ds.keys():
       results = model.evaluate(
           eval_ds[ds_name], return_dict=True)
