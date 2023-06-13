@@ -195,8 +195,7 @@ def main(args):
         py_version)
     if dataflow_container_image is None:
       raise ValueError(
-          'Using Dataflow, your Python version should be 3.7, 3.8, 3.9 or'
-          f' 3.10, not {py_version}.'
+          f'Dataflow SDK supports Python versions 3.7-3.11, not {py_version}'
       )
 
   gdal_env = generate_examples.parse_gdal_env(config.gdal_env)

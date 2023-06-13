@@ -765,16 +765,9 @@ def get_dataflow_container_image(py_version: str) -> str:
   Returns:
     Dataflow container image path.
   """
-  if py_version == '3.7':
-    return 'gcr.io/disaster-assessment/dataflow_3.7_image:latest'
-  elif py_version == '3.8':
-    return 'gcr.io/disaster-assessment/dataflow_3.8_image:latest'
-  elif py_version == '3.9':
-    return 'gcr.io/disaster-assessment/dataflow_3.9_image:latest'
-  elif py_version == '3.10':
-    return 'gcr.io/disaster-assessment/dataflow_3.10_image:latest'
-  else:
-    return None
+  if py_version in ['3.7', '3.8', '3.9', '3.10', '3.11']:
+    return f'gcr.io/disaster-assessment/dataflow_{py_version}_image:latest'
+  return None
 
 
 def parse_gdal_env(settings: List[str]) -> Dict[str, str]:
