@@ -33,23 +33,25 @@ The following terminal commands allow you to launch training on Vertex AI from y
       --xm_upgrade_db=True \
       --config=src/skai/model/configs/skai_config.py \ #path to data-specific configs
       --config.data.tfds_dataset_name=skai_dataset \  
-      --config.data.tfds_data_dir=gs://skai-project/hurricane_ian \ 
+      --config.data.tfds_data_dir=gs://path/to/dataset \ 
       --config.output_dir=gs://skai-project/experiments/test_skai \
       --experiment_name=test_skai \
       --project_path=~/path/to/skai 
 ```
 ### A little more details on flags
-`--config.data.tfds_data_dir=gs://skai-project/hurricane_ian` - Directory should contain the skai data to train/ evaluate on. This path should have a tree structure as shown below;
-└── gs://path/to/dataset
-   └── skai_dataset
-       └── skai_dataset
-           ├── 1.0.0
-               ├── dataset_info.json
-               ├── features.json
-               ├── *.tfrecord*
-                    .
-                    .
-                    .
-               └── *.tfrecord*
+ a. `--config.data.tfds_data_dir=gs://skai-project/hurricane_ian` - Directory should contain the skai data to train/ evaluate on. This path should have a tree structure as shown below;
+```
+gs://path/to/dataset 
+    └── skai_dataset
+         └── skai_dataset
+             └── 1.0.0
+                 ├── dataset_info.json
+                 ├── features.json
+                 ├── *.tfrecord*
+                     .
+                     .
+                     .
+                 └── *.tfrecord*
+```
 
-`--project_path=~/path/to/skai` - Here, provide the entrypoint to the cloned skai project. for instance `/home/user/my_projects/skai`.
+ b. `--project_path=~/path/to/skai` - Here, provide the entrypoint to the cloned skai project. for instance `/home/user/my_projects/skai`.
