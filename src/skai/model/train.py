@@ -27,7 +27,13 @@ flags.DEFINE_bool('keep_logs', True, 'If True, creates a log file in output '
                   'directory. If False, only logs to console.')
 flags.DEFINE_string('ensemble_dir', '', 'If specified, loads the models at '
                     'this directory to consider the ensemble.')
-
+flags.DEFINE_string('trial_name', None,
+    (
+        'Identifying the current job trial that measurements '
+        'will be submitted to with `add_trial_measurement`. Format: '
+        'projects/{project}/locations/{location}/studies/{study}/trials/{trial}'
+    ),
+)
 
 def main(_) -> None:
   config = FLAGS.config
@@ -186,7 +192,8 @@ def main(_) -> None:
       save_best_model=config.training.save_best_model,
       early_stopping=config.training.early_stopping,
       ensemble_dir=FLAGS.ensemble_dir,
-      example_id_to_bias_table=example_id_to_bias_table)
+      example_id_to_bias_table=example_id_to_bias_table,
+      vizier_trial_name=FLAGS.trial_name)
 
 
 if __name__ == '__main__':

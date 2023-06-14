@@ -15,7 +15,8 @@ import numpy as np
 from skai.model import data
 from skai.model import models
 import tensorflow as tf
-
+import metrics as metrics_lib
+from log_metrics_callback import LogMetricsCallback, XManagerMetricLogger
 
 
 @tf.keras.saving.register_keras_serializable('two_headed_output_model')
@@ -376,6 +377,7 @@ def create_callbacks(
     save_model_checkpoints: bool = False,
     save_best_model: bool = True,
     early_stopping: bool = True,
+    vizier_trial_name: str = None,
     batch_size: Optional[int] = 64,
     num_train_examples: Optional[int] = None,
 ) -> List[tf.keras.callbacks.Callback]:
@@ -428,6 +430,12 @@ def create_callbacks(
         restore_best_weights=True
     )
     callbacks.append(early_stopping_callback)
+
+  hyperparameter_tuner_callback = LogMetricsCallback([XManagerMetricLogger(vizier_trial_name)],
+                                                       batch_size*2,
+                                                       batch_size,
+                                                       num_train_examples)
+  callbacks.append(hyperparameter_tuner_callback)
   return callbacks
 
 
@@ -854,7 +862,9 @@ def train_and_evaluate(
     save_best_model: bool,
     early_stopping: bool,
     ensemble_dir: Optional[str] = '',
-    example_id_to_bias_table: Optional[tf.lookup.StaticHashTable] = None):
+    example_id_to_bias_table: Optional[tf.lookup.StaticHashTable] = None,
+    vizier_trial_name: str = None
+    ):
   """Performs the operations of training, optionally ensembling, and evaluation.
 
   Args:
@@ -893,6 +903,7 @@ def train_and_evaluate(
         save_model_checkpoints,
         save_best_model,
         early_stopping,
+        vizier_trial_name,
         model_params.batch_size,
         dataloader.num_train_examples)
 
