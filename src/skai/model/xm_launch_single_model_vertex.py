@@ -63,6 +63,7 @@ config_flags.DEFINE_config_file('config')
 
 def get_study_config() -> aip.StudySpec:
     #   algorithm = UNKNOWN, # UNKNOWN Algorithm uses Bayesian Optimization
+    "Get study configs for vizier"
     return aip.StudySpec(
         parameters=[
             aip.StudySpec.ParameterSpec(
@@ -72,9 +73,10 @@ def get_study_config() -> aip.StudySpec:
                     max_value=1e-2,
                     default_value=1e-3
                 ),
-                # TODO: Check for availability of LINEAR instead of UNIT_LINEAR
-                # value=2 for "UNIT_LOG_SCALE")
-                scale_type=parameter_spec.ScaleType(value=2)
+                 
+                scale_type=parameter_spec.ScaleType(
+                    value=2  # value = 1 for UNIT_LINEAR_SCALE, value=2 for UNIT_LOG_SCALE
+                                                    )
             ),
             aip.StudySpec.ParameterSpec(
                 parameter_id="config.optimizer.type",

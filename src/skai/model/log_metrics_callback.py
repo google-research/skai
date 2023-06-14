@@ -5,7 +5,7 @@ from typing import Mapping, Optional, Sequence, Union
 
 import tensorflow as tf
 
-from google3.learning.deepmind.xmanager2.client import xmanager_api
+# from google3.learning.deepmind.xmanager2.client import xmanager_api
 
 from xmanager.vizier.vizier_cloud.vizier_worker import VizierWorker # Open-source manager-Deepmind
 _ScalarMetric = Union[float, int]
