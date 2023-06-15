@@ -11,15 +11,18 @@ You must already have a GCP project. If you need to setup a new one, please skip
     export GOOGLE_CLOUD_BUCKET_NAME=<GOOGLE_CLOUD_BUCKET_NAME>
 ```
 Replace `<GCP PROJECT ID>` with your GCP project ID and same as `<GOOGLE_CLOUD_BUCKET_NAME>` with the name of the GCP bucket where data and other necessary files/folders are stored.
-
+For example:
+<GCP PROJECT ID> = skai-project-388314
+<GOOGLE_CLOUD_BUCKET_NAME> = skai-data
 
 2. Clone the repo, create a virtual environment and install necessary packages. 
 Notice that xmanager requires a python version >= 3.9. 
 
 ```
-   git clone https://panford/skai.git
+   git clone https://github.com/panford/skai.git
    cd skai
    conda create -n skai-env python==3.10   #python version should be >= 3.9
+   conda activate skai-env
    pip install src/. xmanager ml-collections   #ensure you are in the main "skai" directory
 ```
 
@@ -29,14 +32,16 @@ The following terminal commands allow you to launch training on Vertex AI from y
 
 ```
    xmanager launch src/skai/model/xm_launch_single_model_vertex.py -- \
-      --xm_wrap_late_bindings \
-      --xm_upgrade_db=True \
-      --config=src/skai/model/configs/skai_config.py \ #path to data-specific configs
-      --config.data.tfds_dataset_name=skai_dataset \  
-      --config.data.tfds_data_dir=gs://path/to/dataset \ 
-      --config.output_dir=gs://skai-project/experiments/test_skai \
-      --experiment_name=test_skai \
-      --project_path=~/path/to/skai 
+    --xm_wrap_late_bindings \
+    --xm_upgrade_db=True \
+    --config=src/skai/model/configs/skai_config.py \
+    --config.data.tfds_dataset_name=skai_dataset \
+    --config.data.tfds_data_dir=gs://skai-project/hurricane_ian \
+    --config.output_dir=gs://skai-project/experiments/test_skai \
+    --experiment_name=test_skai \
+    --project_path=~/path/to/skai \
+    --accelerator=V100 \
+    --accelerator_count=1
 ```
 ### A little more details on flags
  a. `--config.data.tfds_data_dir=gs://skai-project/hurricane_ian` - Directory should contain the skai data to train/ evaluate on. This path should have a tree structure as shown below;

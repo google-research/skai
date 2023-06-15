@@ -6,13 +6,12 @@ r"""XM Launcher.
 
 import os
 
-from absl import app
-from absl import flags
-from ml_collections import config_flags
-from xmanager import xm, xm_local
+from absl import app, flags
 from google.cloud import aiplatform_v1beta1 as aip
+from ml_collections import config_flags
+from xm_utils import ACCELERATORS, get_docker_instructions
+from xmanager import xm, xm_local
 from xmanager.vizier import vizier_cloud
-from xm_utils import get_docker_instructions
 
 parameter_spec = aip.StudySpec.ParameterSpec
 
@@ -25,7 +24,9 @@ xmanager launch src/skai/model/xm_launch_single_model_vertex.py -- \
     --config.data.tfds_data_dir=gs://skai-project/hurricane_ian \
     --config.output_dir=gs://skai-project/experiments/test_skai \
     --experiment_name=test_skai \
-    --project_path=~/path/to/skai
+    --project_path=~/path/to/skai \
+    --accelerator=V100 \
+    --accelerator_count=1
 """
 
 
@@ -57,6 +58,38 @@ flags.DEFINE_list(
     [],
     'List of number of epochs for training duration to try in a '
     'hyperparameter sweep.'
+)
+
+flags.DEFINE_integer(
+    "ram",
+    32,
+    "Fixed amount of RAM for the work unit in GB",
+)
+
+flags.DEFINE_integer(
+    "cpu",
+    4,
+    (
+        "Number of vCPU instances to allocate. If left as None the default value set "
+        "by the cloud AI platform will be used."
+    ),
+)
+
+flags.DEFINE_enum(
+    "accelerator",
+    default='V100',
+    help="Accelerator to use for faster computations.",
+    enum_values=ACCELERATORS,
+)
+
+flags.DEFINE_integer(
+    "accelerator_count",
+    default=1,
+    help=(
+        "Number of accelerator machines to use. Note that TPU_V2 and TPU_V3 "
+        "only support count=8, see "
+        "https://github.com/deepmind/xmanager/blob/main/docs/executors.md"
+    ),
 )
 config_flags.DEFINE_config_file('config')
 
@@ -141,15 +174,28 @@ def main(_) -> None:
         ]),
         use_deep_module=True,
     )
-
+    if FLAGS.accelerator is not None:
+        if (
+            FLAGS.accelerator in ["TPU_V3", "TPU_V2"]
+            and FLAGS.accelerator_count != 8
+        ):
+            raise ValueError(
+                f"The accelerator {FLAGS.accelerator} only " "support 8 devices."
+            )
+        resources_args = {
+            FLAGS.accelerator: FLAGS.accelerator_count,
+            "RAM": FLAGS.ram * xm.GiB,
+            "CPU": FLAGS.cpu * xm.vCPU,
+        }
+    else:
+        resources_args = {"RAM": FLAGS.ram * xm.GiB, "CPU": FLAGS.cpu * xm.vCPU}
     executor = xm_local.Vertex(
         requirements=xm.JobRequirements(
-            location='li',
             service_tier=xm.ServiceTier.PROD,
-            cpu=16,
-            ram=64 * xm.GiB,
-            # tmp_ram_fs=64 * xm.GiB,
-            # v100=2
+            # cpu=8 * xm.vCPU,
+            # ram=32 * xm.GiB,
+            # v100=1
+            **resources_args
         ),
     )
 
