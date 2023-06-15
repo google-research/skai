@@ -410,9 +410,7 @@ def create_callbacks(
     model_dir = os.path.join(output_dir, 'model')
     # TODO(jlee24,mohammedelfatihsalah): Update to AUPRC.
     model_callback = tf.keras.callbacks.ModelCheckpoint(
-        filepath=os.path.join(
-            model_dir,
-            'aucpr-{val_main_aucpr_1_vs_rest:.2f}'),
+        filepath=model_dir,
         monitor='val_main_aucpr_1_vs_rest',
         mode='max',
         save_weights_only=False,
