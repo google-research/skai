@@ -4,22 +4,18 @@ r"""Binary to run training on a single model once.
 # pylint: enable=line-too-long
 """
 
+import datetime
 import logging as native_logging
 import os
 
-from absl import app
-from absl import flags
-from absl import logging
-from ml_collections import config_flags
 import pandas as pd
-from skai.model import data
-from skai.model import generate_bias_table_lib
-from skai.model import models
-from skai.model import sampling_policies
-from skai.model import train_lib
-from skai.model.configs import base_config
 import tensorflow as tf
+from absl import app, flags, logging
+from ml_collections import config_flags
 
+from skai.model import (data, generate_bias_table_lib, models,
+                        sampling_policies, train_lib)
+from skai.model.configs import base_config
 
 FLAGS = flags.FLAGS
 config_flags.DEFINE_config_file('config')
@@ -115,6 +111,9 @@ def main(_) -> None:
   )
   model_params.train_bias = config.train_bias
   output_dir = config.output_dir
+  start_time = datetime.datetime.now()
+  timestmp = start_time.strftime("%Y-%m-%d-%H%M%S")
+  output_dir = f"{output_dir}_{timestmp}"
 
   tf.io.gfile.makedirs(output_dir)
   example_id_to_bias_table = None

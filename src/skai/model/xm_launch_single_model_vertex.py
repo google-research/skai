@@ -21,8 +21,9 @@ xmanager launch src/skai/model/xm_launch_single_model_vertex.py -- \
     --xm_upgrade_db=True \
     --config=src/skai/model/configs/skai_config.py \
     --config.data.tfds_dataset_name=skai_dataset \
-    --config.data.tfds_data_dir=gs://skai-project/hurricane_ian \
-    --config.output_dir=gs://skai-project/experiments/test_skai \
+    --config.data.tfds_data_dir=gs://skai-data/hurricane_ian \
+    --config.output_dir=gs://skai-data/experiments/test_skai \
+    --config.training.num_epochs=1 \
     --experiment_name=test_skai \
     --project_path=~/path/to/skai \
     --accelerator=V100 \
@@ -41,24 +42,6 @@ flags.DEFINE_bool(
     'models, as we would for Stage 1 in Introspective Self-Play.')
 flags.DEFINE_bool(
     'eval_only', False, 'Only runs evaluation, no training.')
-flags.DEFINE_list(
-    'optimizer_types',
-    [],
-    'List of optimizers to try in a hyperparameter sweep. For example, '
-    '["adam", "sgd"].'
-)
-flags.DEFINE_list(
-    'lr_tune_values', [],
-    'List of learning rate values to try in a hyperparameter sweep.')
-flags.DEFINE_list(
-    'l2_reg_tune_values', [],
-    'List of L2 regularization factors to try in a hyperparameter sweep.')
-flags.DEFINE_list(
-    'num_epoch_values',
-    [],
-    'List of number of epochs for training duration to try in a '
-    'hyperparameter sweep.'
-)
 
 flags.DEFINE_integer(
     "ram",
@@ -77,7 +60,7 @@ flags.DEFINE_integer(
 
 flags.DEFINE_enum(
     "accelerator",
-    default='V100',
+    default=None,
     help="Accelerator to use for faster computations.",
     enum_values=ACCELERATORS,
 )
@@ -138,7 +121,7 @@ def get_study_config() -> aip.StudySpec:
             use_elapsed_duration=True
         ),
         measurement_selection_type=aip.StudySpec.MeasurementSelectionType(
-            value=1,  # value = 1 for LAST_MEASUREMENT, value=2 for "BEST_MEASUREMENT"
+            value=2,  # value = 1 for LAST_MEASUREMENT, value=2 for "BEST_MEASUREMENT"
         ),
     )
 
@@ -147,15 +130,6 @@ def main(_) -> None:
 
   config = FLAGS.config
   config_path = config_flags.get_config_filename(FLAGS['config'])
-
-  if not FLAGS.optimizer_types:
-    FLAGS.optimizer_types.append(config.optimizer.type)
-  if not FLAGS.lr_tune_values:
-    FLAGS.lr_tune_values.append(config.optimizer.learning_rate)
-  if not FLAGS.l2_reg_tune_values:
-    FLAGS.l2_reg_tune_values.append(config.model.l2_regularization_factor)
-  if not FLAGS.num_epoch_values:
-    FLAGS.num_epoch_values.append(config.training.num_epochs)
 
   with xm_local.create_experiment(
       experiment_title=(
@@ -192,9 +166,6 @@ def main(_) -> None:
     executor = xm_local.Vertex(
         requirements=xm.JobRequirements(
             service_tier=xm.ServiceTier.PROD,
-            # cpu=8 * xm.vCPU,
-            # ram=32 * xm.GiB,
-            # v100=1
             **resources_args
         ),
     )
@@ -234,6 +205,9 @@ def main(_) -> None:
               'config.data.tfds_data_dir': (
                   config.data.tfds_data_dir
               ),
+              'config.training.num_epochs': (
+                  config.training.num_epochs
+              ),
           }
       )
 
@@ -251,8 +225,8 @@ def main(_) -> None:
         ),
         study_factory=vizier_cloud.NewStudy(
             study_config=get_study_config()),
-        num_trials_total=3,
-        num_parallel_trial_runs=2,
+        num_trials_total=5,
+        num_parallel_trial_runs=3,
     ).launch()
 
 
