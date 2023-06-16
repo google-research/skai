@@ -34,7 +34,7 @@ The following terminal commands allow you to launch training on Vertex AI from y
 xmanager launch src/skai/model/xm_launch_single_model_vertex.py -- \
     --xm_wrap_late_bindings \
     --xm_upgrade_db=True \
-    --config=src/skai/model/configs/skai_config.py \
+    --config=src/skai/model/configs/skai_two_tower_config.py \
     --config.data.tfds_dataset_name=skai_dataset \
     --config.data.tfds_data_dir=gs://skai-data/hurricane_ian \
     --config.output_dir=gs://skai-data/experiments/test_skai \
