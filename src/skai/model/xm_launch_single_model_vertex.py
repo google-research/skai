@@ -205,9 +205,6 @@ def main(_) -> None:
               'config.data.tfds_data_dir': (
                   config.data.tfds_data_dir
               ),
-              'config.training.num_epochs': (
-                  config.training.num_epochs
-              ),
           }
       )
 
