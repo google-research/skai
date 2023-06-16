@@ -164,13 +164,12 @@ def _group_windows(windows: List[_Window]) -> List[_WindowGroup]:
 
   while ungrouped:
     seed = ungrouped.pop()
-    index.delete(seed, windows[seed].extents())
     group = _WindowGroup(windows[seed])
     changed = True
     while changed:
       changed = False
-      overlaps = index.intersection(group.window.extents())
-      for i in overlaps:
+      overlaps = set(index.intersection(group.window.extents()))
+      for i in overlaps.intersection(ungrouped):
         other = windows[i]
         new_window = group.window.expand(other)
         if (new_window.width > _MAX_PATCH_SIZE or
@@ -180,7 +179,6 @@ def _group_windows(windows: List[_Window]) -> List[_WindowGroup]:
         if savings > 0:
           group.add_window(other)
           ungrouped.remove(i)
-          index.delete(i, windows[i].extents())
           changed = True
     groups.append(group)
   return groups
@@ -221,7 +219,8 @@ def _get_raster_resolution_in_meters(raster) -> float:
   """
   if not np.isclose(raster.res[0], raster.res[1], rtol=0.0001):
     raise ValueError(
-        f'Expecting identical x and y resolutions, got {raster.res[0]}, {raster.res[1]}'
+        f'Expecting identical x and y resolutions, got {raster.res[0]},'
+        f' {raster.res[1]}'
     )
   crs = raster.crs
   try:
@@ -247,7 +246,7 @@ def _coordinates_to_groups(
     coordinates_path: str,
     patch_size: int,
     resolution: float,
-    gdal_env: Dict[str, str]) -> Iterable[_WindowGroup]:
+    gdal_env: Dict[str, str]) -> Iterable[Tuple[str, _WindowGroup]]:
   """Converts a list of coordinates into pixel windows and then groups them.
 
   Args:
@@ -258,7 +257,7 @@ def _coordinates_to_groups(
     gdal_env: GDAL environment configuration.
 
   Yields:
-    Grouped windows.
+    Tuples of raster path and grouped windows.
   """
   coordinates = utils.read_coordinates_file(coordinates_path)
   coords_with_ids = [(utils.encode_coordinates(longitude,
@@ -275,7 +274,7 @@ def _coordinates_to_groups(
   logging.info('Grouped %d windows into %d groups.', len(windows),
                len(window_groups))
   for group in window_groups:
-    yield group
+    yield raster_path, group
 
 
 class ReadRasterWindowGroupFn(beam.DoFn):
@@ -288,12 +287,8 @@ class ReadRasterWindowGroupFn(beam.DoFn):
     _gdal_env: GDAL environment configuration.
   """
 
-  def __init__(self,
-               raster_path: str,
-               target_patch_size: int,
-               gdal_env: Dict[str, str]):
-    self._raster = None
-    self._raster_path = raster_path
+  def __init__(self, target_patch_size: int, gdal_env: Dict[str, str]):
+    self._rasters = {}
     self._target_patch_size = target_patch_size
     self._gdal_env = gdal_env
 
@@ -302,27 +297,30 @@ class ReadRasterWindowGroupFn(beam.DoFn):
     self._num_errors = Metrics.counter('skai', 'rasterio_error')
     self._read_time = Metrics.distribution('skai', 'raster_read_time_msec')
 
-  def setup(self) -> None:
-    """Opens image raster.
-
-    This simply creates a raster placeholder in memory. It doesn't actually read
-    the raster data from disk.
-    """
-    with rasterio.Env(**self._gdal_env):
-      self._raster = rasterio.open(self._raster_path)
-
   def process(
-      self,
-      group: _WindowGroup) -> Iterable[Tuple[str, Tuple[str, np.ndarray]]]:
-    raster_window = rasterio.windows.Window(group.window.column,
-                                            group.window.row,
-                                            group.window.width,
-                                            group.window.height)
+      self, raster_and_group: Tuple[str, _WindowGroup]
+  ) -> Iterable[Tuple[str, Tuple[str, np.ndarray]]]:
+    raster_path = raster_and_group[0]
+    group = raster_and_group[1]
+
     start_time = time.time()
+    if raster_path in self._rasters:
+      raster = self._rasters[raster_path]
+    else:
+      with rasterio.Env(**self._gdal_env):
+        raster = rasterio.open(raster_path)
+      self._rasters[raster_path] = raster
+
+    raster_window = rasterio.windows.Window(
+        group.window.column,
+        group.window.row,
+        group.window.width,
+        group.window.height,
+    )
     try:
       # Currently assumes that bands [1, 2, 3] of the input image are the RGB
       # channels.
-      window_data = self._raster.read(
+      window_data = raster.read(
           indexes=[1, 2, 3], window=raster_window, boundless=True,
           fill_value=-1)
     except (rasterio.errors.RasterioError, rasterio.errors.RasterioIOError):
@@ -340,24 +338,24 @@ class ReadRasterWindowGroupFn(beam.DoFn):
     window_data = _convert_to_uint8(window_data)
     for i, member_data in group.extract_members(window_data):
       resampled = _resample_image(member_data, self._target_patch_size)
-      yield (group.members[i].window_id, (self._raster_path, resampled))
+      yield (group.members[i].window_id, (raster_path, resampled))
 
 
-def extract_patches_from_raster(
+def extract_patches_from_rasters(
     pipeline: beam.Pipeline,
     coordinates_path: str,
-    raster_path: str,
+    raster_paths: List[str],
     patch_size: int,
     resolution: float,
     gdal_env: Dict[str, str],
     stage_prefix: str) -> beam.PCollection:
-  """Extracts patches from a raster.
+  """Extracts patches from rasters.
 
   Args:
     pipeline: Beam pipeline.
     coordinates_path: Path to CSV file containing the longitude, latitude
       coordinates to extract patches for.
-    raster_path: Path to raster.
+    raster_paths: Raster paths.
     patch_size: Desired size of output patches.
     resolution: Desired resolution of output patches.
     gdal_env: GDAL environment variables.
@@ -367,7 +365,7 @@ def extract_patches_from_raster(
     A collection whose elements are (id, (image path, window data)).
   """
   return (pipeline
-          | stage_prefix + '_encode_raster_path' >> beam.Create([raster_path])
+          | stage_prefix + '_encode_raster_paths' >> beam.Create(raster_paths)
           | stage_prefix + '_make_window_groups' >> beam.FlatMap(
               _coordinates_to_groups,
               coordinates_path=coordinates_path,
@@ -376,7 +374,7 @@ def extract_patches_from_raster(
               gdal_env=gdal_env)
           | stage_prefix + '_reshuffle' >> beam.Reshuffle()
           | stage_prefix + '_read_window_groups' >> beam.ParDo(
-              ReadRasterWindowGroupFn(raster_path, patch_size, gdal_env)))
+              ReadRasterWindowGroupFn(patch_size, gdal_env)))
 
 
 def get_raster_bounds(
@@ -384,7 +382,7 @@ def get_raster_bounds(
   """Returns raster bounds as a shapely Polygon.
 
   Args:
-    raster_path: Rastegdal_env: Dict[str, str]r path.
+    raster_path: Raster path.
     gdal_env: GDAL environment variables.
 
   Returns
