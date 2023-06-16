@@ -223,10 +223,11 @@ def get_building_centroids(
     NotInitializedEarthEngineError: if earth couldnot be initialized.
     NoBuildingFoundError: if no building is found in the area of interest.
   """
+  centroids = None
   if config.buildings_method == 'file':
-    return buildings.read_buildings_file(config.buildings_file, regions)
+    centroids = buildings.read_buildings_file(config.buildings_file, regions)
   elif config.buildings_method == 'open_street_map':
-    return open_street_map.get_building_centroids_in_regions(
+    centroids = open_street_map.get_building_centroids_in_regions(
         regions, config.overpass_url
     )
   elif config.buildings_method == 'open_buildings':
@@ -242,12 +243,13 @@ def get_building_centroids(
         regions, config.open_buildings_feature_collection,
         config.open_buildings_confidence, output_path
     )
-    if not centroids:
-      raise NoBuildingFoundError()
     logging.info('Open Buildings centroids saved to %s', output_path)
-    return centroids
+  else:
+    raise ValueError('Invalid value for "buildings_method" flag.')
 
-  raise ValueError('Invalid value for "buildings_method" flag.')
+  if not centroids:
+    raise NoBuildingFoundError()
+  return list(set(centroids))  # Deduplicate.
 
 
 def _to_grayscale(image: np.ndarray) -> np.ndarray:
@@ -634,7 +636,7 @@ def _generate_examples(
   """
   scalar_features = (
       pipeline
-      | stage_prefix + 'enconde_coordinates_path' >> beam.Create(
+      | stage_prefix + 'encode_coordinates_path' >> beam.Create(
           [coordinates_path])
       | stage_prefix + 'create_scalar_features' >> beam.FlatMap(
           _coordinates_to_scalar_features))
@@ -648,25 +650,37 @@ def _generate_examples(
     # alignment algorithm at most +/-_MAX_DISPLACEMENT pixels of movement in
     # either dimension to find the best alignment.
     after_image_size += 2 * _MAX_DISPLACEMENT
-    for i, image_path in enumerate(_expand_patterns(before_image_patterns)):
-      patches = read_raster.extract_patches_from_raster(
-          pipeline, coordinates_path, image_path, large_patch_size, resolution,
-          gdal_env, f'before{i:02d}')
-      features = (
-          patches
-          | stage_prefix + f'_before{i:02d}_to_feature' >> beam.MapTuple(
-              lambda key, value: (key, _FeatureUnion(before_image=value))))
-      input_collections.append(features)
+    before_raster_paths = _expand_patterns(before_image_patterns)
+    before_patches = read_raster.extract_patches_from_rasters(
+        pipeline,
+        coordinates_path,
+        before_raster_paths,
+        large_patch_size,
+        resolution,
+        gdal_env,
+        'before',
+    )
+    before_image_features = (
+        before_patches
+        | stage_prefix + '_before_to_feature' >> beam.MapTuple(
+            lambda key, value: (key, _FeatureUnion(before_image=value))))
+    input_collections.append(before_image_features)
 
-  for i, image_path in enumerate(_expand_patterns(after_image_patterns)):
-    patches = read_raster.extract_patches_from_raster(
-        pipeline, coordinates_path, image_path, after_image_size, resolution,
-        gdal_env, f'after{i:02d}')
-    features = (
-        patches
-        | stage_prefix + f'_after{i:02d}_to_feature' >> beam.MapTuple(
-            lambda key, value: (key, _FeatureUnion(after_image=value))))
-    input_collections.append(features)
+  after_raster_paths = _expand_patterns(after_image_patterns)
+  after_patches = read_raster.extract_patches_from_rasters(
+      pipeline,
+      coordinates_path,
+      after_raster_paths,
+      after_image_size,
+      resolution,
+      gdal_env,
+      'after',
+  )
+  after_image_features = (
+      after_patches
+      | stage_prefix + '_after_to_feature' >> beam.MapTuple(
+          lambda key, value: (key, _FeatureUnion(after_image=value))))
+  input_collections.append(after_image_features)
 
   large_examples = (
       input_collections

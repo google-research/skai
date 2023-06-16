@@ -232,7 +232,7 @@ def main(args):
           config, aois
       )
     except generate_examples.NotInitializedEarthEngineError:
-      logging.fatal('Couldnot initialize Earth Engine.', exc_info=True)
+      logging.fatal('Could not initialize Earth Engine.', exc_info=True)
     except generate_examples.NoBuildingFoundError:
       logging.fatal('No building is found.', exc_info=True)
     logging.info('Found %d buildings in area of interest.',
