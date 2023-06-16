@@ -121,7 +121,7 @@ def get_study_config() -> aip.StudySpec:
             use_elapsed_duration=True
         ),
         measurement_selection_type=aip.StudySpec.MeasurementSelectionType(
-            value=2,  # value = 1 for LAST_MEASUREMENT, value=2 for "BEST_MEASUREMENT"
+            value=1,  # value = 1 for LAST_MEASUREMENT, value=2 for "BEST_MEASUREMENT"
         ),
     )
 

@@ -77,7 +77,7 @@ def main(_) -> None:
         subgroup_proportions=config.data.subgroup_proportions, **ds_kwargs)
   else:
     # If latter round, keep track of split generated in last round of active
-    #   sampling
+    # sampling
     dataloader = dataset_builder(config.data.num_splits,
                                  initial_sample_proportion=1,
                                  subgroup_ids=(),
