@@ -214,6 +214,7 @@ def main(_) -> None:
     # if FLAGS.use_vizier:  # Tune hyperparameters with Vizier.
     job_args['config.training.save_model_checkpoints'] = False
     job_args['config.training.save_best_model'] = True
+    job_args['config.training.num_epochs'] = config.training.num_epochs
 
     # if FLAGS.use_vizier:
     vizier_cloud.VizierExploration(
