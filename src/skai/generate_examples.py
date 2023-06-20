@@ -13,6 +13,7 @@
 # limitations under the License.
 """Pipeline for generating tensorflow examples from satellite images."""
 
+import binascii
 import collections
 import dataclasses
 import hashlib
@@ -22,6 +23,7 @@ import logging
 import os
 import pathlib
 import pickle
+import struct
 from typing import Any, Dict, Iterable, Iterator, List, Optional, Tuple, Union
 
 import apache_beam as beam
@@ -339,6 +341,20 @@ def _make_example_id(longitude: float, latitude: float, before_image_id: str,
   return hashlib.md5(serialized).hexdigest()
 
 
+def _make_int64_id(example_id: str) -> int:
+  """Converts 128 bit hex string into 64 bit signed integer.
+
+  Casts the first 64 bits of the hex string into an integer.
+
+  Args:
+    example_id: 128 bit hex string.
+
+  Returns:
+    64 bit signed integer.
+  """
+  return struct.unpack('<q', binascii.a2b_hex(example_id[:16]))[0]
+
+
 class GenerateExamplesFn(beam.DoFn):
   """DoFn that extracts patches from before and after images into examples.
 
@@ -428,11 +444,13 @@ class GenerateExamplesFn(beam.DoFn):
     example_id = _make_example_id(
         longitude, latitude, before_image_id, after_image_id
     )
+    int64_id = _make_int64_id(example_id)
     plus_code = openlocationcode.encode(
         latitude=latitude, longitude=longitude, codeLength=_PLUS_CODE_LENGTH
     )
     utils.add_bytes_feature('plus_code', plus_code.encode(), example)
     utils.add_bytes_feature('example_id', example_id.encode(), example)
+    utils.add_int64_feature('int64_id', int64_id, example)
     utils.add_bytes_feature(
         'pre_image_png_large', tf.io.encode_png(before_image).numpy(), example
     )
