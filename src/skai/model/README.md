@@ -63,6 +63,7 @@ gs://path/to/dataset
 
  ```
 <<<<<<< HEAD
+<<<<<<< HEAD
  # Example 1
     # Each trial runs on 1 V100 GPU
 ...
@@ -85,6 +86,24 @@ gs://path/to/dataset
 ...
     --accelerator=V100 
 >>>>>>> 84b4da1 (Add accelerator desc to readme)
+=======
+ # Example 1
+    # Each trial runs on 1 V100 GPU
+...
+    --accelerator=V100 
+    --accelerator_count=1
+ ...
+
+
+# Example 2
+   """
+    Each trial runs on 8 v2 TPUs. 
+    Note that the supported "accelerator_count" for TPU_V2 and TPU_V3 is 8.
+        ref: https://github.com/deepmind/xmanager/blob/main/docs/executors.md
+   """
+ ...
+    --accelerator=TPU_V2
+>>>>>>> 8ae18c2 (correct accelerator comment and add example for TPUs choices)
     --accelerator_count=8
  ...
  ```
