@@ -62,6 +62,7 @@ gs://path/to/dataset
  c. The `--accelerator` and `--accelerator_count` flags provides the options to choose an accelerator type and the number of this accelerator to run experiments on. 
 
  ```
+<<<<<<< HEAD
  # Example 1
     # Each trial runs on 1 V100 GPU
 ...
@@ -78,6 +79,12 @@ gs://path/to/dataset
    """
  ...
     --accelerator=TPU_V2
+=======
+ # Example
+    # Run experiment on 8 number of V100 GPU machines
+...
+    --accelerator=V100 
+>>>>>>> 84b4da1 (Add accelerator desc to readme)
     --accelerator_count=8
  ...
  ```
