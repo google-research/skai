@@ -58,3 +58,31 @@ gs://path/to/dataset
 ```
 
  b. `--project_path=~/path/to/skai` - Here, provide the entrypoint to the cloned skai project. for instance `/home/user/my_projects/skai`.
+
+ c. The `--accelerator` and `--accelerator_count` flags provides the options to choose an accelerator type and the number of this accelerator to run experiments on. 
+
+ ```
+ # Example 1
+    # Each trial runs on 1 V100 GPU
+...
+    --accelerator=V100 
+    --accelerator_count=1
+ ...
+
+
+# Example 2
+   """
+    Each trial runs on 8 v2 TPUs. 
+    Note that the supported "accelerator_count" for TPU_V2 and TPU_V3 is 8.
+        ref: https://github.com/deepmind/xmanager/blob/main/docs/executors.md
+   """
+ ...
+    --accelerator=TPU_V2
+    --accelerator_count=8
+ ...
+ ```
+
+Some accelerator options are listed below.  
+
+    GPU ACCELERATORS:  P100, V100, P4, T4, A100 
+    TPU ACCELERATORS:  TPU_V2, TPU_V3
