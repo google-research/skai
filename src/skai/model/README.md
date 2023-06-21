@@ -61,3 +61,19 @@ gs://path/to/dataset
 ```
 
  b. `--project_path=~/path/to/skai` - Here, provide the entrypoint to the cloned skai project. for instance `/home/user/my_projects/skai`.
+
+ c. The `--accelerator` and `--accelerator_count` flags provides the options to choose an accelerator type and the number of this accelerator to run experiments on. 
+
+ ```
+ # Example
+    # Run experiment on 8 number of V100 GPU machines
+...
+    --accelerator=V100 
+    --accelerator_count=8
+ ...
+ ```
+
+Some accelerator options are listed below.  
+
+    GPU ACCELERATORS:  P100, V100, P4, T4, A100 
+    TPU ACCELERATORS:  TPU_V2, TPU_V3
