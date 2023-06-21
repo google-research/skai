@@ -65,10 +65,22 @@ gs://path/to/dataset
  c. The `--accelerator` and `--accelerator_count` flags provides the options to choose an accelerator type and the number of this accelerator to run experiments on. 
 
  ```
- # Example
-    # Run experiment on 8 number of V100 GPU machines
+ # Example 1
+    # Each trial runs on 1 V100 GPU
 ...
     --accelerator=V100 
+    --accelerator_count=1
+ ...
+
+
+# Example 2
+   """
+    Each trial runs on 8 v2 TPUs. 
+    Note that the supported "accelerator_count" for TPU_V2 and TPU_V3 is 8.
+        ref: https://github.com/deepmind/xmanager/blob/main/docs/executors.md
+   """
+ ...
+    --accelerator=TPU_V2
     --accelerator_count=8
  ...
  ```
