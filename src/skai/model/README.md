@@ -11,9 +11,6 @@ You must already have a GCP project. If you need to setup a new one, please skip
     export GOOGLE_CLOUD_BUCKET_NAME=<GOOGLE_CLOUD_BUCKET_NAME>
 ```
 Replace `<GCP PROJECT ID>` with your GCP project ID and same as `<GOOGLE_CLOUD_BUCKET_NAME>` with the name of the GCP bucket where data and other necessary files/folders are stored.
-For example:
-<GCP PROJECT ID> = skai-project-388314
-<GOOGLE_CLOUD_BUCKET_NAME> = skai-data
 
 2. Clone the repo, create a virtual environment and install necessary packages. 
 Notice that xmanager requires a python version >= 3.9. 
