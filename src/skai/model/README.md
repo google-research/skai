@@ -2,7 +2,7 @@
 
 ### Prequisites
 1. login to GCP
-You must already have a GCP project. If you need to setup a new one, please skip step 1 and follow the more detailed xmanager GCP setup [here](https://github.com/deepmind/xmanager/tree/main#create-a-gcp-project-optional).
+You must already have a GCP project. If you need to setup a new one, please skip step 1 and follow the more detailed XManager GCP setup [here](https://github.com/deepmind/xmanager/tree/main#create-a-gcp-project-optional).
 ```
     export GCP_PROJECT=<GCP PROJECT ID>
     gcloud auth login
@@ -13,7 +13,7 @@ You must already have a GCP project. If you need to setup a new one, please skip
 Replace `<GCP PROJECT ID>` with your GCP project ID and same as `<GOOGLE_CLOUD_BUCKET_NAME>` with the name of the GCP bucket where data and other necessary files/folders are stored.
 
 2. Clone the repo, create a virtual environment and install necessary packages. 
-Notice that xmanager requires a python version >= 3.9. 
+Note that XManager requires a python version >= 3.9. 
 
 ```
    git clone https://github.com/panford/skai.git
@@ -23,7 +23,7 @@ Notice that xmanager requires a python version >= 3.9.
    pip install src/. xmanager ml-collections   #ensure you are in the main "skai" directory
 ```
 
-3. Launch training using xmanager.
+3. Launch training using XManager.
 The following terminal commands allow you to launch training on Vertex AI from your local terminal. 
   
 
