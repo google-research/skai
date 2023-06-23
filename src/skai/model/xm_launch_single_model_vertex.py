@@ -7,7 +7,7 @@ r"""XM Launcher.
 import os
 
 from absl import app, flags
-from google.cloud import aiplatform_v1beta1 as aip
+from google.cloud import aiplatform as aip
 from ml_collections import config_flags
 from xm_utils import ACCELERATORS, get_docker_instructions
 from xmanager import xm, xm_local
@@ -85,7 +85,7 @@ def get_study_config() -> aip.StudySpec:
             aip.StudySpec.ParameterSpec(
                 parameter_id="config.optimizer.learning_rate",
                 double_value_spec=parameter_spec.DoubleValueSpec(
-                    min_value=1e-6,
+                    min_value=1e-4,
                     max_value=1e-2,
                     default_value=1e-3
                 ),

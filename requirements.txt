@@ -3,7 +3,7 @@ apache_beam
 earthengine-api
 geopandas
 google_apitools
-google-cloud-aiplatform
+google-cloud-aiplatform==1.26.1
 google-cloud-bigquery-storage
 ml-collections
 numpy
