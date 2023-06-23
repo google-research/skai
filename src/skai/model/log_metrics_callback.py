@@ -62,8 +62,8 @@ class XManagerMetricLogger(MetricLogger):
       is_val_metric: bool
   ) -> None:
     xm_label = metric_label + '_val' if is_val_metric else metric_label
-    # if xm_label == 'epoch_main_aucpr_1_vs_rest_val':
-    self.worker.add_trial_measurement(step, {xm_label: metric_value})
+    if xm_label == 'epoch_main_aucpr_1_vs_rest_val':
+      self.worker.add_trial_measurement(step, {xm_label: metric_value})
 
 
 class LogMetricsCallback(tf.keras.callbacks.Callback):

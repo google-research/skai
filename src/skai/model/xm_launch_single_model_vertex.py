@@ -7,7 +7,7 @@ r"""XM Launcher.
 import os
 
 from absl import app, flags
-from google.cloud import aiplatform as aip
+from google.cloud import aiplatform_v1beta1 as aip
 from ml_collections import config_flags
 from xm_utils import ACCELERATORS, get_docker_instructions
 from xmanager import xm, xm_local
