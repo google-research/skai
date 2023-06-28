@@ -358,7 +358,11 @@ def run_example_generation(generate_examples_args,
         progress_bar.update({'value': num_buildings, 'max': num_buildings})
         total_example_counter = 0
         for k in range(20):
-          file_directory = f'unlabeled/unlabeled-000{k:02d}-of-00020.tfrecord'
+          if 'labels_file' in generate_examples_args:
+            file_directory = f'labeled/labeled-000{k:02d}-of-00020.tfrecord'
+          else:
+            file_directory = f'unlabeled/unlabeled-000{k:02d}-of-00020.tfrecord'
+
           tfrecord_path = os.path.join(
               os.path.join(generate_examples_args['output_dir'], 'examples'),
               file_directory)
