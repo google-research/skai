@@ -10,11 +10,16 @@ import os
 
 import pandas as pd
 import tensorflow as tf
-from absl import app, flags, logging
+from absl import app
+from absl import flags
+from absl import logging
 from ml_collections import config_flags
 
-from skai.model import (data, generate_bias_table_lib, models,
-                        sampling_policies, train_lib)
+from skai.model import data
+from skai.model import generate_bias_table_lib
+from skai.model import models
+from skai.model import sampling_policies
+from skai.model import train_lib
 from skai.model.configs import base_config
 
 FLAGS = flags.FLAGS

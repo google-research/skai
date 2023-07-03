@@ -8,15 +8,20 @@ and evaluating on provided eval datasets.
 
 import itertools
 import os
-from typing import Dict, List, Optional, Union
+from typing import Dict
+from typing import List
+from typing import Optional
+from typing import Union
 
-from absl import logging
+import metrics as metrics_lib
 import numpy as np
+import tensorflow as tf
+from absl import logging
+from log_metrics_callback import LogMetricsCallback
+from log_metrics_callback import XManagerMetricLogger
+
 from skai.model import data
 from skai.model import models
-import tensorflow as tf
-import metrics as metrics_lib
-from log_metrics_callback import LogMetricsCallback, XManagerMetricLogger
 
 
 @tf.keras.saving.register_keras_serializable('two_headed_output_model')
