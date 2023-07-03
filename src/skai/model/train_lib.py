@@ -8,6 +8,7 @@ and evaluating on provided eval datasets.
 
 import itertools
 import os
+from importlib import import_module
 from typing import Dict
 from typing import List
 from typing import Optional
@@ -16,8 +17,6 @@ from typing import Union
 import metrics as metrics_lib
 import numpy as np
 import tensorflow as tf
-import xmanager_external_metric_logger
-import xmanager_internal_metric_logger
 from absl import logging
 from log_metrics_callback import LogMetricsCallback
 
@@ -437,9 +436,9 @@ def create_callbacks(
     callbacks.append(early_stopping_callback)
 
   xmanager_callback_cls = (
-        xmanager_external_metric_logger.XManagerMetricLogger
+        import_module('xmanager_external_metric_logger').XManagerMetricLogger
         if is_vertex
-        else xmanager_internal_metric_logger.XManagerMetricLogger
+        else import_module('xmanager_internal_metric_logger').XManagerMetricLogger
   )
   hyperparameter_tuner_callback = LogMetricsCallback(
       [xmanager_callback_cls(vizier_trial_name)],
