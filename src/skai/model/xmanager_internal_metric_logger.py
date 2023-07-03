@@ -1,12 +1,8 @@
 """Keras callback for logging metrics to XManager."""
 from typing import Union
 
+from google3.learning.deepmind.xmanager2.client import xmanager_api
 from log_metrics_callback import MetricLogger
-
-try:
-    from google3.learning.deepmind.xmanager2.client import xmanager_api
-except ModuleNotFoundError:
-    print("Make sure you intend to use the external XManagerMetricLogger")
 
 _ScalarMetric = Union[float, int]
 
