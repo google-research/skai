@@ -26,6 +26,9 @@ FLAGS = flags.FLAGS
 config_flags.DEFINE_config_file('config')
 flags.DEFINE_bool('keep_logs', True, 'If True, creates a log file in output '
                   'directory. If False, only logs to console.')
+flags.DEFINE_bool(
+    "is_vertex", False, "Tells if the training job will be executed on GCP Vertex AI"
+)
 flags.DEFINE_string('ensemble_dir', '', 'If specified, loads the models at '
                     'this directory to consider the ensemble.')
 flags.DEFINE_string('trial_name', None,
@@ -197,7 +200,9 @@ def main(_) -> None:
       early_stopping=config.training.early_stopping,
       ensemble_dir=FLAGS.ensemble_dir,
       example_id_to_bias_table=example_id_to_bias_table,
-      vizier_trial_name=FLAGS.trial_name)
+      vizier_trial_name=FLAGS.trial_name,
+      is_vertex=FLAGS.is_vertex,
+  )
 
 
 if __name__ == '__main__':

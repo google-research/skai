@@ -16,9 +16,10 @@ from typing import Union
 import metrics as metrics_lib
 import numpy as np
 import tensorflow as tf
+import xmanager_external_metric_logger
+import xmanager_internal_metric_logger
 from absl import logging
 from log_metrics_callback import LogMetricsCallback
-from log_metrics_callback import XManagerMetricLogger
 
 from skai.model import data
 from skai.model import models
@@ -385,6 +386,7 @@ def create_callbacks(
     vizier_trial_name: str = None,
     batch_size: Optional[int] = 64,
     num_train_examples: Optional[int] = None,
+    is_vertex: bool = False,
 ) -> List[tf.keras.callbacks.Callback]:
   """Creates callbacks, such as saving model checkpoints, for training.
 
@@ -434,10 +436,17 @@ def create_callbacks(
     )
     callbacks.append(early_stopping_callback)
 
-  hyperparameter_tuner_callback = LogMetricsCallback([XManagerMetricLogger(vizier_trial_name)],
-                                                       batch_size*2,
-                                                       batch_size,
-                                                       num_train_examples)
+  xmanager_callback_cls = (
+        xmanager_external_metric_logger.XManagerMetricLogger
+        if is_vertex
+        else xmanager_internal_metric_logger.XManagerMetricLogger
+  )
+  hyperparameter_tuner_callback = LogMetricsCallback(
+      [xmanager_callback_cls(vizier_trial_name)],
+      batch_size * 2,
+      batch_size,
+      num_train_examples,
+  )
   callbacks.append(hyperparameter_tuner_callback)
   return callbacks
 
@@ -485,7 +494,8 @@ def train_ensemble(
     output_dir: str,
     save_model_checkpoints: bool = True,
     early_stopping: bool = True,
-    example_id_to_bias_table: Optional[tf.lookup.StaticHashTable] = None
+    example_id_to_bias_table: Optional[tf.lookup.StaticHashTable] = None,
+    is_vertex: bool = False,
 ) -> List[tf.keras.Model]:
   """Trains an ensemble of models, locally. See xm_launch.py for parallelized.
 
@@ -516,7 +526,7 @@ def train_ensemble(
     combo_val = data.gather_data_splits(combo, dataloader.val_splits)
     combo_ckpt_dir = os.path.join(output_dir, combo_name, 'checkpoints')
     combo_callbacks = create_callbacks(combo_ckpt_dir, save_model_checkpoints,
-                                       early_stopping)
+                                       early_stopping, is_vertex)
     combo_model = run_train(
         combo_train,
         combo_val,
@@ -866,7 +876,8 @@ def train_and_evaluate(
     early_stopping: bool,
     ensemble_dir: Optional[str] = '',
     example_id_to_bias_table: Optional[tf.lookup.StaticHashTable] = None,
-    vizier_trial_name: str = None
+    vizier_trial_name: str = None,
+    is_vertex:bool = False
     ):
   """Performs the operations of training, optionally ensembling, and evaluation.
 
@@ -908,7 +919,8 @@ def train_and_evaluate(
         early_stopping,
         vizier_trial_name,
         model_params.batch_size,
-        dataloader.num_train_examples)
+        dataloader.num_train_examples,
+        is_vertex)
 
     two_head_model = run_train(
         dataloader.train_ds,

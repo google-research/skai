@@ -197,7 +197,10 @@ def main(_) -> None:
         xm.Packageable(
             executable_spec=executable_spec,
             executor_spec=xm_local.Vertex.Spec(),
-            args={"config": config_path}
+            args={
+                "config": config_path,
+                "is_vertex": "vertex" in str(executor.Spec()).lower(),
+            },
         ),
     ])
 
