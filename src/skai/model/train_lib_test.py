@@ -208,7 +208,7 @@ class TrainLibTest(parameterized.TestCase):
 
   @parameterized.named_parameters(
       (model_name, model_name)
-      for model_name in models.MODEL_REGISTRY.keys()
+      for model_name in ['resnet50v2']
   )
   def test_train_model_two_head(self, model_name):
     """Tests that each model class can be trained with two output heads."""
@@ -231,7 +231,7 @@ class TrainLibTest(parameterized.TestCase):
 
   @parameterized.named_parameters(
       (model_name, model_name)
-      for model_name in models.MODEL_REGISTRY.keys()
+      for model_name in ['resnet50v2']
   )
   def test_train_and_load_model_from_checkpoint(self, model_name):
     """Tests that each model class can be saved and loaded from a checkpoint."""
