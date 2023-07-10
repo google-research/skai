@@ -39,7 +39,6 @@ from skai import detect_buildings_constants
 from skai import extract_tiles_constants
 from skai import utils
 import tensorflow as tf
-from tensorflow_addons import image as tfa_image
 
 Example = tf.train.Example
 Metrics = beam.metrics.Metrics
@@ -225,8 +224,10 @@ def ss_to_is_connected_components(
   tf.ensure_shape(confidence_mask, [1, seg_shape[1], seg_shape[2], None])
 
   segmentation_mask = tf.squeeze(segmentation_mask, [0, 3])
-  merged_instance_mask = tfa_image.connected_components(segmentation_mask)
-  num_instances = tf.math.reduce_max(merged_instance_mask)
+  num_instances, merged_instance_mask = cv2.connectedComponents(
+      segmentation_mask.numpy().astype(np.int8)
+  )
+  num_instances -= 1
 
   masks = tf.cast(
       tf.expand_dims(merged_instance_mask, 0) == tf.reshape(
