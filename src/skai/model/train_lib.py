@@ -13,6 +13,7 @@ from typing import Dict, List, Optional, Union
 from absl import logging
 import numpy as np
 from skai.model import data
+from skai.model import metrics as metrics_lib
 from skai.model import models
 import tensorflow as tf
 

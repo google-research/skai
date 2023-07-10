@@ -104,6 +104,7 @@ def _check_examples(
           'encoded_coordinates',
           'label',
           'example_id',
+          'int64_id',
           'plus_code',
           'string_label'
       ])
