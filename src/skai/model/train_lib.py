@@ -21,6 +21,7 @@ from absl import logging
 from log_metrics_callback import LogMetricsCallback
 
 from skai.model import data
+from skai.model import metrics as metrics_lib
 from skai.model import models
 
 
