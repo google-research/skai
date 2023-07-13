@@ -324,13 +324,13 @@ def sharpness(x: Image.Image, sharpness_factor: float) -> Image.Image:
 @_register(NUM_DISCRETIZED_BINS)
 def shear_x(x: Image.Image, shear: float) -> Image.Image:
   shear = (2 * shear - 1) * 0.3
-  return x.transform(x.size, Image.AFFINE, (1, shear, 0, 0, 1, 0))
+  return x.transform(x.size, Image.Transform.AFFINE, (1, shear, 0, 0, 1, 0))
 
 
 @_register(NUM_DISCRETIZED_BINS)
 def shear_y(x: Image.Image, shear: float) -> Image.Image:
   shear = (2 * shear - 1) * 0.3
-  return x.transform(x.size, Image.AFFINE, (1, 0, 0, shear, 1, 0))
+  return x.transform(x.size, Image.Transform.AFFINE, (1, 0, 0, shear, 1, 0))
 
 
 @_register(NUM_DISCRETIZED_BINS)
@@ -346,9 +346,9 @@ def solarize(x: Image.Image, th: float) -> Image.Image:
 
 @_register(NUM_DISCRETIZED_BINS)
 def translate_x(x: Image.Image, delta: float) -> Image.Image:
-  return x.transform(x.size, Image.AFFINE, (1, 0, delta, 0, 1, 0))
+  return x.transform(x.size, Image.Transform.AFFINE, (1, 0, delta, 0, 1, 0))
 
 
 @_register(NUM_DISCRETIZED_BINS)
 def translate_y(x: Image.Image, delta: float) -> Image.Image:
-  return x.transform(x.size, Image.AFFINE, (1, 0, 0, 0, 1, delta))
+  return x.transform(x.size, Image.Transform.AFFINE, (1, 0, 0, 0, 1, delta))
