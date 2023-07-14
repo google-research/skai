@@ -1,6 +1,6 @@
 # SKAI Damage Assessment Instructions
 
-Last update: June 1, 2022
+Last update: July 14, 2023
 
 Before running these instructions, please make sure that your Google Cloud
 project and Linux environment have been set up by following these
@@ -217,7 +217,7 @@ the "ID" column of your recently created dataset.
 $ python create_labeled_dataset.py \
   --cloud_project=$PROJECT \
   --cloud_location=$LOCATION \
-  --cloud_dataset_id=<id>
+  --cloud_dataset_ids=<id>
   --cloud_temp_dir=gs://$BUCKET/temp \
   --examples_pattern=gs://$BUCKET/examples/test_run/examples/unlabeled/*.tfrecord \
   --train_output_path=gs://$BUCKET/examples/labeled_train_examples.tfrecord \
