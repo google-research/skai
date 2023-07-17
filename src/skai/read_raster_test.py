@@ -80,9 +80,11 @@ class ReadRasterTest(absltest.TestCase):
     with test_pipeline.TestPipeline() as pipeline:
       patches = (
           pipeline
-          | beam.Create([group1, group2])
-          | beam.ParDo(read_raster.ReadRasterWindowGroupFn(
-              self.test_image_path, 64, {})))
+          | beam.Create(
+              [(self.test_image_path, group1), (self.test_image_path, group2)]
+          )
+          | beam.ParDo(read_raster.ReadRasterWindowGroupFn(64, {}))
+      )
 
       expected_image_path = self.test_image_path
       def _check_output_patches(patches):

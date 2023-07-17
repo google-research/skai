@@ -1,9 +1,9 @@
 """Tests for metrics."""
 
+from absl.testing import absltest
+
 from skai.model import metrics
 import tensorflow as tf
-
-from google3.testing.pybase import googletest
 
 
 class MetricsTest(tf.test.TestCase):
@@ -45,4 +45,4 @@ class MetricsTest(tf.test.TestCase):
     self.assertAllClose(result, expected_result)
 
 if __name__ == "__main__":
-  googletest.main()
+  absltest.main()

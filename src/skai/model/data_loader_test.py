@@ -4,11 +4,10 @@ import os
 import tempfile
 from typing import List
 
+from absl.testing import absltest
 import numpy as np
 from skai.model import data
 import tensorflow as tf
-
-from google3.testing.pybase import googletest
 
 
 RESNET_IMAGE_SIZE = 224
@@ -99,7 +98,7 @@ def _create_test_data():
   return labeled_train_path, labeled_test_path, unlabeled_path
 
 
-class DataLoaderTest(googletest.TestCase):
+class DataLoaderTest(absltest.TestCase):
   def setUp(self):
     super().setUp()
 
@@ -252,4 +251,4 @@ class DataLoaderTest(googletest.TestCase):
 
 
 if __name__ == '__main__':
-  googletest.main()
+  absltest.main()
