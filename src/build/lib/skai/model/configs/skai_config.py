@@ -1,15 +1,14 @@
-r"""Configuration file for experiment with SKAI data and TwoTower model.
+r"""Configuration file for experiment with SKAI data and ResNet model.
 
 """
 
 
 import ml_collections
-
 from skai.model.configs import base_config
 
 
 def get_config() -> ml_collections.ConfigDict:
-  """Get two tower config."""
+  """Get mlp config."""
   config = base_config.get_config()
 
   config.train_bias = False
@@ -21,6 +20,8 @@ def get_config() -> ml_collections.ConfigDict:
   data = config.data
   data.name = 'skai'
   data.num_classes = 2
+  # TODO(jlee24): Determine what are considered subgroups in SKAI domain
+  # and add support for identifying by ID.
   data.subgroup_ids = ()
   data.subgroup_proportions = ()
   data.initial_sample_proportion = 1.
@@ -30,16 +31,9 @@ def get_config() -> ml_collections.ConfigDict:
   data.unlabeled_train_pattern = ''
   data.validation_pattern = ''
   data.use_post_disaster_only = False
-  data.batch_size = 32
 
   model = config.model
-  model.load_pretrained_weights = True
-  model.name = 'two_tower'
+  model.name = 'resnet50v2'
   model.num_channels = 6
-
-  config.optimizer.learning_rate = 1e-4
-  config.optimizer.type = 'adam'
-
-  config.training.num_epochs = 100
 
   return config

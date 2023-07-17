@@ -8,20 +8,15 @@ and evaluating on provided eval datasets.
 
 import itertools
 import os
-from importlib import import_module
-from typing import Dict
-from typing import List
-from typing import Optional
-from typing import Union
+from typing import Dict, List, Optional, Union
 
-import metrics as metrics_lib
-import numpy as np
-import tensorflow as tf
 from absl import logging
-from log_metrics_callback import LogMetricsCallback
-
+import numpy as np
 from skai.model import data
 from skai.model import models
+import tensorflow as tf
+import metrics as metrics_lib
+from log_metrics_callback import LogMetricsCallback, XManagerMetricLogger
 
 
 @tf.keras.saving.register_keras_serializable('two_headed_output_model')
@@ -382,10 +377,9 @@ def create_callbacks(
     save_model_checkpoints: bool = False,
     save_best_model: bool = True,
     early_stopping: bool = True,
-    vizier_trial_name: str = None,
+    # vizier_trial_name: str = None,
     batch_size: Optional[int] = 64,
     num_train_examples: Optional[int] = None,
-    is_vertex: bool = False,
 ) -> List[tf.keras.callbacks.Callback]:
   """Creates callbacks, such as saving model checkpoints, for training.
 
@@ -435,18 +429,11 @@ def create_callbacks(
     )
     callbacks.append(early_stopping_callback)
 
-  xmanager_callback_cls = (
-        import_module('xmanager_external_metric_logger').XManagerMetricLogger
-        if is_vertex
-        else import_module('xmanager_internal_metric_logger').XManagerMetricLogger
-  )
-  hyperparameter_tuner_callback = LogMetricsCallback(
-      [xmanager_callback_cls(vizier_trial_name)],
-      batch_size * 2,
-      batch_size,
-      num_train_examples,
-  )
-  callbacks.append(hyperparameter_tuner_callback)
+  # hyperparameter_tuner_callback = LogMetricsCallback([XManagerMetricLogger(vizier_trial_name)],
+  #                                                      batch_size*2,
+  #                                                      batch_size,
+  #                                                      num_train_examples)
+  # callbacks.append(hyperparameter_tuner_callback)
   return callbacks
 
 
@@ -493,8 +480,7 @@ def train_ensemble(
     output_dir: str,
     save_model_checkpoints: bool = True,
     early_stopping: bool = True,
-    example_id_to_bias_table: Optional[tf.lookup.StaticHashTable] = None,
-    is_vertex: bool = False,
+    example_id_to_bias_table: Optional[tf.lookup.StaticHashTable] = None
 ) -> List[tf.keras.Model]:
   """Trains an ensemble of models, locally. See xm_launch.py for parallelized.
 
@@ -525,7 +511,7 @@ def train_ensemble(
     combo_val = data.gather_data_splits(combo, dataloader.val_splits)
     combo_ckpt_dir = os.path.join(output_dir, combo_name, 'checkpoints')
     combo_callbacks = create_callbacks(combo_ckpt_dir, save_model_checkpoints,
-                                       early_stopping, is_vertex)
+                                       early_stopping)
     combo_model = run_train(
         combo_train,
         combo_val,
@@ -875,8 +861,7 @@ def train_and_evaluate(
     early_stopping: bool,
     ensemble_dir: Optional[str] = '',
     example_id_to_bias_table: Optional[tf.lookup.StaticHashTable] = None,
-    vizier_trial_name: str = None,
-    is_vertex:bool = False
+    vizier_trial_name: str = None
     ):
   """Performs the operations of training, optionally ensembling, and evaluation.
 
@@ -916,10 +901,9 @@ def train_and_evaluate(
         save_model_checkpoints,
         save_best_model,
         early_stopping,
-        vizier_trial_name,
+        # vizier_trial_name,
         model_params.batch_size,
-        dataloader.num_train_examples,
-        is_vertex)
+        dataloader.num_train_examples)
 
     two_head_model = run_train(
         dataloader.train_ds,

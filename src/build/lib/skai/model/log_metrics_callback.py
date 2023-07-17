@@ -1,13 +1,13 @@
 """Keras callback for logging metrics to XManager."""
 
 import abc
-from typing import Mapping
-from typing import Optional
-from typing import Sequence
-from typing import Union
+from typing import Mapping, Optional, Sequence, Union
 
 import tensorflow as tf
 
+# from google3.learning.deepmind.xmanager2.client import xmanager_api
+
+from xmanager.vizier.vizier_cloud.vizier_worker import VizierWorker # Open-source manager-Deepmind
 _ScalarMetric = Union[float, int]
 _MetricDict = Mapping[str, _ScalarMetric]
 
@@ -47,6 +47,22 @@ class MetricLogger(abc.ABC):
       is_val_metric: A boolean specifying whether this metric was computed on a
         validation set.
     """
+
+
+class XManagerMetricLogger(MetricLogger):
+  """Class for logging metrics to XManager."""
+
+  def __init__(self, trial_name: str = None) -> None:
+    self.trial_name = trial_name
+    self.worker = VizierWorker(trial_name)
+
+  def log_scalar_metric(
+      self, metric_label: str, metric_value: _ScalarMetric, step: int,
+      is_val_metric: bool
+  ) -> None:
+    xm_label = metric_label + '_val' if is_val_metric else metric_label
+    if xm_label == 'epoch_main_aucpr_1_vs_rest_val':
+      self.worker.add_trial_measurement(step, {xm_label: metric_value})
 
 
 class LogMetricsCallback(tf.keras.callbacks.Callback):

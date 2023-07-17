@@ -10,34 +10,26 @@ import os
 
 import pandas as pd
 import tensorflow as tf
-from absl import app
-from absl import flags
-from absl import logging
+from absl import app, flags, logging
 from ml_collections import config_flags
 
-from skai.model import data
-from skai.model import generate_bias_table_lib
-from skai.model import models
-from skai.model import sampling_policies
-from skai.model import train_lib
+from skai.model import (data, generate_bias_table_lib, models,
+                        sampling_policies, train_lib)
 from skai.model.configs import base_config
 
 FLAGS = flags.FLAGS
 config_flags.DEFINE_config_file('config')
 flags.DEFINE_bool('keep_logs', True, 'If True, creates a log file in output '
                   'directory. If False, only logs to console.')
-flags.DEFINE_bool(
-    "is_vertex", False, "Tells if the training job will be executed on GCP Vertex AI"
-)
 flags.DEFINE_string('ensemble_dir', '', 'If specified, loads the models at '
                     'this directory to consider the ensemble.')
-flags.DEFINE_string('trial_name', None,
-    (
-        'Identifying the current job trial that measurements '
-        'will be submitted to with `add_trial_measurement`. Format: '
-        'projects/{project}/locations/{location}/studies/{study}/trials/{trial}'
-    ),
-)
+# flags.DEFINE_string('trial_name', None,
+#     (
+#         'Identifying the current job trial that measurements '
+#         'will be submitted to with `add_trial_measurement`. Format: '
+#         'projects/{project}/locations/{location}/studies/{study}/trials/{trial}'
+#     ),
+# )
 
 def main(_) -> None:
   config = FLAGS.config
@@ -200,9 +192,8 @@ def main(_) -> None:
       early_stopping=config.training.early_stopping,
       ensemble_dir=FLAGS.ensemble_dir,
       example_id_to_bias_table=example_id_to_bias_table,
-      vizier_trial_name=FLAGS.trial_name,
-      is_vertex=FLAGS.is_vertex,
-  )
+      # vizier_trial_name=FLAGS.trial_name
+      )
 
 
 if __name__ == '__main__':

@@ -6,35 +6,12 @@ r"""XM Launcher.
 
 import os
 
-from absl import app
-from absl import flags
+from absl import app, flags
 from google.cloud import aiplatform_v1beta1 as aip
 from ml_collections import config_flags
-from xmanager import xm
-from xmanager import xm_local
+from xm_utils import ACCELERATORS, get_docker_instructions
+from xmanager import xm, xm_local
 from xmanager.vizier import vizier_cloud
-
-TPU_ACCELERATORS = ["TPU_V2", "TPU_V3"]
-GPU_ACCELERATORS = ["P100", "V100", "P4", "T4", "A100"]
-ACCELERATORS = [*GPU_ACCELERATORS, *TPU_ACCELERATORS]
-
-def get_docker_instructions():
-    return [
-        "FROM python:3.10",
-        "RUN pip install tensorflow",
-        "RUN if ! id 1000; then useradd -m -u 1000 clouduser; fi",
-
-        "ENV LANG=C.UTF-8",
-        "RUN rm -f /etc/apt/sources.list.d/cuda.list",
-        "RUN curl https://packages.cloud.google.com/apt/doc/apt-key.gpg | apt-key add -",
-        "RUN apt-get update && apt-get install -y git netcat-traditional",
-        "RUN python -m pip install --upgrade pip",
-        "COPY skai/requirements.txt /skai/requirements.txt",
-        "RUN python -m pip install -r skai/requirements.txt",
-        "COPY skai/ /skai",
-        "RUN chown -R 1000:root /skai && chmod -R 775 /skai",
-        "WORKDIR /skai",
-    ]
 
 parameter_spec = aip.StudySpec.ParameterSpec
 
@@ -108,7 +85,7 @@ def get_study_config() -> aip.StudySpec:
             aip.StudySpec.ParameterSpec(
                 parameter_id="config.optimizer.learning_rate",
                 double_value_spec=parameter_spec.DoubleValueSpec(
-                    min_value=1e-4,
+                    min_value=1e-6,
                     max_value=1e-2,
                     default_value=1e-3
                 ),
@@ -197,10 +174,7 @@ def main(_) -> None:
         xm.Packageable(
             executable_spec=executable_spec,
             executor_spec=xm_local.Vertex.Spec(),
-            args={
-                "config": config_path,
-                "is_vertex": "vertex" in str(executor.Spec()).lower(),
-            },
+            args={"config": config_path}
         ),
     ])
 
@@ -234,10 +208,12 @@ def main(_) -> None:
           }
       )
 
+    # if FLAGS.use_vizier:  # Tune hyperparameters with Vizier.
     job_args['config.training.save_model_checkpoints'] = False
     job_args['config.training.save_best_model'] = True
     job_args['config.training.num_epochs'] = config.training.num_epochs
 
+    # if FLAGS.use_vizier:
     vizier_cloud.VizierExploration(
         experiment=experiment,
         job=xm.Job(
@@ -247,7 +223,7 @@ def main(_) -> None:
         ),
         study_factory=vizier_cloud.NewStudy(
             study_config=get_study_config()),
-        num_trials_total=100,
+        num_trials_total=5,
         num_parallel_trial_runs=3,
     ).launch()
 

@@ -142,7 +142,6 @@ def main(_) -> None:
                 'config': config_resource.get_path(
                     config_filename, xm_abc.Borg.Spec()
                 ),
-                "is_vertex": "vertex" in str(executor.Spec()).lower(),
             },
         ),
     ])
