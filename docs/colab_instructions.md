@@ -106,12 +106,12 @@ If you have multiple images which are named/indexed with the same pattern, and w
 
 * **`FILE_IMAGE_AOI`** (optional): Path to the Area of Interest file. If omitted, the entire area covered by your post-image(s) will be considered the area of interest.
 
-* **`FILE_IMAGE_LABELED`**: File path to the dataset with labeled examples (optional).
-* **`KEY_IMAGE_LABELED`**: Key property to use as a label (optional).
-* **`MAPPING_IMAGE_LABELED`**: Comma-separated list of the mapping of labels from the dataset and classes for the model (optional).
+You have also the option to upload a file containing a labeled dataset for training and evaluation.
+* **`FILE_IMAGE_LABELED`** (optional): File path to the dataset with labeled examples.
+* **`KEY_IMAGE_LABELED`** (optional): Key property to use as a label.
+* **`MAPPING_IMAGE_LABELED`** (optional): Comma-separated list of the mapping of labels from the dataset and classes for the model.
 
-* **`BUILDING_DETECTION_METHOD`**: Type of the method to perform building detection and fetching (optional).
-
+* **`BUILDING_DETECTION_METHOD`**: Type of the method to perform building detection and fetching. This is discussed in more detail in the Building Detection section of the [SKAI Damage Assessment Instructions](/docs/assessment_instructions.md).
 * **`BUILDINGS_CSV`** (optional): File path to the file containing the building centroids if **`BUILDING_DETECTION_METHOD`** is set to `file`.
 
 #### Step 2.4: Labeling Information
@@ -130,7 +130,7 @@ We will cover only these last specificities.
 
 As a first step, you can visualize the pre- and post-images selected during the setup step for the assessment.
 
-Then, by selecting the parameter **`GENERATING_JOB`**, you can choose to generate `unlabeled` examples or `labeled` examples from the **`FILE_IMAGE_LABELED`** previously specified.
+Then, by selecting the parameter **`GENERATING_JOB`**, you can choose to generate `unlabeled` examples or `labeled` examples (from the **`FILE_IMAGE_LABELED`** previously specified).
 
 For the creation of the **labeling** task (in case of unlabeled generated examples), you can choose the maximum number of images to sample, e.g., `1000`.
 
