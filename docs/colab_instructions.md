@@ -111,6 +111,7 @@ You have also the option to upload a file containing a labeled dataset for train
 * **`KEY_IMAGE_LABELED`** (optional): Key property to use as a label.
 * **`MAPPING_IMAGE_LABELED`** (optional): Comma-separated list of the mapping of labels from the dataset and classes for the model.
 
+
 * **`BUILDING_DETECTION_METHOD`**: Type of the method to perform building detection and fetching. This is discussed in more detail in the Building Detection section of the [SKAI Damage Assessment Instructions](/docs/assessment_instructions.md).
 * **`BUILDINGS_CSV`** (optional): File path to the file containing the building centroids if **`BUILDING_DETECTION_METHOD`** is set to `file`.
 
