@@ -2,7 +2,7 @@
 
 Last update: July 24, 2023
 
-Before proceeding with these instructions, ensure that your Google Cloud project and Linux environment have been properly set up by following the steps outlined in [setup.md](setup.md).
+Before proceeding with these instructions, ensure that your Google Cloud project has been properly set up by following the steps outlined in [setup.md](setup.md).
 
 This instruction document will guide you through the usage of two essential Colab notebooks:
 
