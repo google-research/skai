@@ -145,7 +145,8 @@ def get_pipeline_options(
       'sdk_container_image': _get_dataflow_container_image(),
       'sdk_location': 'container',
       'setup_file': _get_setup_file_path(),
-      'max_num_workers': max_workers
+      'max_num_workers': max_workers,
+      'use_public_ips': False  # Avoids hitting public ip quota bottleneck.
   }
   if worker_service_account:
     options['service_account_email'] = worker_service_account
