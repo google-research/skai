@@ -44,6 +44,7 @@ from absl import app
 from absl import flags
 from absl import logging
 import shapely.geometry
+from skai import beam_utils
 from skai import buildings
 from skai import generate_examples
 from skai import read_raster
@@ -191,7 +192,7 @@ def main(args):
   dataflow_container_image = config.dataflow_container_image
   py_version = '.'.join(platform.python_version().split('.')[:2])
   if config.use_dataflow and dataflow_container_image is None:
-    dataflow_container_image = generate_examples.get_dataflow_container_image(
+    dataflow_container_image = beam_utils.get_dataflow_container_image(
         py_version)
     if dataflow_container_image is None:
       raise ValueError(
