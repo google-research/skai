@@ -24,6 +24,23 @@ SKAI uses the following Cloud services, so they must be [enabled](https://cloud.
 *   [Compute Engine](https://console.cloud.google.com/apis/library/compute.googleapis.com) - Needed for running virtual machines.
 
 
+### Enable Google Private Access in Subnets
+
+By default, every Dataflow worker machine is given an external IP. This external
+IP is not needed for SKAI data processing jobs, and is actually problematic
+because there's a quota on the number of external IPs your project can have in
+any cloud region. By default, this quota is 69. This means that the number of
+Dataflow workers your job can launch will be capped to 69 by default, even if
+you set max_workers to a higher number.
+
+To work around this problem, SKAI dataflow jobs are configured to run without
+external IPs by default. However, this means that you need to enable
+"Google Private Access" on the subnets your jobs will run on, so that the jobs
+can still access resources such as Google Cloud Store. Follow these
+[instructions](https://cloud.google.com/vpc/docs/configure-private-google-access#config-pga)
+
+See [here](https://medium.com/google-cloud/eliminate-auto-scaling-bottlenecks-by-using-private-ips-for-dataflow-workers-23a8a73cecd5) for more details.
+
 ### Create Cloud Storage Bucket
 
 A [Google Cloud Storage](https://cloud.google.com/storage) bucket is needed to store all satellite images, training examples, intermediate output, and assessment results during an assessment. Please follow these [instructions](https://cloud.google.com/storage/docs/creating-buckets) to create a bucket.
