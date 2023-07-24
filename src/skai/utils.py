@@ -19,7 +19,7 @@ import io
 import os
 import pickle
 import struct
-from typing import Any, Iterable, List, Tuple
+from typing import Any, Iterable, List, Sequence, Tuple
 
 from absl import flags
 import PIL.Image
@@ -81,6 +81,18 @@ def add_bytes_feature(feature_name: str,
                       example: Example) -> None:
   """Add bytes feature to tensorflow Example."""
   example.features.feature[feature_name].bytes_list.value.append(value)
+
+
+def get_int64_feature(example: Example, feature_name: str) -> Sequence[int]:
+  return list(example.features.feature[feature_name].int64_list.value)
+
+
+def get_float_feature(example: Example, feature_name: str) -> Sequence[float]:
+  return list(example.features.feature[feature_name].float_list.value)
+
+
+def get_bytes_feature(example: Example, feature_name: str) -> Sequence[bytes]:
+  return list(example.features.feature[feature_name].bytes_list.value)
 
 
 def reformat_flags(flags_list: List[flags.Flag]) -> List[str]:
