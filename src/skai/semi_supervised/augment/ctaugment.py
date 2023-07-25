@@ -303,8 +303,14 @@ def rescale(x: Image.Image, scale: float, method: float) -> Image.Image:
   s = x.size
   scale *= 0.25
   crop = (scale, scale, s[0] - scale * s[0], s[1] - scale * s[1])
-  methods = (Image.LANCZOS, Image.BICUBIC, Image.BILINEAR, Image.BOX,
-             Image.HAMMING, Image.NEAREST)
+  methods = (
+      Image.Resampling.LANCZOS,
+      Image.Resampling.BICUBIC,
+      Image.Resampling.BILINEAR,
+      Image.Resampling.BOX,
+      Image.Resampling.HAMMING,
+      Image.Resampling.NEAREST,
+  )
   method = methods[int(method * 5.99)]
   return x.crop(crop).resize(x.size, method)
 
