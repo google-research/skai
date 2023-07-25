@@ -84,7 +84,6 @@ class ExamplesGenerationConfig:
   large_patch_size: int = 256
   resolution: float = 0.5
   output_shards: int = 20
-  dataflow_container_image: Optional[str] = None
   gdal_env: List[str] = dataclasses.field(default_factory=list)
   buildings_method: str = 'file'  # file, open_street_map, open_buildings, none
   buildings_file: Optional[str] = None
@@ -773,7 +772,6 @@ def generate_examples_pipeline(
     use_dataflow: bool,
     gdal_env: Dict[str, str],
     dataflow_job_name: Optional[str],
-    dataflow_container_image: Optional[str],
     cloud_project: Optional[str],
     cloud_region: Optional[str],
     worker_service_account: Optional[str],
@@ -797,7 +795,6 @@ def generate_examples_pipeline(
     use_dataflow: If true, run pipeline on GCP Dataflow.
     gdal_env: GDAL environment configuration.
     dataflow_job_name: Name of dataflow job.
-    dataflow_container_image: Container image to use when running Dataflow.
     cloud_project: Cloud project name.
     cloud_region: Cloud region, e.g. us-central1.
     worker_service_account: Email of service account that will launch workers.
@@ -812,7 +809,6 @@ def generate_examples_pipeline(
       cloud_project,
       cloud_region,
       temp_dir,
-      dataflow_container_image,
       max_workers,
       worker_service_account,
       None
