@@ -36,7 +36,6 @@ python generate_examples_main.py \
   --cloud_region=us-west1
 """
 
-import platform
 import time
 from typing import List
 
@@ -95,8 +94,6 @@ flags.DEFINE_float(
     'or downsampled.')
 
 flags.DEFINE_integer('output_shards', None, 'Number of output shards.')
-flags.DEFINE_string('dataflow_container_image', None,
-                    'The SDK container image to use when running Dataflow.')
 flags.DEFINE_list(
     'gdal_env',
     None,
@@ -187,17 +184,6 @@ def main(args):
   timestamp = time.strftime('%Y%m%d-%H%M%S')
   timestamped_dataset = f'{config.dataset_name}-{timestamp}'
 
-  # If using Dataflow, check that the container image is valid.
-  dataflow_container_image = config.dataflow_container_image
-  py_version = '.'.join(platform.python_version().split('.')[:2])
-  if config.use_dataflow and dataflow_container_image is None:
-    dataflow_container_image = generate_examples.get_dataflow_container_image(
-        py_version)
-    if dataflow_container_image is None:
-      raise ValueError(
-          f'Dataflow SDK supports Python versions 3.7-3.11, not {py_version}'
-      )
-
   gdal_env = generate_examples.parse_gdal_env(config.gdal_env)
   if config.before_image_patterns:
     before_image_patterns = config.before_image_patterns
@@ -264,7 +250,6 @@ def main(args):
       config.use_dataflow,
       gdal_env,
       timestamped_dataset,
-      dataflow_container_image,
       config.cloud_project,
       config.cloud_region,
       config.worker_service_account,
