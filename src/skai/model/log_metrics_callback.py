@@ -1,11 +1,12 @@
 """Keras callback for logging metrics to XManager."""
 
 import abc
-from typing import Mapping, Optional, Sequence, Union
+from typing import Mapping
+from typing import Optional
+from typing import Sequence
+from typing import Union
 
 import tensorflow as tf
-
-from google3.learning.deepmind.xmanager2.client import xmanager_api
 
 _ScalarMetric = Union[float, int]
 _MetricDict = Mapping[str, _ScalarMetric]
@@ -46,21 +47,6 @@ class MetricLogger(abc.ABC):
       is_val_metric: A boolean specifying whether this metric was computed on a
         validation set.
     """
-
-
-class XManagerMetricLogger(MetricLogger):
-  """Class for logging metrics to XManager."""
-
-  def __init__(self, xmanager_work_unit: xmanager_api.WorkUnit) -> None:
-    self._work_unit = xmanager_work_unit
-
-  def log_scalar_metric(
-      self, metric_label: str, metric_value: _ScalarMetric, step: int,
-      is_val_metric: bool
-      ) -> None:
-    xm_label = metric_label + '_val' if is_val_metric else metric_label
-    measurements = self._work_unit.get_measurement_series(label=xm_label)
-    measurements.create_measurement(metric_value, step=step)
 
 
 class LogMetricsCallback(tf.keras.callbacks.Callback):
