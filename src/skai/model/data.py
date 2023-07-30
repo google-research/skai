@@ -357,8 +357,7 @@ class WaterbirdsDataset(tfds.core.GeneratorBasedBuilder):
     image = self._decode_and_center_crop(image_bytes)
     # No data augmentation, like in JTT paper.
     # image = tf.image.random_flip_left_right(image)
-    image = tf.image.resize([image], [RESNET_IMAGE_SIZE, RESNET_IMAGE_SIZE],
-                            method='nearest')[0]
+    image = tf.image.resize([image], [RESNET_IMAGE_SIZE, RESNET_IMAGE_SIZE])[0]
     return image
 
   def _get_subgroup_label(self, label: tf.Tensor,
@@ -567,8 +566,8 @@ class SkaiDatasetConfig(tfds.core.BuilderConfig):
   load_small_images: bool = True
 
 
-def _decode_and_resize_image(
-    image_bytes: tf.Tensor, size: int) -> tf.Tensor:
+def decode_and_resize_image(
+    image_bytes: tf.Tensor | bytes, size: int) -> tf.Tensor:
   return tf.image.resize(
       tf.io.decode_image(
           image_bytes,
@@ -695,18 +694,18 @@ class SkaiDataset(tfds.core.GeneratorBasedBuilder):
     features = {
         'input_feature': {}
     }
-    large_image_concat = _decode_and_resize_image(
+    large_image_concat = decode_and_resize_image(
         example['post_image_png_large'], self.builder_config.image_size
     )
-    small_image_concat = _decode_and_resize_image(
+    small_image_concat = decode_and_resize_image(
         example['post_image_png'], self.builder_config.image_size
     )
 
     if not self.builder_config.use_post_disaster_only:
-      before_image = _decode_and_resize_image(
+      before_image = decode_and_resize_image(
           example['pre_image_png_large'], self.builder_config.image_size
       )
-      before_image_small = _decode_and_resize_image(
+      before_image_small = decode_and_resize_image(
           example['pre_image_png'], self.builder_config.image_size
       )
       large_image_concat = tf.concat(

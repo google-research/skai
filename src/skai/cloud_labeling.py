@@ -562,8 +562,9 @@ def _merge_single_example_file_and_labels(
       labeled_example = Example()
       labeled_example.CopyFrom(example)
       features = labeled_example.features
-      features.feature['string_label'].bytes_list.value.append(
-          string_label.encode())
+      features.feature['string_label'].bytes_list.value[:] = [
+          string_label.encode()
+      ]
       features.feature['label_dataset_id'].bytes_list.value.append(
           dataset_id.encode())
       label_feature = features.feature['label'].float_list

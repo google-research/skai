@@ -21,7 +21,6 @@ import itertools
 import json
 import logging
 import os
-import pathlib
 import pickle
 import struct
 from typing import Any, Dict, Iterable, Iterator, List, Optional, Tuple, Union
@@ -32,6 +31,7 @@ import geopandas as gpd
 import numpy as np
 from openlocationcode import openlocationcode
 import shapely.geometry
+from skai import beam_utils
 from skai import buildings
 from skai import cloud_detector
 from skai import earth_engine
@@ -44,7 +44,6 @@ import tensorflow as tf
 Example = tf.train.Example
 Metrics = beam.metrics.Metrics
 Polygon = shapely.geometry.polygon.Polygon
-PipelineOptions = beam.options.pipeline_options.PipelineOptions
 
 # If more than this fraction of a before or after image is blank, discard this
 # example.
@@ -85,7 +84,6 @@ class ExamplesGenerationConfig:
   large_patch_size: int = 256
   resolution: float = 0.5
   output_shards: int = 20
-  dataflow_container_image: Optional[str] = None
   gdal_env: List[str] = dataclasses.field(default_factory=list)
   buildings_method: str = 'file'  # file, open_street_map, open_buildings, none
   buildings_file: Optional[str] = None
@@ -533,54 +531,6 @@ class GenerateExamplesFn(beam.DoFn):
         yield example
 
 
-def _get_setup_file_path():
-  return str(pathlib.Path(__file__).parent.parent / 'setup.py')
-
-
-def _get_dataflow_pipeline_options(
-    job_name: str, project: str, region: str, temp_dir: str,
-    dataflow_container_image: str,
-    worker_service_account: Optional[str], max_workers: int) -> PipelineOptions:
-  """Returns dataflow pipeline options.
-
-  Args:
-    job_name: Name of Dataflow job.
-    project: GCP project.
-    region: GCP region.
-    temp_dir: Temporary data location.
-    dataflow_container_image: Docker container to use.
-    worker_service_account: Email of the service account will launch workers.
-        If None, uses the project's default Compute Engine service account
-        (<project-number>-compute@developer.gserviceaccount.com).
-    max_workers: Maximum number of Dataflow workers.
-
-  Returns:
-    Dataflow options.
-  """
-  options = {
-      'job_name': job_name,
-      'project': project,
-      'region': region,
-      'temp_location': temp_dir,
-      'runner': 'DataflowRunner',
-      'experiment': 'use_runner_v2',
-      'sdk_container_image': dataflow_container_image,
-      'setup_file': _get_setup_file_path(),
-      'max_num_workers': max_workers
-  }
-  if worker_service_account:
-    options['service_account_email'] = worker_service_account
-  return PipelineOptions.from_dictionary(options)
-
-
-def _get_local_pipeline_options() -> PipelineOptions:
-  return PipelineOptions.from_dictionary({
-      'runner': 'DirectRunner',
-      'direct_num_workers': 10,
-      'direct_running_mode': 'multi_processing',
-  })
-
-
 def _coordinates_to_scalar_features(coordinates_path: str):
   coordinates = utils.read_coordinates_file(coordinates_path)
   for longitude, latitude, label, string_label in coordinates:
@@ -789,19 +739,6 @@ def read_labels_file(
   return coordinates
 
 
-def get_dataflow_container_image(py_version: str) -> str:
-  """Gets default dataflow image based on Python version.
-
-  Args:
-    py_version: Python version
-  Returns:
-    Dataflow container image path.
-  """
-  if py_version in ['3.7', '3.8', '3.9', '3.10', '3.11']:
-    return f'gcr.io/disaster-assessment/dataflow_{py_version}_image:latest'
-  return None
-
-
 def parse_gdal_env(settings: List[str]) -> Dict[str, str]:
   """Parses a list of GDAL environment variable settings into a dictionary.
 
@@ -835,7 +772,6 @@ def generate_examples_pipeline(
     use_dataflow: bool,
     gdal_env: Dict[str, str],
     dataflow_job_name: Optional[str],
-    dataflow_container_image: Optional[str],
     cloud_project: Optional[str],
     cloud_region: Optional[str],
     worker_service_account: Optional[str],
@@ -859,7 +795,6 @@ def generate_examples_pipeline(
     use_dataflow: If true, run pipeline on GCP Dataflow.
     gdal_env: GDAL environment configuration.
     dataflow_job_name: Name of dataflow job.
-    dataflow_container_image: Container image to use when running Dataflow.
     cloud_project: Cloud project name.
     cloud_region: Cloud region, e.g. us-central1.
     worker_service_account: Email of service account that will launch workers.
@@ -868,19 +803,16 @@ def generate_examples_pipeline(
   """
 
   temp_dir = os.path.join(output_dir, 'temp')
-  if use_dataflow:
-    if cloud_project is None or cloud_region is None:
-      raise ValueError(
-          'cloud_project and cloud_region must be specified when using '
-          'Dataflow.')
-    pipeline_options = _get_dataflow_pipeline_options(dataflow_job_name,
-                                                      cloud_project,
-                                                      cloud_region, temp_dir,
-                                                      dataflow_container_image,
-                                                      worker_service_account,
-                                                      max_workers)
-  else:
-    pipeline_options = _get_local_pipeline_options()
+  pipeline_options = beam_utils.get_pipeline_options(
+      use_dataflow,
+      dataflow_job_name,
+      cloud_project,
+      cloud_region,
+      temp_dir,
+      max_workers,
+      worker_service_account,
+      None
+  )
 
   coordinates_path = os.path.join(temp_dir, 'coordinates')
   if unlabeled_coordinates:

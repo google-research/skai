@@ -8,7 +8,7 @@ google-cloud-bigquery-storage
 ml-collections
 numpy
 opencv-python
-pandas
+pandas<2.0.0
 pillow
 pyproj
 pytest
@@ -19,7 +19,6 @@ rtree
 shapely<2
 scikit-learn
 tensorflow
-tensorflow-addons
 tensorflow-datasets
 tensorflow_probability
 tqdm

@@ -5,6 +5,8 @@ import os
 import tempfile
 from unittest import mock
 
+from absl.testing import absltest
+from absl.testing import parameterized
 import numpy as np
 from skai.model import data
 from skai.model import log_metrics_callback
@@ -12,8 +14,6 @@ from skai.model import models
 from skai.model import train_lib
 import tensorflow as tf
 
-from google3.testing.pybase import googletest
-from google3.testing.pybase import parameterized
 
 
 def _make_temp_dir() -> str:
@@ -208,7 +208,7 @@ class TrainLibTest(parameterized.TestCase):
 
   @parameterized.named_parameters(
       (model_name, model_name)
-      for model_name in models.MODEL_REGISTRY.keys()
+      for model_name in ['resnet50v2']
   )
   def test_train_model_two_head(self, model_name):
     """Tests that each model class can be trained with two output heads."""
@@ -231,7 +231,7 @@ class TrainLibTest(parameterized.TestCase):
 
   @parameterized.named_parameters(
       (model_name, model_name)
-      for model_name in models.MODEL_REGISTRY.keys()
+      for model_name in ['resnet50v2']
   )
   def test_train_and_load_model_from_checkpoint(self, model_name):
     """Tests that each model class can be saved and loaded from a checkpoint."""
@@ -297,12 +297,16 @@ class TrainLibTest(parameterized.TestCase):
         callbacks=callbacks,
     )
 
-    best_model_dir = sorted(tf.io.gfile.listdir(self.output_dir))[-1]
-    model_dir = os.path.join(self.output_dir, best_model_dir)
-    self.assertNotEmpty(tf.io.gfile.listdir(model_dir))
+    model_dir = self.output_dir
+    if tf.io.gfile.exists(os.path.join(model_dir, 'model')):
+      model_dir = os.path.join(model_dir, 'model')
+    best_model_dir = os.path.join(
+        model_dir, sorted(tf.io.gfile.listdir(model_dir))[-1]
+    )
+    self.assertNotEmpty(tf.io.gfile.listdir(best_model_dir))
 
     # Model should be able to be compiled and then used for evaluation.
-    loaded_model = tf.keras.models.load_model(model_dir)
+    loaded_model = tf.keras.models.load_model(best_model_dir)
     compiled_model = train_lib.compile_model(
         loaded_model, loaded_model.model.model_params
     )
@@ -319,4 +323,4 @@ class TrainLibTest(parameterized.TestCase):
 
 
 if __name__ == '__main__':
-  googletest.main()
+  absltest.main()

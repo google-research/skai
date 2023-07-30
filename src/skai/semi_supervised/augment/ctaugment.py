@@ -303,8 +303,14 @@ def rescale(x: Image.Image, scale: float, method: float) -> Image.Image:
   s = x.size
   scale *= 0.25
   crop = (scale, scale, s[0] - scale * s[0], s[1] - scale * s[1])
-  methods = (Image.ANTIALIAS, Image.BICUBIC, Image.BILINEAR, Image.BOX,
-             Image.HAMMING, Image.NEAREST)
+  methods = (
+      Image.Resampling.LANCZOS,
+      Image.Resampling.BICUBIC,
+      Image.Resampling.BILINEAR,
+      Image.Resampling.BOX,
+      Image.Resampling.HAMMING,
+      Image.Resampling.NEAREST,
+  )
   method = methods[int(method * 5.99)]
   return x.crop(crop).resize(x.size, method)
 
@@ -324,13 +330,13 @@ def sharpness(x: Image.Image, sharpness_factor: float) -> Image.Image:
 @_register(NUM_DISCRETIZED_BINS)
 def shear_x(x: Image.Image, shear: float) -> Image.Image:
   shear = (2 * shear - 1) * 0.3
-  return x.transform(x.size, Image.AFFINE, (1, shear, 0, 0, 1, 0))
+  return x.transform(x.size, Image.Transform.AFFINE, (1, shear, 0, 0, 1, 0))
 
 
 @_register(NUM_DISCRETIZED_BINS)
 def shear_y(x: Image.Image, shear: float) -> Image.Image:
   shear = (2 * shear - 1) * 0.3
-  return x.transform(x.size, Image.AFFINE, (1, 0, 0, shear, 1, 0))
+  return x.transform(x.size, Image.Transform.AFFINE, (1, 0, 0, shear, 1, 0))
 
 
 @_register(NUM_DISCRETIZED_BINS)
@@ -346,9 +352,9 @@ def solarize(x: Image.Image, th: float) -> Image.Image:
 
 @_register(NUM_DISCRETIZED_BINS)
 def translate_x(x: Image.Image, delta: float) -> Image.Image:
-  return x.transform(x.size, Image.AFFINE, (1, 0, delta, 0, 1, 0))
+  return x.transform(x.size, Image.Transform.AFFINE, (1, 0, delta, 0, 1, 0))
 
 
 @_register(NUM_DISCRETIZED_BINS)
 def translate_y(x: Image.Image, delta: float) -> Image.Image:
-  return x.transform(x.size, Image.AFFINE, (1, 0, 0, 0, 1, delta))
+  return x.transform(x.size, Image.Transform.AFFINE, (1, 0, 0, 0, 1, delta))

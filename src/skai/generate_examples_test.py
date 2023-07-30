@@ -104,6 +104,7 @@ def _check_examples(
           'encoded_coordinates',
           'label',
           'example_id',
+          'int64_id',
           'plus_code',
           'string_label'
       ])
@@ -381,7 +382,6 @@ class GenerateExamplesTest(parameterized.TestCase):
         use_dataflow=False,
         gdal_env={},
         dataflow_job_name='test',
-        dataflow_container_image=None,
         cloud_project=None,
         cloud_region=None,
         worker_service_account=None,
@@ -422,7 +422,6 @@ class GenerateExamplesTest(parameterized.TestCase):
     self.assertEqual(
         config.overpass_url, 'https://lz4.overpass-api.de/api/interpreter'
     )
-    self.assertIsNone(config.dataflow_container_image)
     self.assertEqual(
         config.open_buildings_feature_collection,
         'GOOGLE/Research/open-buildings/v2/polygons',

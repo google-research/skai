@@ -19,6 +19,7 @@ from log_metrics_callback import LogMetricsCallback
 import metrics as metrics_lib
 import numpy as np
 from skai.model import data
+from skai.model import metrics as metrics_lib
 from skai.model import models
 import tensorflow as tf
 

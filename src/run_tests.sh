@@ -13,7 +13,7 @@ then
   VIRTUALENV_PATH="${KOKORO_ROOT}/skai_env"
   SKAI_DIR="${KOKORO_ARTIFACTS_DIR}/github/skai"
 
-  PY_VERSION=3.9.5
+  PY_VERSION=3.11.4
   pyenv uninstall -f $PY_VERSION
   # Have to install lzma library first, otherwise will get an error
   # "ModuleNotFoundError: No module named '_lzma'".
