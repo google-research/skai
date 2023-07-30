@@ -1,6 +1,5 @@
 r"""XM Launcher.
 
-
 # pylint: enable=line-too-long
 """
 
@@ -24,32 +23,42 @@ from google3.learning.vizier.service.client import pyvizier
 
 
 FLAGS = flags.FLAGS
-flags.DEFINE_string('experiment_name', '', 'Label for XManager experiment to '
-                    'make it easier to find.')
+flags.DEFINE_string(
+    'experiment_name',
+    '',
+    'Label for XManager experiment to make it easier to find.',
+)
 flags.DEFINE_bool(
-    'use_vizier', False, 'Finds the best hyperparameters using Vizier.')
+    'use_vizier', False, 'Finds the best hyperparameters using Vizier.'
+)
 flags.DEFINE_bool(
-    'train_as_ensemble', False, 'Trains an ensemble of single '
-    'models, as we would for Stage 1 in Introspective Self-Play.')
-flags.DEFINE_bool(
-    'eval_only', False, 'Only runs evaluation, no training.')
+    'train_as_ensemble',
+    False,
+    'Trains an ensemble of single '
+    'models, as we would for Stage 1 in Introspective Self-Play.',
+)
+flags.DEFINE_bool('eval_only', False, 'Only runs evaluation, no training.')
 flags.DEFINE_list(
     'optimizer_types',
     [],
     'List of optimizers to try in a hyperparameter sweep. For example, '
-    '["adam", "sgd"].'
+    '["adam", "sgd"].',
 )
 flags.DEFINE_list(
-    'lr_tune_values', [],
-    'List of learning rate values to try in a hyperparameter sweep.')
+    'lr_tune_values',
+    [],
+    'List of learning rate values to try in a hyperparameter sweep.',
+)
 flags.DEFINE_list(
-    'l2_reg_tune_values', [],
-    'List of L2 regularization factors to try in a hyperparameter sweep.')
+    'l2_reg_tune_values',
+    [],
+    'List of L2 regularization factors to try in a hyperparameter sweep.',
+)
 flags.DEFINE_list(
     'num_epoch_values',
     [],
     'List of number of epochs for training duration to try in a '
-    'hyperparameter sweep.'
+    'hyperparameter sweep.',
 )
 config_flags.DEFINE_config_file('config')
 
@@ -73,13 +82,15 @@ def get_study_config() -> pyvizier.StudyConfig:
       min_value=1e-6,
       max_value=1e-2,
       default_value=1e-3,
-      scale_type=pyvizier.ScaleType.LOG)
+      scale_type=pyvizier.ScaleType.LOG,
+  )
   search_space_root.add_float_param(
       name='args.config.model.l2_regularization_factor',
-      min_value=0.,
-      max_value=3.,
+      min_value=0.0,
+      max_value=3.0,
       default_value=0.5,
-      scale_type=pyvizier.ScaleType.LINEAR)
+      scale_type=pyvizier.ScaleType.LINEAR,
+  )
 
   study_config.metric_information = [
       pyvizier.MetricInformation(
@@ -92,21 +103,20 @@ def get_study_config() -> pyvizier.StudyConfig:
   )
 
   study_config.study_stopping_config = pyvizier.StudyStoppingConfig(
-      max_num_trials=1000)
+      max_num_trials=1000
+  )
 
   return study_config
 
 
 def main(_) -> None:
-
   config = FLAGS.config
   config_path = config_flags.get_config_filename(FLAGS['config'])
   config_filename = config_path.split('/')[-1]
   config_resource = xm_abc.Fileset(
       # Dict from a path in google3 to a path in the package.
-      files={
-          os.path.join('//', config_path): config_filename
-      })
+      files={os.path.join('//', config_path): config_filename}
+  )
   if not FLAGS.optimizer_types:
     FLAGS.optimizer_types.append(config.optimizer.type)
   if not FLAGS.lr_tune_values:
@@ -129,8 +139,9 @@ def main(_) -> None:
             cpu=16,
             ram=64 * xm.GiB,
             tmp_ram_fs=64 * xm.GiB,
-            v100=2),
-        autopilot_params=xm_abc.executors.AutopilotParams(fixed_ram=False)
+            v100=2,
+        ),
+        autopilot_params=xm_abc.executors.AutopilotParams(fixed_ram=False),
     )
     [train_executable] = experiment.package([
         xm.bazel_binary(
@@ -142,7 +153,7 @@ def main(_) -> None:
                 'config': config_resource.get_path(
                     config_filename, xm_abc.Borg.Spec()
                 ),
-                "is_vertex": "vertex" in str(executor.Spec()).lower(),
+                'is_vertex': 'vertex' in str(executor.Spec()).lower(),
             },
         ),
     ])
@@ -161,19 +172,13 @@ def main(_) -> None:
         ),
     }
     if config.data.name == 'skai':
-      job_args.update(
-          {
-              'config.data.use_post_disaster_only': (
-                  config.data.use_post_disaster_only
-              ),
-              'config.data.tfds_dataset_name': (
-                  config.data.tfds_dataset_name
-              ),
-              'config.data.tfds_data_dir': (
-                  config.data.tfds_data_dir
-              ),
-          }
-      )
+      job_args.update({
+          'config.data.use_post_disaster_only': (
+              config.data.use_post_disaster_only
+          ),
+          'config.data.tfds_dataset_name': config.data.tfds_dataset_name,
+          'config.data.tfds_data_dir': config.data.tfds_data_dir,
+      })
 
     if FLAGS.use_vizier:  # Tune hyperparameters with Vizier.
       job_args['config.training.save_model_checkpoints'] = False
@@ -182,8 +187,11 @@ def main(_) -> None:
       job = xm.Job(train_executable, args=job_args, executor=executor)
       experiment.add(
           vizier_abc.vizier_controller(
-              job, study_factory, num_parallel_work_units=10))
+              job, study_factory, num_parallel_work_units=10
+          )
+      )
     else:  # Tune hyperparameters with hyper.
+
       @parameter_controller.controller(interpreter=xm_abc.ml_python())
       async def run_train(
           experiment: xm.Experiment,
@@ -198,17 +206,18 @@ def main(_) -> None:
         sweep = hyper.product([
             hyper.sweep('config.optimizer.type', optimizer_types),
             hyper.sweep('config.optimizer.learning_rate', lr_tune_values),
-            hyper.sweep('config.model.l2_regularization_factor',
-                        l2_reg_tune_values),
-            hyper.sweep('config.training.num_epochs',
-                        num_epoch_values)
+            hyper.sweep(
+                'config.model.l2_regularization_factor', l2_reg_tune_values
+            ),
+            hyper.sweep('config.training.num_epochs', num_epoch_values),
         ])
         for args in sweep:
           output_dir = config.output_dir
           for hyperparam in sorted(args.keys()):
             hyperparam_name = hyperparam.split('.')[-1]
-            output_dir = os.path.join(output_dir,
-                                      f'{hyperparam_name}_{args[hyperparam]}')
+            output_dir = os.path.join(
+                output_dir, f'{hyperparam_name}_{args[hyperparam]}'
+            )
           job_args['config.output_dir'] = output_dir
           job_args.update(args)
 
@@ -217,8 +226,10 @@ def main(_) -> None:
             num_ood_splits = int(num_splits * config.data.ood_ratio)
             num_id_splits = num_splits - num_ood_splits
             train_combos = [
-                list(c) for c in list(
-                    itertools.combinations(range(num_splits), num_id_splits))
+                list(c)
+                for c in list(
+                    itertools.combinations(range(num_splits), num_id_splits)
+                )
             ]
             two_head_ensemble_dir = os.path.join(config.output_dir, 'ensemble')
             train_ensemble_operations = []
@@ -229,20 +240,22 @@ def main(_) -> None:
               combo_tuple = '(' + ','.join(map(str, combo)) + ')'
               job_args['config.output_dir'] = combo_dir
               job_args['config.data.included_splits_idx'] = combo_tuple
-              train_ensemble_operations.append(await experiment.add(
-                  xm.Job(
-                      train_executable,
-                      args=job_args,
-                      executor=executor),
-                  identity=f'two_head_train_{combo_name}'))
+              train_ensemble_operations.append(
+                  await experiment.add(
+                      xm.Job(
+                          train_executable, args=job_args, executor=executor
+                      ),
+                      identity=f'two_head_train_{combo_name}',
+                  )
+              )
             await asyncio.gather(
-                *(op.wait_until_complete() for op in train_ensemble_operations))
+                *(op.wait_until_complete() for op in train_ensemble_operations)
+            )
           else:
             experiment.add(
-                xm.Job(
-                    train_executable,
-                    args=job_args,
-                    executor=executor))
+                xm.Job(train_executable, args=job_args, executor=executor)
+            )
+
       experiment.add(
           run_train(
               config,
@@ -251,7 +264,7 @@ def main(_) -> None:
               FLAGS.optimizer_types,
               FLAGS.lr_tune_values,
               FLAGS.l2_reg_tune_values,
-              FLAGS.num_epoch_values
+              FLAGS.num_epoch_values,
           )
       )
 

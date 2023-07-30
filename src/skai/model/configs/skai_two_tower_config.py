@@ -1,10 +1,7 @@
 r"""Configuration file for experiment with SKAI data and TwoTower model.
-
 """
 
-
 import ml_collections
-
 from skai.model.configs import base_config
 
 

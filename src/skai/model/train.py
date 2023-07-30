@@ -8,36 +8,35 @@ import datetime
 import logging as native_logging
 import os
 
-import pandas as pd
-import tensorflow as tf
 from absl import app
 from absl import flags
 from absl import logging
 from ml_collections import config_flags
-
+import pandas as pd
 from skai.model import data
 from skai.model import generate_bias_table_lib
 from skai.model import models
 from skai.model import sampling_policies
 from skai.model import train_lib
 from skai.model.configs import base_config
+import tensorflow as tf
 
 FLAGS = flags.FLAGS
 config_flags.DEFINE_config_file('config')
 flags.DEFINE_bool('keep_logs', True, 'If True, creates a log file in output '
                   'directory. If False, only logs to console.')
 flags.DEFINE_bool(
-    "is_vertex", False, "Tells if the training job will be executed on GCP Vertex AI"
+    'is_vertex', False, 'True if the training job will be executed on VertexAI.'
 )
 flags.DEFINE_string('ensemble_dir', '', 'If specified, loads the models at '
                     'this directory to consider the ensemble.')
-flags.DEFINE_string('trial_name', None,
-    (
-        'Identifying the current job trial that measurements '
-        'will be submitted to with `add_trial_measurement`. Format: '
-        'projects/{project}/locations/{location}/studies/{study}/trials/{trial}'
-    ),
+flags.DEFINE_string(
+    'trial_name',
+    None,
+    'Name of the job trial that measurements should be submitted to. Format:'
+    ' projects/{project}/locations/{location}/studies/{study}/trials/{trial}',
 )
+
 
 def main(_) -> None:
   config = FLAGS.config
@@ -120,8 +119,8 @@ def main(_) -> None:
   model_params.train_bias = config.train_bias
   output_dir = config.output_dir
   start_time = datetime.datetime.now()
-  timestmp = start_time.strftime("%Y-%m-%d-%H%M%S")
-  output_dir = f"{output_dir}_{timestmp}"
+  timestamp = start_time.strftime('%Y-%m-%d-%H%M%S')
+  output_dir = f'{output_dir}_{timestamp}'
 
   tf.io.gfile.makedirs(output_dir)
   example_id_to_bias_table = None

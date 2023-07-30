@@ -601,7 +601,6 @@ class SkaiDataset(tfds.core.GeneratorBasedBuilder):
 
   VERSION = tfds.core.Version('1.0.0')
 
-
   def __init__(self,
                subgroup_ids: Optional[List[str]] = None,
                subgroup_proportions: Optional[List[float]] = None,
