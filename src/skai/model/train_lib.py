@@ -6,7 +6,6 @@ starting from compiling and initializing the model, fitting on training data,
 and evaluating on provided eval datasets.
 """
 
-import importlib
 import itertools
 import os
 from typing import Dict
@@ -15,12 +14,13 @@ from typing import Optional
 from typing import Union
 
 from absl import logging
-from log_metrics_callback import LogMetricsCallback
-import metrics as metrics_lib
 import numpy as np
 from skai.model import data
+from skai.model import log_metrics_callback
 from skai.model import metrics as metrics_lib
 from skai.model import models
+from skai.model import xmanager_external_metric_logger
+
 import tensorflow as tf
 
 
@@ -385,7 +385,7 @@ def create_callbacks(
     vizier_trial_name: str = None,
     batch_size: Optional[int] = 64,
     num_train_examples: Optional[int] = None,
-    is_vertex: bool = False,
+    is_vertex: bool = False
 ) -> List[tf.keras.callbacks.Callback]:
   """Creates callbacks, such as saving model checkpoints, for training.
 
@@ -438,21 +438,16 @@ def create_callbacks(
     callbacks.append(early_stopping_callback)
 
   if is_vertex:
-    xmanager_callback_cls = importlib.import_module(
-        'xmanager_external_metric_logger'
-    ).XManagerMetricLogger
-  else:
-    xmanager_callback_cls = importlib.import_module(
-        'xmanager_internal_metric_logger'
-    ).XManagerMetricLogger
+    metric_logger = xmanager_external_metric_logger.XMangerMetricLogger(
+        vizier_trial_name)
+    hyperparameter_tuner_callback = log_metrics_callback.LogMetricsCallback(
+        [metric_logger],
+        batch_size * 2,
+        batch_size,
+        num_train_examples,
+    )
+    callbacks.append(hyperparameter_tuner_callback)
 
-  hyperparameter_tuner_callback = LogMetricsCallback(
-      [xmanager_callback_cls(vizier_trial_name)],
-      batch_size * 2,
-      batch_size,
-      num_train_examples,
-  )
-  callbacks.append(hyperparameter_tuner_callback)
   return callbacks
 
 
