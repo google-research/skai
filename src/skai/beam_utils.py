@@ -91,8 +91,8 @@ def _get_dataflow_container_image() -> Optional[str]:
     Dataflow container image path.
   """
   py_version = '.'.join(platform.python_version().split('.')[:2])
-  if py_version in ['3.7', '3.8', '3.9', '3.10', '3.11']:
-    return f'gcr.io/locust-early-warning/skai/inference/skai-inference-3.8-gpu-tf2.13:latest'
+  if py_version in ['3.8', '3.9', '3.10', '3.11']:
+    return f'gcr.io/skai-project-388314/skai-inference/dataflow_py_{py_version}_image'
   raise ValueError(
       f'Dataflow SDK supports Python versions 3.7-3.11, not {py_version}'
   )
@@ -152,6 +152,7 @@ def get_pipeline_options(
       'max_num_workers': max_workers,
       'use_public_ips': False,  # Avoids hitting public ip quota bottleneck.
       'worker_machine_type':worker_machine_type,
+      'disk_size_gb': 500,
       'dataflow_service_options':dataflow_service_options
   }
   if worker_service_account:
