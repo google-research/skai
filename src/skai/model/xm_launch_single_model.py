@@ -7,7 +7,7 @@ import asyncio
 import itertools
 import logging
 import os
-from typing import Any, Dict, List
+from typing import Any, Iterable
 
 from absl import app
 from absl import flags
@@ -109,6 +109,21 @@ def get_study_config() -> pyvizier.StudyConfig:
   return study_config
 
 
+def _sweep(
+    hyperparameter_name: str,
+    values: Iterable[Any]
+) -> Iterable[tuple[str, Any]]:
+  for value in values:
+    yield (hyperparameter_name, value)
+
+
+def _product(
+    hyperparams: list[Iterable[tuple[str, Any]]]
+) -> Iterable[dict[str, Any]]:
+  for combo in itertools.product(*hyperparams):
+    yield dict(combo)
+
+
 def main(_) -> None:
   config = FLAGS.config
   config_path = config_flags.get_config_filename(FLAGS['config'])
@@ -190,26 +205,23 @@ def main(_) -> None:
               job, study_factory, num_parallel_work_units=10
           )
       )
-    else:  # Tune hyperparameters with hyper.
-
+    else:
       @parameter_controller.controller(interpreter=xm_abc.ml_python())
       async def run_train(
           experiment: xm.Experiment,
           config: ml_collections.ConfigDict,
           train_as_ensemble: bool,
-          job_args: Dict[str, Any],
-          optimizer_types: List[str],
-          lr_tune_values: List[float],
-          l2_reg_tune_values: List[float],
-          num_epoch_values: List[float],
+          job_args: dict[str, Any],
+          optimizer_types: list[str],
+          lr_tune_values: list[float],
+          l2_reg_tune_values: list[float],
+          num_epoch_values: list[float],
       ) -> None:
-        sweep = hyper.product([
-            hyper.sweep('config.optimizer.type', optimizer_types),
-            hyper.sweep('config.optimizer.learning_rate', lr_tune_values),
-            hyper.sweep(
-                'config.model.l2_regularization_factor', l2_reg_tune_values
-            ),
-            hyper.sweep('config.training.num_epochs', num_epoch_values),
+        sweep = _product([
+            _sweep('config.optimizer.type', optimizer_types),
+            _sweep('config.optimizer.learning_rate', lr_tune_values),
+            _sweep('config.model.l2_regularization_factor', l2_reg_tune_values),
+            _sweep('config.training.num_epochs', num_epoch_values)
         ])
         for args in sweep:
           output_dir = config.output_dir
@@ -226,10 +238,8 @@ def main(_) -> None:
             num_ood_splits = int(num_splits * config.data.ood_ratio)
             num_id_splits = num_splits - num_ood_splits
             train_combos = [
-                list(c)
-                for c in list(
-                    itertools.combinations(range(num_splits), num_id_splits)
-                )
+                list(c) for c in list(
+                    itertools.combinations(range(num_splits), num_id_splits))
             ]
             two_head_ensemble_dir = os.path.join(config.output_dir, 'ensemble')
             train_ensemble_operations = []
