@@ -10,7 +10,7 @@ and the label is specific to the main task.
 import collections
 import dataclasses
 import os
-from typing import Any, Dict, Iterator, List, Optional, Tuple, Union
+from typing import Any, Iterator
 import uuid
 
 import numpy as np
@@ -59,17 +59,17 @@ def get_dataset(name: str):
 @dataclasses.dataclass
 class Dataloader:
   num_subgroups: int  # Number of subgroups in data.
-  subgroup_sizes: Dict[str, int]  # Number of examples by subgroup.
+  subgroup_sizes: dict[str, int]  # Number of examples by subgroup.
   train_splits: tf.data.Dataset  # Result of tfds.load with 'split' arg.
   val_splits: tf.data.Dataset  # Result of tfds.load with 'split' arg.
   train_ds: tf.data.Dataset  # Dataset with all the train splits combined.
-  eval_ds: Dict[str, tf.data.Dataset]  # Validation and/or test datasets.
-  num_train_examples: Optional[int] = 0  # Number of training examples.
-  worst_group_label: Optional[int] = 2  # Label of the worst subgroup.
-  train_sample_ds: Optional[tf.data.Dataset] = None  # Subsample of train set.
+  eval_ds: dict[str, tf.data.Dataset]  # Validation and/or test datasets.
+  num_train_examples: int | None = 0  # Number of training examples.
+  worst_group_label: int | None = 2  # Label of the worst subgroup.
+  train_sample_ds: tf.data.Dataset | None = None  # Subsample of train set.
 
 
-def get_subgroup_sizes(dataloader: tf.data.Dataset) -> Dict[str, int]:
+def get_subgroup_sizes(dataloader: tf.data.Dataset) -> dict[str, int]:
   """Gets the number examples of each subgroup."""
   subgroup_sizes = dict(
       collections.Counter(
@@ -83,7 +83,7 @@ def upsample_subgroup(
     dataset: tf.data.Dataset,
     lambda_value: int = 60,
     signal: str = 'subgroup_label',
-    subgroup_sizes: Optional[Dict[str, int]] = None,
+    subgroup_sizes: dict[str, int] | None = None,
 ) -> tf.data.Dataset:
   """Creates dataset that has upsampled subgroup.
 
@@ -164,8 +164,8 @@ def apply_batch(dataloader, batch_size):
 
 
 def gather_data_splits(
-    slice_idx: List[int],
-    dataset: Union[tf.data.Dataset, List[tf.data.Dataset]]) -> tf.data.Dataset:
+    slice_idx: list[int],
+    dataset: tf.data.Dataset | list[tf.data.Dataset]) -> tf.data.Dataset:
   """Gathers slices of a split dataset based on passed indices."""
   data_slice = dataset[slice_idx[0]]
   for idx in slice_idx[1:]:
@@ -173,7 +173,7 @@ def gather_data_splits(
   return data_slice
 
 
-def get_ids_from_dataset(dataset: tf.data.Dataset) -> List[str]:
+def get_ids_from_dataset(dataset: tf.data.Dataset) -> list[str]:
   """Gets example ids from dataset."""
   ids_list = list(dataset.map(lambda x: x['example_id']).as_numpy_iterator())
   if isinstance(ids_list[0], np.ndarray):
@@ -283,8 +283,8 @@ class WaterbirdsDataset(tfds.core.GeneratorBasedBuilder):
   }
 
   def __init__(self,
-               subgroup_ids: List[str],
-               subgroup_proportions: Optional[List[float]] = None,
+               subgroup_ids: list[str],
+               subgroup_proportions: list[float] | None = None,
                train_dataset_size: int = _WATERBIRDS_TRAIN_SIZE,
                source_data_dir: str = _WATERBIRDS_DATA_DIR,
                include_train_sample: bool = True,
@@ -440,8 +440,8 @@ class WaterbirdsDataset(tfds.core.GeneratorBasedBuilder):
 
   def _generate_examples(self,
                          file_pattern: str,
-                         is_training: Optional[bool] = False
-                        ) -> Iterator[Tuple[str, Dict[str, Any]]]:
+                         is_training: bool = False
+                        ) -> Iterator[tuple[str, dict[str, Any]]]:
     """Generator of examples for each split."""
     dataset = tf.data.Dataset.list_files(file_pattern, shuffle=is_training)
 
@@ -513,8 +513,8 @@ class Waterbirds10kDataset(WaterbirdsDataset):
   }
 
   def __init__(self,
-               subgroup_ids: List[str],
-               subgroup_proportions: Optional[List[float]] = None,
+               subgroup_ids: list[str],
+               subgroup_proportions: list[float] | None = None,
                corr_strength: float = 0.95,
                train_dataset_size: int = _WATERBIRDS10K_TRAIN_SIZE,
                source_data_parent_dir: str = _WATERBIRDS10K_DATA_DIR,
@@ -601,8 +601,8 @@ class SkaiDataset(tfds.core.GeneratorBasedBuilder):
   VERSION = tfds.core.Version('1.0.0')
 
   def __init__(self,
-               subgroup_ids: Optional[List[str]] = None,
-               subgroup_proportions: Optional[List[float]] = None,
+               subgroup_ids: list[str] | None = None,
+               subgroup_proportions: list[float] | None = None,
                include_train_sample: bool = True,
                **kwargs):
     super(SkaiDataset, self).__init__(**kwargs)
@@ -739,8 +739,8 @@ class SkaiDataset(tfds.core.GeneratorBasedBuilder):
 @register_dataset('waterbirds')
 def get_waterbirds_dataset(num_splits: int,
                            initial_sample_proportion: float,
-                           subgroup_ids: List[str],
-                           subgroup_proportions: List[float],
+                           subgroup_ids: list[str],
+                           subgroup_proportions: list[float],
                            tfds_dataset_name: str = 'waterbirds_dataset',
                            include_train_sample: bool = True,
                            data_dir: str = DATA_DIR,
@@ -842,8 +842,8 @@ def get_waterbirds_dataset(num_splits: int,
 def get_waterbirds10k_dataset(
     num_splits: int,
     initial_sample_proportion: float,
-    subgroup_ids: List[str],
-    subgroup_proportions: List[float],
+    subgroup_ids: list[str],
+    subgroup_proportions: list[float],
     corr_strength: float = 0.95,
     data_dir: str = DATA_DIR,
     upsampling_lambda: int = 1,
@@ -872,8 +872,8 @@ def get_waterbirds10k_dataset(
 def get_celeba_dataset(
     num_splits: int,
     initial_sample_proportion: float,
-    subgroup_ids: List[str],
-    subgroup_proportions: List[float],
+    subgroup_ids: list[str],
+    subgroup_proportions: list[float],
     upsampling_lambda: int = 1,
     upsampling_signal: str = 'subgroup_label',
 ) -> Dataloader:
@@ -960,15 +960,15 @@ def get_celeba_dataset(
 @register_dataset('skai')
 def get_skai_dataset(num_splits: int,
                      initial_sample_proportion: float,
-                     subgroup_ids: List[str],
-                     subgroup_proportions: List[float],
+                     subgroup_ids: list[str],
+                     subgroup_proportions: list[float],
                      tfds_dataset_name: str = 'skai_dataset',
                      data_dir: str = DATA_DIR,
-                     include_train_sample: Optional[bool] = False,
+                     include_train_sample: bool = False,
                      labeled_train_pattern: str = '',
                      unlabeled_train_pattern: str = '',
                      validation_pattern: str = '',
-                     use_post_disaster_only: Optional[bool] = False,
+                     use_post_disaster_only: bool = False,
                      upsampling_lambda: int = 1,
                      upsampling_signal: str = 'subgroup_label',
                      load_small_images: bool = False,
