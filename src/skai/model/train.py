@@ -4,6 +4,7 @@ r"""Binary to run training on a single model once.
 # pylint: enable=line-too-long
 """
 
+import datetime
 import logging as native_logging
 import os
 
@@ -20,13 +21,21 @@ from skai.model import train_lib
 from skai.model.configs import base_config
 import tensorflow as tf
 
-
 FLAGS = flags.FLAGS
 config_flags.DEFINE_config_file('config')
 flags.DEFINE_bool('keep_logs', True, 'If True, creates a log file in output '
                   'directory. If False, only logs to console.')
+flags.DEFINE_bool(
+    'is_vertex', False, 'True if the training job will be executed on VertexAI.'
+)
 flags.DEFINE_string('ensemble_dir', '', 'If specified, loads the models at '
                     'this directory to consider the ensemble.')
+flags.DEFINE_string(
+    'trial_name',
+    None,
+    'Name of the job trial that measurements should be submitted to. Format:'
+    ' projects/{project}/locations/{location}/studies/{study}/trials/{trial}',
+)
 
 
 def main(_) -> None:
@@ -75,7 +84,7 @@ def main(_) -> None:
         subgroup_proportions=config.data.subgroup_proportions, **ds_kwargs)
   else:
     # If latter round, keep track of split generated in last round of active
-    #   sampling
+    # sampling
     dataloader = dataset_builder(config.data.num_splits,
                                  initial_sample_proportion=1,
                                  subgroup_ids=(),
@@ -109,6 +118,9 @@ def main(_) -> None:
   )
   model_params.train_bias = config.train_bias
   output_dir = config.output_dir
+  start_time = datetime.datetime.now()
+  timestamp = start_time.strftime('%Y-%m-%d-%H%M%S')
+  output_dir = f'{output_dir}_{timestamp}'
 
   tf.io.gfile.makedirs(output_dir)
   example_id_to_bias_table = None
@@ -186,7 +198,10 @@ def main(_) -> None:
       save_best_model=config.training.save_best_model,
       early_stopping=config.training.early_stopping,
       ensemble_dir=FLAGS.ensemble_dir,
-      example_id_to_bias_table=example_id_to_bias_table)
+      example_id_to_bias_table=example_id_to_bias_table,
+      vizier_trial_name=FLAGS.trial_name,
+      is_vertex=FLAGS.is_vertex,
+  )
 
 
 if __name__ == '__main__':

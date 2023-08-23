@@ -5,7 +5,6 @@ from typing import Mapping, Optional, Sequence, Union
 
 import tensorflow as tf
 
-
 _ScalarMetric = Union[float, int]
 _MetricDict = Mapping[str, _ScalarMetric]
 
@@ -45,8 +44,6 @@ class MetricLogger(abc.ABC):
       is_val_metric: A boolean specifying whether this metric was computed on a
         validation set.
     """
-
-
 
 
 class LogMetricsCallback(tf.keras.callbacks.Callback):

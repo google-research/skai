@@ -5,6 +5,7 @@ geopandas
 google_apitools
 google-cloud-aiplatform
 google-cloud-bigquery-storage
+ml-collections
 numpy
 opencv-python
 pandas<2.0.0
@@ -22,3 +23,4 @@ tensorflow-datasets
 tensorflow_probability
 tqdm
 openlocationcode
+xmanager

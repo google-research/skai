@@ -15,7 +15,6 @@ from skai.model import train_lib
 import tensorflow as tf
 
 
-
 def _make_temp_dir() -> str:
   return tempfile.mkdtemp(dir=os.environ.get('TEST_TMPDIR'))
 
@@ -300,9 +299,12 @@ class TrainLibTest(parameterized.TestCase):
     model_dir = self.output_dir
     if tf.io.gfile.exists(os.path.join(model_dir, 'model')):
       model_dir = os.path.join(model_dir, 'model')
-    best_model_dir = os.path.join(
-        model_dir, sorted(tf.io.gfile.listdir(model_dir))[-1]
-    )
+    if tf.io.gfile.exists(os.path.join(model_dir, 'saved_model.pb')):
+      best_model_dir = model_dir
+    else:
+      best_model_dir = os.path.join(
+          model_dir, sorted(tf.io.gfile.listdir(model_dir))[-1]
+      )
     self.assertNotEmpty(tf.io.gfile.listdir(best_model_dir))
 
     # Model should be able to be compiled and then used for evaluation.
