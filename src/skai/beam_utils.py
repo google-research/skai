@@ -15,7 +15,7 @@
 
 import pathlib
 import platform
-from typing import Tuple
+from typing import Tuple, Optional
 
 import apache_beam as beam
 import apache_beam.io.fileio as fileio
@@ -84,17 +84,20 @@ def _get_setup_file_path():
   return str(pathlib.Path(__file__).parent.parent / 'setup.py')
 
 
-def _get_dataflow_container_image() -> str | None:
+
+def _get_dataflow_container_image() -> Optional[str]:
+
   """Gets default dataflow image based on Python version.
 
   Returns:
     Dataflow container image path.
   """
   py_version = '.'.join(platform.python_version().split('.')[:2])
-  if py_version in ['3.7', '3.8', '3.9', '3.10', '3.11']:
-    return f'gcr.io/disaster-assessment/dataflow_{py_version}_image:latest'
+  if py_version in ['3.8', '3.9', '3.10', '3.11']:
+    return f'gcr.io/skai-project-388314/skai-inference/dataflow_py_{py_version}_image'
+
   raise ValueError(
-      f'Dataflow SDK supports Python versions 3.7-3.11, not {py_version}'
+      f'Dataflow SDK supports Python versions 3.8-3.11, not {py_version}'
   )
 
 
@@ -105,8 +108,10 @@ def get_pipeline_options(
     region: str,
     temp_dir: str,
     max_workers: int,
-    worker_service_account: str | None,
-    worker_type: str | None,
+    worker_service_account: Optional[str],
+    worker_type: Optional[str],
+    worker_machine_type: Optional[str],
+    dataflow_service_options: str
 ) -> PipelineOptions:
   """Returns dataflow pipeline options.
 
@@ -148,7 +153,10 @@ def get_pipeline_options(
       'sdk_location': 'container',
       'setup_file': _get_setup_file_path(),
       'max_num_workers': max_workers,
-      'use_public_ips': False  # Avoids hitting public ip quota bottleneck.
+      'use_public_ips': False,  # Avoids hitting public ip quota bottleneck.
+      'worker_machine_type':worker_machine_type,
+      'disk_size_gb': 200,
+      'dataflow_service_options':dataflow_service_options
   }
   if worker_service_account:
     options['service_account_email'] = worker_service_account

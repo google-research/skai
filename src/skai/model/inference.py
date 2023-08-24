@@ -30,7 +30,8 @@ flags.DEFINE_integer(
     'max_dataflow_workers', None, 'Maximum number of dataflow workers'
 )
 flags.DEFINE_string('worker_type', 'c3-standard-8', 'Dataflow worker type.')
-
+flags.DEFINE_string('worker_machine_type','n1-highmem-8', 'worker machine type')
+flags.DEFINE_string('dataflow_service_options', '', 'Dataflow service options')
 
 def main(_) -> None:
   timestamp = time.strftime('%Y%m%d-%H%M%S')
@@ -44,7 +45,10 @@ def main(_) -> None:
       FLAGS.dataflow_temp_dir,
       FLAGS.max_dataflow_workers,
       FLAGS.worker_service_account,
-      worker_type=FLAGS.worker_type
+      worker_type=FLAGS.worker_type,
+      worker_machine_type=FLAGS.worker_machine_type,
+      dataflow_service_options=FLAGS.dataflow_service_options
+
   )
 
   inference_lib.run_tf2_inference_with_csv_output(

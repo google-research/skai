@@ -567,7 +567,7 @@ class SkaiDatasetConfig(tfds.core.BuilderConfig):
 
 
 def decode_and_resize_image(
-    image_bytes: tf.Tensor | bytes, size: int) -> tf.Tensor:
+    image_bytes: Union[tf.Tensor, bytes], size: int) -> tf.Tensor:
   return tf.image.resize(
       tf.io.decode_image(
           image_bytes,

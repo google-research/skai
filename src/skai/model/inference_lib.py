@@ -1,8 +1,7 @@
 """Functions for running model inference in beam."""
 
 import time
-from typing import Any, Iterator
-
+from typing import Any, Iterator, List, Dict
 import apache_beam as beam
 import apache_beam.utils.shared as beam_shared
 import numpy as np
@@ -10,6 +9,13 @@ from skai import utils
 from skai.model import data
 import tensorflow as tf
 
+gpus = tf.config.list_physical_devices('GPU')
+if gpus:
+  try:
+    for gpu in gpus:
+      tf.config.experimental.set_memory_growth(gpu, True)
+  except RuntimeError as e:
+    print(e)
 
 class InferenceModel(object):
   """Abstract base class for an inference model.
@@ -24,7 +30,7 @@ class InferenceModel(object):
     """
     raise NotImplementedError()
 
-  def predict_scores(self, batch: list[tf.train.Example]) -> np.ndarray:
+  def predict_scores(self, batch: List[tf.train.Example]) -> np.ndarray:
     """Predicts scores for a batch of input examples."""
     raise NotImplementedError()
 
@@ -119,15 +125,15 @@ class TF2InferenceModel(InferenceModel):
 
     self._model = self._shared_handle.acquire(load)
 
-  def predict_scores(self, batch: list[tf.train.Example]) -> np.ndarray:
+  def predict_scores(self, batch: List[tf.train.Example]) -> np.ndarray:
     model_input = self._extract_image_arrays(batch)
     outputs = self._model.predict(model_input)
     return outputs['main'][:, 1]
 
   def _extract_image_arrays(
       self,
-      examples: list[tf.train.Example],
-  ) -> dict[str, np.ndarray]:
+      examples: List[tf.train.Example],
+  ) -> Dict[str, np.ndarray]:
     """Reads images from a batch of examples as numpy arrays."""
     small_images = []
     large_images = []
@@ -168,7 +174,7 @@ class ModelInference(beam.DoFn):
     self._model.prepare_model()
 
   def process(
-      self, batch: list[tf.train.Example]
+      self, batch: List[tf.train.Example]
   ) -> Iterator[tf.train.Example]:
     start_time = time.process_time()
     scores = self._model.predict_scores(batch)
@@ -253,7 +259,7 @@ def run_tf2_inference_with_csv_output(
     batch_size: Batch size.
     pipeline_options: Dataflow pipeline options.
   """
-
+  
   with beam.Pipeline(options=pipeline_options) as pipeline:
     examples = (
         pipeline

@@ -42,7 +42,6 @@ xmanager launch src/skai/model/xm_launch_single_model_vertex.py -- \
     --config.data.tfds_dataset_name=skai_dataset \
     --config.data.tfds_data_dir=gs://skai-data/hurricane_ian \
     --config.output_dir=gs://skai-data/experiments/test_skai \
-    --config.training.num_epochs=1 \
     --experiment_name=test_skai \
     --project_path=~/path/to/skai \
     --accelerator=V100 \
@@ -91,7 +90,6 @@ gs://path/to/dataset
  ...
     --accelerator=TPU_V2
     --accelerator_count=8
- ...
  ```
 
 Some accelerator options are listed below.
