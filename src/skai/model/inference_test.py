@@ -32,7 +32,7 @@ def _create_test_model(model_path: str, image_size: int):
       inputs={'small_image': small_input, 'large_image': large_input},
       outputs={'main': main_out, 'bias': bias_out},
   )
-  model.save(model_path)
+  tf.saved_model.save(model, model_path)
 
 
 def _create_test_example(
@@ -108,7 +108,7 @@ class InferenceTest(absltest.TestCase):
   def test_tf2_model_prediction(self):
     model_path = os.path.join(_make_temp_dir(), 'model.keras')
     _create_test_model(model_path, 224)
-    model = inference_lib.TF2InferenceModel(model_path, 224, False)
+    model = inference_lib.TF2InferenceModel(model_path, 224, False, [])
     model.prepare_model()
 
     examples = [_create_test_example(224, True) for i in range(3)]
@@ -118,7 +118,7 @@ class InferenceTest(absltest.TestCase):
   def test_tf2_model_prediction_no_small_images(self):
     model_path = os.path.join(_make_temp_dir(), 'model.keras')
     _create_test_model(model_path, 224)
-    model = inference_lib.TF2InferenceModel(model_path, 224, False)
+    model = inference_lib.TF2InferenceModel(model_path, 224, False, [])
     model.prepare_model()
 
     examples = [_create_test_example(224, False) for i in range(3)]

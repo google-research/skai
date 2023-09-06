@@ -143,7 +143,7 @@ def get_pipeline_options(
       'region': region,
       'temp_location': temp_dir,
       'runner': 'DataflowRunner',
-      'experiment': 'use_runner_v2',
+      'experiments': 'use_runner_v2',
       'sdk_container_image': _get_dataflow_container_image(),
       'sdk_location': 'container',
       'setup_file': _get_setup_file_path(),
@@ -153,5 +153,5 @@ def get_pipeline_options(
   if worker_service_account:
     options['service_account_email'] = worker_service_account
   if worker_type:
-    options['worker_type'] = worker_type
+    options['machine_type'] = worker_type
   return PipelineOptions.from_dictionary(options)
