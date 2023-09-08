@@ -324,7 +324,8 @@ def evaluate_model(
         logging.info('Average Acc: %f', results['avg_acc'])
         logging.info('Average Acc: %f', results['weighted_avg_acc'])
   if save_best_model:
-    loaded_model = tf.keras.models.load_model(os.path.join(output_dir, 'model'))
+    model_dir = os.path.join(output_dir, 'model')
+    loaded_model = tf.keras.models.load_model(model_dir)
     compiled_model = compile_model(
         loaded_model, loaded_model.model.model_params
     )
@@ -415,16 +416,14 @@ def create_callbacks(
     callbacks.append(checkpoint_callback)
   if save_best_model:
     model_dir = os.path.join(output_dir, 'model')
+    # TODO(jlee24,mohammedelfatihsalah): Update to AUPRC.
     model_callback = tf.keras.callbacks.ModelCheckpoint(
-        filepath=os.path.join(
-            model_dir, 'aucpr-{val_main_aucpr_1_vs_rest:.2f}'
-        ),
+        filepath=model_dir,
         monitor='val_main_aucpr_1_vs_rest',
         mode='max',
         save_weights_only=False,
         save_best_only=True,
-        save_traces=True,
-    )
+        save_traces=True)
     callbacks.append(model_callback)
   if early_stopping:
     early_stopping_callback = tf.keras.callbacks.EarlyStopping(
@@ -438,19 +437,17 @@ def create_callbacks(
     )
     callbacks.append(early_stopping_callback)
 
-  dataset_size = (
-      num_train_examples if num_train_examples != 0 else batch_size * 100
-  )
-  trial_name = vizier_trial_name if is_vertex else None
-  hyperparameter_tuner_callback = log_metrics_callback.LogMetricsCallback(
-      metric_loggers=[
-          xmanager_external_metric_logger.XManagerMetricLogger(trial_name)
-      ],
-      logging_frequency=int(dataset_size / batch_size) * batch_size,
-      batch_size=batch_size,
-      num_train_examples_per_epoch=dataset_size,
-  )
-  callbacks.append(hyperparameter_tuner_callback)
+  if is_vertex:
+    metric_logger = xmanager_external_metric_logger.XManagerMetricLogger(
+        vizier_trial_name)
+    hyperparameter_tuner_callback = log_metrics_callback.LogMetricsCallback(
+        [metric_logger],
+        batch_size * 2,
+        batch_size,
+        num_train_examples,
+    )
+    callbacks.append(hyperparameter_tuner_callback)
+
   return callbacks
 
 
@@ -593,7 +590,7 @@ def find_epoch_ckpt_path(epoch: int,
     # Uses nearest available epoch in `ckpt_epochs`.
     nearest_epoch_id = np.argmin(np.abs(ckpt_epochs - epoch))
     nearest_epoch = ckpt_epochs[nearest_epoch_id]
-    tf.get_logger().warn(
+    tf.compat.v1.logging.warn(
         'Required epoch (%s) not in list of available epochs `%s`.'
         'Use nearest epoch `%s`', epoch, np.unique(ckpt_epochs), nearest_epoch)
     epoch = nearest_epoch
@@ -634,13 +631,13 @@ def load_trained_models(combos_dir: str,
     if ckpt_epoch < 0:
       # Loads the latest checkpoint.
       checkpoint_path = tf.train.latest_checkpoint(ckpt_dir)
-      tf.get_logger().info(f'Loading best model from `{checkpoint_path}`')
+      tf.compat.v1.logging.info(f'Loading best model from `{checkpoint_path}`')
     else:
       # Loads the required checkpoint.
       # By default, select the checkpoint with highest validation AUC.
       checkpoint_path = find_epoch_ckpt_path(
           ckpt_epoch, ckpt_dir, metric_name='val_auc', mode='highest')
-      tf.get_logger().info(
+      tf.compat.v1.logging.info(
           f'Loading model for checkpoint {ckpt_epoch} from `{checkpoint_path}`')
 
     combo_model = load_one_checkpoint(checkpoint_path=checkpoint_path,

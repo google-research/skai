@@ -185,13 +185,6 @@ def main(_) -> None:
         'config.model.use_pytorch_style_resnet': (
             config.model.use_pytorch_style_resnet
         ),
-        'config.data.labeled_train_pattern': (
-            config.data.labeled_train_pattern
-        ),
-        'config.data.unlabeled_train_pattern': (
-            config.data.unlabeled_train_pattern
-        ),
-        'config.data.validation_pattern': config.data.validation_pattern,
     }
     if config.data.name == 'skai':
       job_args.update({

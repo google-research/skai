@@ -21,8 +21,6 @@ from skai.model import train_lib
 from skai.model.configs import base_config
 import tensorflow as tf
 
-
-
 FLAGS = flags.FLAGS
 config_flags.DEFINE_config_file('config')
 flags.DEFINE_bool('keep_logs', True, 'If True, creates a log file in output '
@@ -120,11 +118,9 @@ def main(_) -> None:
   )
   model_params.train_bias = config.train_bias
   output_dir = config.output_dir
-  if FLAGS.is_vertex:
-    # TODO: go/skai-instadeep - Create output_dir specific to job.
-    start_time = datetime.datetime.now()
-    timestamp = start_time.strftime('%Y-%m-%d-%H%M%S')
-    output_dir = f'{output_dir}_{timestamp}'
+  start_time = datetime.datetime.now()
+  timestamp = start_time.strftime('%Y-%m-%d-%H%M%S')
+  output_dir = f'{output_dir}_{timestamp}'
 
   tf.io.gfile.makedirs(output_dir)
   example_id_to_bias_table = None
