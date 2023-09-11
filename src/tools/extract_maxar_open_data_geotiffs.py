@@ -2,7 +2,7 @@
 
 import json
 import shutil
-from typing import Sequence
+from typing import Iterator, Sequence
 import urllib.parse
 
 from absl import app
@@ -21,7 +21,7 @@ flags.DEFINE_bool(
 )
 
 
-def get_download_urls(url: str):
+def get_download_urls(url: str) -> Iterator[str]:
   page_html = requests.get(url).text
   bs = BeautifulSoup(page_html, features='html.parser')
   rows = json.loads(bs.find_all('maxar-table')[0][':rows'])
@@ -49,7 +49,7 @@ def download_images(urls: Sequence[str], output_dir: str) -> None:
 
 
 def main(_) -> None:
-  urls = get_download_urls(FLAGS.event_url)
+  urls = list(get_download_urls(FLAGS.event_url))
   if FLAGS.print_urls:
     for url in urls:
       print(url)
