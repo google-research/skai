@@ -15,7 +15,18 @@ def merge_subgroup_labels(
     table: pd.DataFrame,
     batch_size: int,
 ):
-  """Merge table with subroup labels from ds."""
+  """Merge table with subgroup labels from the dataset.
+
+    Args:
+        ds (tf.data.Dataset): The dataset containing subgroup labels.
+        table (pd.DataFrame): The table to merge with subgroup labels.
+        batch_size (int): Batch size for processing the dataset.
+
+    Returns:
+        pd.DataFrame: The merged table with subgroup labels.
+
+    """
+
   ids = np.concatenate(list(
       ds.map(lambda example: example['example_id']).batch(
           batch_size).as_numpy_iterator())).tolist()
@@ -34,7 +45,16 @@ def merge_subgroup_labels(
 
 
 def _process_table(table: pd.DataFrame, prediction: bool):
-  """Modify table to have cleaned up example ids and predictions."""
+  """Modify the table to have cleaned up example IDs and predictions.
+
+    Args:
+        table (pd.DataFrame): The table to process.
+        prediction (bool): Whether to process predictions.
+
+    Returns:
+        pd.DataFrame: The processed table.
+
+    """
   table['example_id'] = table['example_id'].map(
       lambda x: eval(x).decode('UTF-8'))  #  pylint:disable=eval-used
   if prediction:
@@ -52,7 +72,21 @@ def evaluate_active_sampling(
     batch_size: int,
     num_subgroups: int,
     ) -> pd.DataFrame:
-  """Evaluates model for subgroup representation vs number of rounds."""
+  """Evaluates model for subgroup representation vs number of rounds.
+
+    Args:
+        num_rounds (int): The number of evaluation rounds.
+        output_dir (str): The directory where the evaluation results are stored.
+        dataloader (data.Dataloader): The DataLoader instance containing the dataset.
+        batch_size (int): Batch size for processing the dataset.
+        num_subgroups (int): The number of subgroups in the dataset.
+
+    Returns:
+        pd.DataFrame: A DataFrame containing the evaluation results, including the
+            number of samples, probability representation, round index, and subgroup IDs.
+
+    """
+
   round_idx = []
   subgroup_ids = []
   num_samples = []
@@ -84,7 +118,19 @@ def evaluate_model(
     dataloader: data.Dataloader,
     batch_size: int,
     ) -> Mapping[str, pd.DataFrame]:
-  """Evaluates model for subgroup representation vs number of rounds."""
+  """Evaluates the model for subgroup representation versus number of rounds.
+
+    Args:
+        round_idx (int): The current round index.
+        output_dir (str): The output directory where evaluation files are stored.
+        dataloader (data.Dataloader): The data loader containing datasets.
+        batch_size (int): Batch size for processing the datasets.
+
+    Returns:
+        Mapping[str, pd.DataFrame]: A mapping of dataset names to dataframes
+        containing merged subgroup labels and predictions.
+
+    """
   bias_table = pd.read_csv(
       os.path.join(
           os.path.join(output_dir, f'round_{round_idx}'), 'bias_table.csv'))

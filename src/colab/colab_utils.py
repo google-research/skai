@@ -43,7 +43,24 @@ def launch_pexpect_process(script,
                            dir_args,
                            use_pexpect,
                            sleep=None):
-  """Build and run the shell command."""
+  """Build and run the shell command.
+
+    Args:
+        script (str or list): The name of the script(s) to execute or a list of script names.
+        arguments (list): A list of dictionaries containing script arguments.
+        dir_args (dict): A dictionary containing directory-related arguments.
+        use_pexpect (bool): A flag indicating whether to use pexpect for process execution.
+        sleep (list or None): A list of sleep durations between script executions (in seconds).
+
+    Returns:
+        pexpect.spawn or int: A pexpect.spawn object if use_pexpect is True, otherwise the
+        return code of the subprocess call.
+
+    Note:
+        - If script is a single string, it will be converted to a list with one element.
+        - If sleep is None and there are multiple scripts, sleep durations will default to 0.
+        - The function constructs and runs a shell command based on the provided inputs.
+    """
   if not isinstance(script, list):
     script = [script]
     arguments = [arguments]
@@ -87,7 +104,22 @@ def launch_pexpect_process(script,
 
 
 def make_gcp_http_request(url):
-  """Run GET GCP API request using url provided."""
+  """Run GET GCP API request using the provided URL.
+
+    Args:
+        url (str): The URL for the GCP API request.
+
+    Returns:
+        dict: The JSON response from the GCP API.
+
+    Raises:
+        requests.HTTPError: If the HTTP request to the GCP API fails.
+
+    Note:
+        - This function runs a GET request to the GCP API using the provided URL.
+        - It includes the necessary authorization header.
+        - It raises an HTTPError if the response status is not OK.
+    """
   token = subprocess.check_output(
       'gcloud auth print-access-token'.split()).decode().rstrip('.\r\n')
   response = requests.get(
@@ -98,7 +130,15 @@ def make_gcp_http_request(url):
 
 
 def bucket_exists(project, bucket_name):
-  """Check if bucket is alredy existing."""
+  """Check if a bucket already exists.
+
+    Args:
+        project (str): The name of the Google Cloud project.
+        bucket_name (str): The name of the bucket to check.
+
+    Returns:
+        bool: True if the bucket exists in the project, False otherwise.
+    """
   url = f'https://storage.googleapis.com/storage/v1/b?project={project}'
   data = make_gcp_http_request(url)
   buckets = [
@@ -108,13 +148,26 @@ def bucket_exists(project, bucket_name):
 
 
 def create_bucket(project, location, bucket_name):
-  """Create bucket in given project."""
+  """Create a bucket in the given project.
+
+    Args:
+        project (str): The name of the Google Cloud project.
+        location (str): The location for the new bucket.
+        bucket_name (str): The name of the new bucket.
+    """
   os.system(
       f"""gsutil mb -p {project} -l {location} -b on gs://{bucket_name}""")
 
 
 def get_project_id(project):
-  """Return the project id for given project name."""
+  """Return the project ID for the given project name.
+
+    Args:
+        project (str): The name of the Google Cloud project.
+
+    Returns:
+        int: The project ID.
+    """
   url = 'https://cloudresourcemanager.googleapis.com/v1/projects/{}'.format(
       project)
   data = make_gcp_http_request(url)
@@ -122,7 +175,13 @@ def get_project_id(project):
 
 
 def create_folium_map_with_images(pathgcp_before, pathgcp_after):
-  """Display images before and after if there are all TIFF files."""
+  """Display images before and after if they are all TIFF files.
+
+    Args:
+        pathgcp_before (str): Comma-separated paths to the "before" images.
+        pathgcp_after (str): Comma-separated paths to the "after" images.
+    """
+
   # Load before image and get latitude/longitude of map center.
   # TODO(jzxu): Clean up this code and merge with function "create_folium_map".
   no_cog_file = ''
@@ -182,8 +241,33 @@ def create_folium_map_with_images(pathgcp_before, pathgcp_after):
 
 class DataflowMetricFetcher:
   """Read and parse log of generate_examples_main.py command to track progress
-     of examples processed.
-  """
+       of examples processed.
+
+    This class provides functionality to fetch and analyze Dataflow job metrics.
+
+    Args:
+        project_id (str): The Google Cloud project ID.
+        job_name (str): The name of the Dataflow job.
+        metric_name (str): The name of the metric to track.
+
+    Attributes:
+        _client (monitoring_v3.MetricServiceClient): The MetricServiceClient instance.
+        _project_id (str): The Google Cloud project ID.
+        _job_name (str): The name of the Dataflow job.
+        _metric_name (str): The name of the metric to track.
+        _filter (str): The filter string used to query metrics.
+
+    Methods:
+        make_filter(): Generate the filter string for querying metrics.
+        get_latest_value(): Retrieve the latest metric value.
+
+    Example:
+        fetcher = DataflowMetricFetcher('my-project', 'my-job', 'example_count')
+        end_time, value = fetcher.get_latest_value()
+        if end_time is not None and value is not None:
+            print(f"Latest {fetcher._metric_name} at {end_time}: {value}")
+
+    """
 
   def __init__(self, project_id: str, job_name: str, metric_name: str):
     self._client = monitoring_v3.MetricServiceClient()
@@ -193,6 +277,11 @@ class DataflowMetricFetcher:
     self._filter = self.make_filter()
 
   def make_filter(self):
+    """Generate the filter string for querying Dataflow job metrics.
+
+        Returns:
+            str: The filter string for querying metrics.
+        """
     conditions = [
         'resource.type = "dataflow_job"',
         f'resource.labels.project_id = "{self._project_id}"',
@@ -203,6 +292,12 @@ class DataflowMetricFetcher:
     return '({})'.format(' AND '.join(conditions))
 
   def get_latest_value(self):
+    """Retrieve the latest metric value for the Dataflow job.
+
+        Returns:
+            tuple: A tuple containing the latest timestamp (end_time) and the metric value.
+                If no data is available, (None, None) is returned.
+        """
     end_seconds = int(time.time())
     start_seconds = 1
     interval = monitoring_v3.TimeInterval({
@@ -230,8 +325,27 @@ class DataflowMetricFetcher:
 
 class ProgressBar:
   """Configuration of the progress bar for generate_examples_main.py command
-     with progress tracking of examples processed.
-  """
+       with progress tracking of examples processed.
+
+    This class provides a progress bar and formatted display for tracking job progress.
+
+    Args:
+        metrics (dict): A dictionary containing progress metrics.
+        job_type (str, optional): The type of job to display progress for.
+        display_message (str, optional): A custom display message.
+
+    Methods:
+        format_example_metrics(args): Format metrics for example progress.
+        format_training_metrics(args): Format metrics for training progress.
+        get_html(metrics, display_message=None): Generate HTML for the progress bar.
+        update(metrics, display_message=None): Update the progress bar display.
+
+    Example:
+        metrics = {'value': 50, 'max': 100}
+        progress_bar = ProgressBar(metrics, job_type='example_progress')
+        progress_bar.update(metrics)
+
+    """
 
   def __init__(self, metrics, job_type=None, display_message=None):
     self._job_type = job_type
@@ -239,9 +353,25 @@ class ProgressBar:
         self.get_html(metrics, display_message), display_id=True)
 
   def format_example_metrics(self, args):
+    """Format metrics for example progress.
+
+        Args:
+            args (dict): A dictionary containing progress metrics.
+
+        Returns:
+            str: Formatted progress metrics for examples.
+        """
     return 'Num generated examples: {value}/{max}'.format(**args)
 
   def format_training_metrics(self, args):
+    """Format metrics for training progress.
+
+        Args:
+            args (dict): A dictionary containing progress metrics.
+
+        Returns:
+            str: Formatted progress metrics for training.
+        """
     return '''Metrics (updated as training progresses {timestamp}):<br>
     Labeled Training Set, Epoch {train_epoch}<br>
     Accuracy: {train_label_acc}% | AUC: {train_label_auc}<br>
@@ -249,6 +379,15 @@ class ProgressBar:
     Accuracy: {test_acc}% | AUC: {test_auc}'''.format(**args)
 
   def get_html(self, metrics, display_message=None):
+    """Generate HTML for the progress bar.
+
+        Args:
+            metrics (dict): A dictionary containing progress metrics.
+            display_message (str, optional): A custom display message.
+
+        Returns:
+            HTML: An HTML element representing the progress bar and message.
+        """
     style = f'''<progress value="{metrics["value"]}" max="{metrics["max"]}"
     style="width: 100%">{metrics["value"]}</progress>'''
 
@@ -265,11 +404,24 @@ class ProgressBar:
     return HTML(formated_message + style)
 
   def update(self, metrics, display_message=None):
+    """Update the progress bar display.
+
+        Args:
+            metrics (dict): A dictionary containing progress metrics.
+            display_message (str, optional): A custom display message.
+        """
     self._display.update(self.get_html(metrics, display_message))
 
 
 def parse_dataflow_job_creation_params(param_str: str):
-  """Parse dataflow job log to build dictionnary with job parameters."""
+  """Parse dataflow job log to build a dictionary with job parameters.
+
+    Args:
+        param_str (str): The parameter string from the dataflow job log.
+
+    Returns:
+        dict: A dictionary containing job parameters.
+    """
   params_dict = {}
   lines = [line.strip() for line in param_str.split('\r\n')]
   for line in lines:
@@ -283,7 +435,14 @@ def parse_dataflow_job_creation_params(param_str: str):
 
 
 def count_tfrecord(path):
-  """Count number of examples contains in tfrecord file."""
+  """Count the number of examples contained in a TFRecord file.
+
+    Args:
+        path (str): The path to the TFRecord file.
+
+    Returns:
+        int: The total number of examples in the TFRecord file.
+    """
   total_example_num = len(list(tf.data.TFRecordDataset(path)))
   return total_example_num
 
@@ -291,11 +450,24 @@ def count_tfrecord(path):
 def run_example_generation(generate_examples_args,
                            path_dir_args,
                            pretty_output=True):
-  """Run generate_examples_main.py command.
+  """Run the generate_examples_main.py command.
 
-  If pretty_output is True, run the command with display of the progress bar.
-  Otherwise, run the command with standard generated stdout output.
-  """
+    If pretty_output is True, run the command with the display of the progress bar.
+    Otherwise, run the command with standard generated stdout output.
+
+    Args:
+        generate_examples_args (dict): A dictionary containing arguments for the command.
+        path_dir_args (dict): A dictionary containing directory-related arguments.
+        pretty_output (bool, optional): Whether to display a progress bar (default is True).
+
+    Raises:
+        Exception: If the job terminates unexpectedly.
+
+    Example:
+        generate_args = {'output_dir': 'output', ...}
+        path_dir_args = {'python_env': 'env', ...}
+        run_example_generation(generate_args, path_dir_args)
+    """
   if not pretty_output:
     launch_pexpect_process(
         'generate_examples_main.py',
@@ -386,7 +558,42 @@ def run_example_generation(generate_examples_args,
 
 
 class LabelingJob:
-  """Class for querying information on labeling task and dataset."""
+  """Class for querying information on a labeling task and dataset.
+
+    This class provides methods to query information about a labeling job, including
+    completion percentage, data items, labels, and URLs for workers and managers.
+
+    Args:
+        endpoint (str): The endpoint for the labeling job.
+        project (str): The Google Cloud project ID.
+        location (str): The location of the labeling job.
+        labeling_job (str): The ID of the labeling job.
+
+    Attributes:
+        _endpoint (str): The endpoint for the labeling job.
+        _project (str): The Google Cloud project ID.
+        _location (str): The location of the labeling job.
+        _labeling_job (str): The ID of the labeling job.
+        _access_token (str): The access token for authorization.
+        _dataset (str): The dataset associated with the labeling job.
+        _pool_id (str): The ID of the specialist pool.
+
+    Methods:
+        get_access_token(): Retrieve the access token for authorization.
+        get_header(): Generate the header for API requests.
+        get_info(): Get information about the labeling job.
+        get_completion_percentage(): Get the completion percentage of labeled data items.
+        get_data_items(): Get a list of data items in the dataset.
+        get_labels(data_item_name): Get labels associated with a data item.
+        get_worker_url(): Get the URL for workers to access the labeling interface.
+        get_manager_url(): Get the URL for managers to access the task management interface.
+
+    Example:
+        labeling_job = LabelingJob('endpoint', 'my-project', 'us-central1', 'job-12345')
+        completion_percentage = labeling_job.get_completion_percentage()
+        data_items = labeling_job.get_data_items()
+        worker_url = labeling_job.get_worker_url()
+    """
 
   def __init__(self, endpoint, project, location, labeling_job):
     self._endpoint = endpoint
@@ -406,21 +613,31 @@ class LabelingJob:
     self._pool_id = parts[5]
 
   def get_access_token(self):
+    """Retrieve the access token for authorization.
+
+        Returns:
+            str: The access token.
+        """
     return subprocess.check_output(
         'gcloud auth print-access-token'.split()).decode().rstrip('.\r\n')
 
   def get_header(self):
+    """Generate the header for API requests.
+
+        Returns:
+            dict: The header with authorization and content-type.
+        """
     return {
         'Authorization': f'Bearer {self._access_token}',
         'Content-Type': 'application/json',
     }
 
   def get_info(self):
-    """Return the percentage of data items labeled.
+    """Get information about the labeling job.
 
-    Warning: There is a long lag between when items are labeled and when this
-    value is updated.
-    """
+        Returns:
+            dict: Information about the labeling job.
+        """
     parent = (f'projects/{self._project}/locations/{self._location}/'
               f'dataLabelingJobs/{self._labeling_job}')
     url = f'https://{self._endpoint}/v1/{parent}'
@@ -440,6 +657,11 @@ class LabelingJob:
     return info.get('labelingProgress', 0)
 
   def get_data_items(self):
+    """Get a list of data items in the dataset.
+
+        Returns:
+            list: A list of data items.
+        """
     parent = (f'projects/{self._project}/locations/{self._location}/datasets/'
               f'{self._dataset}/dataItems')
     url = f'https://{self._endpoint}/v1/{parent}'
@@ -463,6 +685,14 @@ class LabelingJob:
     return items
 
   def get_labels(self, data_item_name):
+    """Get labels associated with a data item.
+
+        Args:
+            data_item_name (str): The name of the data item.
+
+        Returns:
+            list: A list of labels.
+        """
     url = f'https://{self._endpoint}/v1/{data_item_name}/annotations'
     header = self.get_header()
     response = requests.get(url, headers=header)
@@ -499,14 +729,30 @@ class LabelingJob:
 def run_labeling_task_creation(create_label_task_args,
                                path_dir_args,
                                pretty_output=True):
-  """Run create_cloud_labeling_task.py command.
+  """Run the create_cloud_labeling_task.py command.
 
-  If pretty_output is True, run the command a reduced stdout output and return
-  of processed information about task and dataset created
-  (dataset_id, dataset_name, labelingjob_id, labelingjob_instruction).
-  Otherwise, run the command with standard generated stdout output and return
-  None.
-  """
+    If pretty_output is True, run the command with a reduced stdout output and return
+    processed information about the task and dataset created (dataset_id, dataset_name,
+    labelingjob_id, labelingjob_instruction).
+    Otherwise, run the command with standard generated stdout output and return None.
+
+    Args:
+        create_label_task_args (dict): A dictionary containing arguments for the command.
+        path_dir_args (dict): A dictionary containing directory-related arguments.
+        pretty_output (bool, optional): Whether to display a reduced output (default is True).
+
+    Returns:
+        tuple or None: A tuple containing dataset_id, dataset_name, labelingjob_id,
+        and labelingjob_instruction if pretty_output is True, otherwise None.
+
+    Raises:
+        Exception: If the job terminates unexpectedly or times out.
+
+    Example:
+        create_task_args = {'dataset_name': 'my-dataset', ...}
+        path_dir_args = {'python_env': 'env', ...}
+        result = run_labeling_task_creation(create_task_args, path_dir_args)
+    """
   if not pretty_output:
     launch_pexpect_process('create_cloud_labeling_task.py',
                            create_label_task_args, path_dir_args, False)
@@ -594,7 +840,17 @@ def run_labeling_task_creation(create_label_task_args,
 
 
 def create_labeled_dataset(create_labeled_dataset_args, path_dir_args):
-  """Run create_labeled_dataset.py command."""
+  """Run the create_labeled_dataset.py command.
+
+    Args:
+        create_labeled_dataset_args (dict): A dictionary containing arguments for the command.
+        path_dir_args (dict): A dictionary containing directory-related arguments.
+
+    Example:
+        create_dataset_args = {'cloud_dataset_id': 123, ...}
+        path_dir_args = {'python_env': 'env', ...}
+        create_labeled_dataset(create_dataset_args, path_dir_args)
+    """
   child = launch_pexpect_process('create_labeled_dataset.py',
                                  create_labeled_dataset_args, path_dir_args,
                                  True)
@@ -611,7 +867,20 @@ def create_labeled_dataset(create_labeled_dataset_args, path_dir_args):
 
 
 def concat_caption_pilimage(image_before, image_after):
-  """Concatenate the before and after images for visualisation."""
+  """Concatenate the before and after images for visualization.
+
+    Args:
+        image_before (PIL.Image): The before image.
+        image_after (PIL.Image): The after image.
+
+    Returns:
+        PIL.Image: The concatenated image.
+
+    Example:
+        img_before = Image.open('before.jpg')
+        img_after = Image.open('after.jpg')
+        concatenated_img = concat_caption_pilimage(img_before, img_after)
+    """
   img_before = caption_pilformat(image_before, 'before')
   img_after = caption_pilformat(image_after, 'after')
 
@@ -625,7 +894,19 @@ def concat_caption_pilimage(image_before, image_after):
 
 
 def caption_pilformat(img_data, caption):
-  """Create the caption text on the images."""
+  """Create a caption text on the images.
+
+    Args:
+        img_data (bytes): The image data in bytes.
+        caption (str): The caption text.
+
+    Returns:
+        PIL.Image.Image: The image with the caption.
+
+    Example:
+        img_data = open('image.jpg', 'rb').read()
+        captioned_img = caption_pilformat(img_data, 'Sample Caption')
+    """
   base64_encoded = base64.b64encode(img_data)
   im_bytes = base64.b64decode(base64_encoded)
   byte_encoded = io.BytesIO(im_bytes)
@@ -645,7 +926,18 @@ def caption_pilformat(img_data, caption):
 
 
 def visualize_labeled_examples(path, max_examples=None):
-  """Visualise the example labeled by the operators using ipyplot package."""
+  """Visualize labeled examples using the ipyplot package.
+
+    Args:
+        path (str): The path to the TFRecord file containing labeled examples.
+        max_examples (int, optional): The maximum number of examples to visualize (default is None).
+
+    Returns:
+        int: The total number of examples in the TFRecord file.
+
+    Example:
+        total_examples = visualize_labeled_examples('examples.tfrecord', max_examples=10)
+    """
   pre_images = []
   post_images = []
   labels = []
@@ -692,6 +984,18 @@ def visualize_labeled_examples(path, max_examples=None):
 
 
 def timestamp_to_datetime(timestamp):
+  """Convert a timestamp to a datetime object.
+
+    Args:
+        timestamp (str): The timestamp in string format.
+
+    Returns:
+        pandas.Timestamp: The corresponding datetime object.
+
+    Example:
+        timestamp = '2023-09-13T14:30:00'
+        datetime_obj = timestamp_to_datetime(timestamp)
+    """
   return pd.to_datetime(timestamp)
 
 
@@ -702,12 +1006,28 @@ def run_train_and_eval_job(run_train_eval_args,
                            pretty_output=True,
                            load_tensorboard=False,
                            path_log_tensorboard=None):
-  """Run the shell launch_vertex_job.py command for training and evaluation job.
-
-  If load_tensorboard=True and path_log_tensorboard is provided,
-  tensorboard is display to track the progress of the training job and
-  performance metrics.
   """
+    Run the shell launch_vertex_job.py command for a training and evaluation job.
+
+    If load_tensorboard=True and path_log_tensorboard is provided,
+    tensorboard is display to track the progress of the training job and
+    performance metrics.
+
+    Args:
+        run_train_eval_args (list): A list containing two dictionaries representing the training and evaluation jobs.
+        path_dir_args (str): The path to the directory containing job configuration files.
+        email_manager (str): The email address of the job manager.
+        sleep (int, optional): The sleep interval in seconds (default is None).
+        pretty_output (bool, optional): Whether to display a progress bar and metrics (default is True).
+        load_tensorboard (bool, optional): Whether to load TensorBoard for tracking training progress (default is False).
+        path_log_tensorboard (str, optional): The path to the TensorBoard log directory (default is None).
+
+    Returns:
+        None
+
+    Example:
+        run_train_and_eval_job(run_train_eval_args, path_dir_args, 'manager@example.com')
+    """
 
   if not pretty_output:
     launch_pexpect_process(['launch_vertex_job.py', 'launch_vertex_job.py'],
@@ -937,6 +1257,18 @@ def run_train_and_eval_job(run_train_eval_args,
 
 
 def _download_eval_job_log(eval_job_id):
+  """
+    Download the logs for a given evaluation job ID.
+
+    Args:
+        eval_job_id (str): The evaluation job ID.
+
+    Returns:
+        list or None: A list of log data in JSON format if successful, None if unsuccessful.
+
+    Example:
+        log_data = _download_eval_job_log('evaluation-job-id')
+    """
   with tempfile.NamedTemporaryFile() as output:
     log_filter = (
         f'"resource.labels.job_id={eval_job_id} severity=ERROR \\"Epoch\\""')
@@ -947,7 +1279,20 @@ def _download_eval_job_log(eval_job_id):
 
 
 def get_train_eval_job_id(project, location, job_name):
-  """Return the job id of the train or evaluation job name."""
+  """
+    Get the job ID of a training or evaluation job by name.
+
+    Args:
+        project (str): The GCP project ID.
+        location (str): The GCP location.
+        job_name (str): The name of the job.
+
+    Returns:
+        int: The job ID.
+
+    Example:
+        job_id = get_train_eval_job_id('my-project', 'us-central1', 'my-job-name')
+    """
   url = 'https://{}-aiplatform.googleapis.com/v1/projects/{}/locations/{}/customJobs'.format(
       location, project, location)
   data = make_gcp_http_request(url)
@@ -958,7 +1303,21 @@ def get_train_eval_job_id(project, location, job_name):
 
 def get_epoch_number(path_experiment, id_eval_job, checkpoint_selection,
                      checkpoint_index):
-  """Return the epoch number of choosen method or a specific checkpoint."""
+  """
+    Return the epoch number of choosen method or a specific checkpoint.
+
+    Args:
+        path_experiment (str): The path to the experiment.
+        id_eval_job (str): The evaluation job ID.
+        checkpoint_selection (str): The method for selecting the checkpoint ('most_recent', 'top_auc_test', 'top_acc_test', 'index_number').
+        checkpoint_index (int): The index number of the checkpoint (used when 'checkpoint_selection' is 'index_number').
+
+    Returns:
+        str: The selected epoch number.
+
+    Example:
+        epoch_num = get_epoch_number('gs://experiment-path', 'evaluation-job-id', 'most_recent', None)
+    """
   if checkpoint_selection == 'most_recent':
     most_recent_epoch_file = os.path.join(f'gs://{path_experiment}',
                                           'checkpoints', 'last_processed_epoch')
@@ -1039,7 +1398,22 @@ def run_inference_and_prediction_job(run_infer_args,
                                      path_dir_args,
                                      epoch,
                                      pretty_output=True):
-  """Run the shell launch_vertex_job.py command for inference job."""
+  """
+    Run a shell command launch_vertex_job.py command for launching an 
+    inference job and monitor its progress.
+
+    Args:
+        run_infer_args (dict): A dictionary containing the arguments for the inference job.
+        path_dir_args (dict): A dictionary containing the path and directory arguments.
+        epoch (str): The epoch number used for inference.
+        pretty_output (bool, optional): If True, display progress using a progress bar. Default is True.
+
+    Returns:
+        None
+
+    Example:
+        run_inference_and_prediction_job(infer_args, dir_args, '00000001', pretty_output=True)
+    """
 
   if not pretty_output:
     launch_pexpect_process(
@@ -1113,12 +1487,29 @@ def run_inference_and_prediction_job(run_infer_args,
 
 
 def create_folium_map(geojson_path, pathgcp_before, pathgcp_after):
-  """Creates an interactive Folium map.
-
-  Displays images before and after if they are all TIFF files, an predictions on
-  two layers: one per building with circle marker, and one as a heat map of
-  damaged building.
   """
+    Create an interactive Folium map for visualizing predictions and images.
+
+    This function creates an interactive map using the Folium library to visualize predictions,
+    satellite images, and provides options to overlay before and after images. Displays images 
+    before and after if they are all TIFF files, an predictions on two layers: one per building 
+    with circle marker, and one as a heat map of damaged building.
+
+    Args:
+        geojson_path (str): The path to a GeoJSON file containing prediction data.
+        pathgcp_before (str): A comma-separated string of GCP URIs to "before" satellite images.
+        pathgcp_after (str): A comma-separated string of GCP URIs to "after" satellite images.
+
+    Returns:
+        None
+
+    Example:
+        create_folium_map(
+            'predictions.geojson',
+            'gs://bucket/before_image1.tif,gs://bucket/before_image2.tif',
+            'gs://bucket/after_image1.tif,gs://bucket/after_image2.tif'
+        )
+    """
   basemaps = {
       'Google Maps':
           folium.TileLayer(

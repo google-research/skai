@@ -10,7 +10,7 @@ and the label is specific to the main task.
 import collections
 import dataclasses
 import os
-from typing import Any, Iterator
+from typing import Any, Iterator, 
 import uuid
 
 import numpy as np
@@ -39,8 +39,15 @@ CROP_PADDING = 32
 
 
 def register_dataset(name: str):
-  """Provides decorator to register functions that return dataset."""
+  """
+  Provides a decorator to register functions that return a dataset.
 
+  Args:
+    name: The name of the dataset.
+
+  Returns:
+    A decorator that takes a function that returns a dataset and registers it with the given name.
+  """
   def save(dataset_builder):
     DATASET_REGISTRY[name] = dataset_builder
     return dataset_builder
@@ -49,7 +56,18 @@ def register_dataset(name: str):
 
 
 def get_dataset(name: str):
-  """Retrieves dataset based on name."""
+  """
+  Retrieves a dataset by name.
+
+  Args:
+    name: The name of the dataset.
+
+  Returns:
+    The dataset with the given name.
+
+  Raises:
+    ValueError: If the dataset with the given name does not exist.
+  """
   if name not in DATASET_REGISTRY:
     raise ValueError(
         f'Unknown dataset: {name}\nPossible choices: {DATASET_REGISTRY.keys()}')
@@ -58,6 +76,20 @@ def get_dataset(name: str):
 
 @dataclasses.dataclass
 class Dataloader:
+  """
+  A dataloader class that loads and prepares data for training and evaluation.
+
+  Attributes:
+    num_subgroups: The number of subgroups in the data.
+    subgroup_sizes: A dictionary mapping subgroup labels to the number of examples in each subgroup.
+    train_splits: A list of `tf.data.Dataset` objects for the training splits.
+    val_splits: A list of `tf.data.Dataset` objects for the validation splits.
+    train_ds: A `tf.data.Dataset` object that combines all the training splits.
+    eval_ds: A dictionary mapping split names to `tf.data.Dataset` objects for the evaluation splits.
+    num_train_examples: The number of training examples.
+    worst_group_label: The label of the worst subgroup.
+    train_sample_ds: A subsample of the training set.
+  """
   num_subgroups: int  # Number of subgroups in data.
   subgroup_sizes: dict[str, int]  # Number of examples by subgroup.
   train_splits: tf.data.Dataset  # Result of tfds.load with 'split' arg.
@@ -70,7 +102,14 @@ class Dataloader:
 
 
 def get_subgroup_sizes(dataloader: tf.data.Dataset) -> dict[str, int]:
-  """Gets the number examples of each subgroup."""
+  """Gets the number of examples for each subgroup.
+
+    Args:
+        dataloader (tf.data.Dataset): A TensorFlow dataset containing subgrouped data.
+
+    Returns:
+        Dict[str, int]: A dictionary where keys are subgroup labels (as strings) and values are the number of examples in each subgroup.
+    """
   subgroup_sizes = dict(
       collections.Counter(
           dataloader.map(lambda x: x['subgroup_label']).as_numpy_iterator()
@@ -85,18 +124,20 @@ def upsample_subgroup(
     signal: str = 'subgroup_label',
     subgroup_sizes: dict[str, int] | None = None,
 ) -> tf.data.Dataset:
-  """Creates dataset that has upsampled subgroup.
+  """
+  Upsamples the given dataset by repeating examples from the underrepresented subgroup.
 
   Args:
-    dataset: Dataset to be transformed.
-    lambda_value: Number of times each example of the underrepresented group
-      should be repeated in dataset.
-    signal: String for the value that determines whether or not an example
-      belongs to an underrepresented group.
-    subgroup_sizes: Dictionary mapping subgroup index to size.
+    dataset: The dataset to be upsampled.
+    lambda_value: The number of times each example from the underrepresented subgroup
+      should be repeated.
+    signal: The name of the feature that determines whether an example belongs to
+      the underrepresented subgroup.
+    subgroup_sizes: A dictionary mapping subgroup labels to their sizes. This is
+      only needed if `signal` is `subgroup_label`.
 
   Returns:
-    Transformed dataset.
+    The upsampled dataset.
   """
   if signal != 'subgroup_label':
     raise ValueError(
@@ -115,7 +156,17 @@ def upsample_subgroup(
   for subgroup_label in subgroup_sizes.keys():
 
     def filter_subgroup(x, label=subgroup_label):
-      return tf.math.equal(
+          """
+          Filters the given dataset by the given subgroup label.
+
+          Args:
+            x: A dictionary of features.
+            label: The subgroup label to filter by.
+
+          Returns:
+            A boolean tensor that indicates whether the example should be included in the filtered dataset.
+          """
+          return tf.math.equal(
           x['subgroup_label'], tf.strings.to_number(label, tf.int64)
       )
 
@@ -144,7 +195,15 @@ def upsample_subgroup(
 
 
 def apply_batch(dataloader, batch_size):
-  """Apply batching to dataloader."""
+  """Apply batching to a dataloader.
+
+    Args:
+        dataloader (Dataloader): The Dataloader to which batching should be applied.
+        batch_size (int): The batch size to use for batching.
+
+    Returns:
+        Dataloader: The updated Dataloader with batched datasets.
+    """
   dataloader.train_splits = [
       data.batch(batch_size) for data in dataloader.train_splits
   ]
@@ -166,7 +225,15 @@ def apply_batch(dataloader, batch_size):
 def gather_data_splits(
     slice_idx: list[int],
     dataset: tf.data.Dataset | list[tf.data.Dataset]) -> tf.data.Dataset:
-  """Gathers slices of a split dataset based on passed indices."""
+  """Gathers slices of a split dataset based on passed indices.
+
+    Args:
+        slice_idx (List[int]): List of indices to select slices from the dataset.
+        dataset (Union[tf.data.Dataset, List[tf.data.Dataset]]): The dataset or list of datasets to slice.
+
+    Returns:
+        tf.data.Dataset: The sliced dataset containing concatenated slices.
+    """
   data_slice = dataset[slice_idx[0]]
   for idx in slice_idx[1:]:
     data_slice = data_slice.concatenate(dataset[idx])
@@ -174,7 +241,14 @@ def gather_data_splits(
 
 
 def get_ids_from_dataset(dataset: tf.data.Dataset) -> list[str]:
-  """Gets example ids from dataset."""
+  """Gets example ids from a dataset.
+
+    Args:
+        dataset (tf.data.Dataset): The dataset from which to extract example ids.
+
+    Returns:
+        List[str]: A list of example ids as strings.
+    """
   ids_list = list(dataset.map(lambda x: x['example_id']).as_numpy_iterator())
   if isinstance(ids_list[0], np.ndarray):
     new_ids_list = []
@@ -192,22 +266,20 @@ def create_ids_table(dataloader: Dataloader,
                      split_num: int,
                      split_seed: int,
                      training: bool) -> tf.lookup.StaticHashTable:
-  """Creates a hash table representing ids in each each split.
+  """Creates a hash table representing ids in each split.
 
-  Args:
-    dataloader: Dataloader for the unfilterd dataset.
-    initial_sample_proportion: Proportion of larger subset to initial dataset.
-    initial_sample_seed: Seed to select the larger subset (identical for all
-      splits.)
-    split_proportion: Proportion of split to larger subset.
-    split_num: Number of split. Used to set the sampling seed for the split
-      subset.
-    split_seed: Split seed second part of the sampling seed.
-    training: Whether to create a training set or a validation set.
+    Args:
+        dataloader (Dataloader): Dataloader for the unfiltered dataset.
+        initial_sample_proportion (float): Proportion of larger subset to the initial dataset.
+        initial_sample_seed (int): Seed to select the larger subset (identical for all splits).
+        split_proportion (float): Proportion of split to the larger subset.
+        split_num (int): Number of the split. Used to set the sampling seed for the split subset.
+        split_seed (int): Split seed, the second part of the sampling seed.
+        training (bool): Whether to create a training set or a validation set.
 
-  Returns:
-    A hash table mapping ids to membership in the filtered dataset.
-  """
+    Returns:
+        tf.lookup.StaticHashTable: A hash table mapping ids to membership in the filtered dataset.
+    """
   ids = get_ids_from_dataset(dataloader.train_ds)
   initial_sample_size = int(len(ids) * initial_sample_proportion)
   np.random.seed(initial_sample_seed)
@@ -239,27 +311,25 @@ def filter_set(
     split_seed: int,
     training: bool,
 ) -> tf.data.Dataset:
-  """Filters training set to create subsets of arbitrary size.
+  """Filters a training set to create subsets of arbitrary size.
 
-  First, a set of initial_sample_proportion is selected from which the different
-  training an validation sets are sampled according to split_proportion. The
-  indiviudal splits are used to train an ensemble of models where each model is
-  trained on an equally sized training set.
+    First, a set of initial_sample_proportion is selected from which the different
+    training and validation sets are sampled according to split_proportion. The
+    individual splits are used to train an ensemble of models where each model is
+    trained on an equally sized training set.
 
-  Args:
-    dataloader: Dataloader for the unfilterd dataset.
-    initial_sample_proportion: Proportion of larger subset to initial dataset.
-    initial_sample_seed: Seed to select the larger subset (identical for all
-      splits.)
-    split_proportion: Proportion of split to larger subset.
-    split_id: Number of split. Used to set the sampling seed for the split
-      subset.
-    split_seed: Split seed second part of the sampling seed.
-    training:  Whether to create a training set or a validation set.
+    Args:
+        dataloader (Dataloader): Dataloader for the unfiltered dataset.
+        initial_sample_proportion (float): Proportion of the larger subset to the initial dataset.
+        initial_sample_seed (int): Seed to select the larger subset (identical for all splits).
+        split_proportion (float): Proportion of the split to the larger subset.
+        split_id (int): Number of the split. Used to set the sampling seed for the split subset.
+        split_seed (int): Split seed, the second part of the sampling seed.
+        training (bool): Whether to create a training set or a validation set.
 
-  Returns:
-    A filtered dataset.
-  """
+    Returns:
+        tf.data.Dataset: A filtered dataset.
+    """
   filter_table = create_ids_table(
       dataloader,
       initial_sample_proportion=initial_sample_proportion,
@@ -275,7 +345,15 @@ def filter_set(
 
 
 class WaterbirdsDataset(tfds.core.GeneratorBasedBuilder):
-  """DatasetBuilder for Waterbirds dataset."""
+  """DatasetBuilder for Waterbirds dataset.
+
+    Args:
+        subgroup_ids (list[str]): List of subgroup IDs.
+        subgroup_proportions (list[float], optional): List of subgroup proportions. Defaults to None.
+        train_dataset_size (int): Size of the training dataset. Defaults to _WATERBIRDS_TRAIN_SIZE.
+        source_data_dir (str): Directory containing the source data. Defaults to _WATERBIRDS_DATA_DIR.
+        include_train_sample (bool): Whether to include the training sample. Defaults to True.
+    """
 
   VERSION = tfds.core.Version('1.0.0')
   RELEASE_NOTES = {
@@ -301,7 +379,11 @@ class WaterbirdsDataset(tfds.core.GeneratorBasedBuilder):
       self.subgroup_proportions = [1.] * len(subgroup_ids)
 
   def _info(self) -> tfds.core.DatasetInfo:
-    """Dataset metadata (homepage, citation,...)."""
+    """Dataset metadata (homepage, citation,...).
+
+        Returns:
+            tfds.core.DatasetInfo: Metadata about the dataset.
+        """
     return tfds.core.DatasetInfo(
         builder=self,
         features=tfds.features.FeaturesDict({
@@ -326,7 +408,11 @@ class WaterbirdsDataset(tfds.core.GeneratorBasedBuilder):
     )
 
   def _decode_and_center_crop(self, image_bytes: tf.Tensor):
-    """Crops to center of image with padding then scales RESNET_IMAGE_SIZE."""
+    """Crops to center of image with padding then scales RESNET_IMAGE_SIZE.
+
+    Args:
+      image_bytes (tf.Tensor): Tensor representing an image binary of arbitrary size.
+    """
     shape = tf.io.extract_jpeg_shape(image_bytes)
     image_height = shape[0]
     image_width = shape[1]
@@ -383,7 +469,12 @@ class WaterbirdsDataset(tfds.core.GeneratorBasedBuilder):
         return tf.constant(3, dtype=tf.int32)
 
   def _dataset_parser(self, value):
-    """Parse a Waterbirds record from a serialized string Tensor."""
+    """Parse a Waterbirds record from a serialized string Tensor.
+
+    Args:
+      value: Serialized string Tensor representing a Waterbirds record.
+    """
+
     keys_to_features = {
         'image/filename/raw': tf.io.FixedLenFeature([], tf.string, ''),
         'image/class/place': tf.io.FixedLenFeature([], tf.int64, -1),
@@ -417,7 +508,14 @@ class WaterbirdsDataset(tfds.core.GeneratorBasedBuilder):
     }
 
   def _split_generators(self, dl_manager: tfds.download.DownloadManager):
-    """Download the data and define splits."""
+    """Download the data and define splits.
+
+    Args:
+      dl_manager (tfds.download.DownloadManager): Download manager.
+
+    Returns:
+      dict: Split generators for training, validation, and test.
+    """
     split_generators = {
         'train':
             self._generate_examples(
@@ -442,7 +540,12 @@ class WaterbirdsDataset(tfds.core.GeneratorBasedBuilder):
                          file_pattern: str,
                          is_training: bool = False
                         ) -> Iterator[tuple[str, dict[str, Any]]]:
-    """Generator of examples for each split."""
+    """Generator of examples for each split.
+
+    Args:
+      file_pattern (str): File pattern for the data files.
+      is_training (bool, optional): Whether the generator is for training. Defaults to False.
+    """
     dataset = tf.data.Dataset.list_files(file_pattern, shuffle=is_training)
 
     def _fetch_dataset(filename):
@@ -505,7 +608,25 @@ class WaterbirdsDataset(tfds.core.GeneratorBasedBuilder):
 
 
 class Waterbirds10kDataset(WaterbirdsDataset):
-  """DatasetBuilder for Waterbirds10K dataset."""
+  """DatasetBuilder for Waterbirds10K dataset.
+
+    This class extends the WaterbirdsDataset to create a dataset with a specific
+    correlation strength between the labels and places.
+
+    Args:
+        subgroup_ids (list[str]): List of subgroup IDs.
+        subgroup_proportions (list[float] | None, optional): List of subgroup proportions.
+            Defaults to None.
+        corr_strength (float): Correlation strength between labels and places, should be
+            one of `_WATERBIRDS10K_SUPPORTED_CORR_STRENGTH`. Defaults to 0.95.
+        train_dataset_size (int): Size of the training dataset. Defaults to _WATERBIRDS10K_TRAIN_SIZE.
+        source_data_parent_dir (str): Parent directory for the source data. Defaults to _WATERBIRDS10K_DATA_DIR.
+        include_train_sample (bool): Whether to include the training sample. Defaults to False.
+        **kwargs: Additional keyword arguments passed to the parent class.
+
+    Raises:
+        ValueError: If `corr_strength` is not supported or the required data directory does not exist.
+    """
 
   VERSION = tfds.core.Version('1.0.0')
   RELEASE_NOTES = {
@@ -547,16 +668,19 @@ class Waterbirds10kDataset(WaterbirdsDataset):
 class SkaiDatasetConfig(tfds.core.BuilderConfig):
   """Configuration for SKAI datasets.
 
-  Any of the attributes can be left blank if they don't exist.
+    Any of the attributes can be left blank if they don't exist.
 
-  Attributes:
-    name: Name of the dataset.
-    labeled_train_pattern: Pattern for labeled training examples tfrecords.
-    labeled_test_pattern: Pattern for labeled test examples tfrecords.
-    unlabeled_pattern: Pattern for unlabeled examples tfrecords.
-    use_post_disaster_only: Whether to use post-disaster imagery only rather
-      than full 6-channel stacked image input.
-  """
+    Attributes:
+        name (str): Name of the dataset.
+        labeled_train_pattern (str): Pattern for labeled training examples tfrecords.
+        labeled_test_pattern (str): Pattern for labeled test examples tfrecords.
+        unlabeled_pattern (str): Pattern for unlabeled examples tfrecords.
+        use_post_disaster_only (bool): Whether to use post-disaster imagery only rather
+            than full 6-channel stacked image input.
+        image_size (int): Size to resize the images. Defaults to RESNET_IMAGE_SIZE.
+        max_examples (int): Maximum number of examples to load. Defaults to 0.
+        load_small_images (bool): Whether to load small images. Defaults to True.
+    """
   labeled_train_pattern: str = ''
   labeled_test_pattern: str = ''
   unlabeled_pattern: str = ''
@@ -568,6 +692,15 @@ class SkaiDatasetConfig(tfds.core.BuilderConfig):
 
 def decode_and_resize_image(
     image_bytes: tf.Tensor | bytes, size: int) -> tf.Tensor:
+  """Decode and resize an image.
+
+    Args:
+        image_bytes (tf.Tensor | bytes): Image data as a tensor or bytes.
+        size (int): Size to resize the image to.
+
+    Returns:
+        tf.Tensor: Resized image tensor.
+    """
   return tf.image.resize(
       tf.io.decode_image(
           image_bytes,
@@ -606,6 +739,17 @@ class SkaiDataset(tfds.core.GeneratorBasedBuilder):
                subgroup_proportions: list[float] | None = None,
                include_train_sample: bool = True,
                **kwargs):
+    """Initialize the SKAI dataset.
+
+    Args:
+      subgroup_ids (list[str] | None): List of subgroup IDs.
+      subgroup_proportions (list[float] | None): List of subgroup proportions.
+      include_train_sample (bool): Whether to include the train sample.
+
+    Keyword Args:
+      **kwargs: Additional keyword arguments.
+
+    """
     super(SkaiDataset, self).__init__(**kwargs)
     self.subgroup_ids = subgroup_ids
     # Path to original TFRecords to sample data from.
@@ -619,6 +763,12 @@ class SkaiDataset(tfds.core.GeneratorBasedBuilder):
     self.include_train_sample = include_train_sample
 
   def _info(self):
+    """Dataset metadata information.
+
+    Returns:
+      tfds.core.DatasetInfo: The dataset information.
+
+    """
     # TODO(jlee24): Change label and subgroup_label to
     #   tfds.features.ClassLabel.
     num_channels = 3 if self.builder_config.use_post_disaster_only else 6
@@ -656,6 +806,16 @@ class SkaiDataset(tfds.core.GeneratorBasedBuilder):
     )
 
   def _split_generators(self, dl_manager: tfds.download.DownloadManager):
+    """Download and define dataset splits.
+
+    Args:
+      dl_manager (tfds.download.DownloadManager): Download manager.
+
+    Returns:
+      dict: Split generators.
+
+    """
+
     splits = {}
     if self.builder_config.labeled_train_pattern:
       splits['labeled_train'] = self._generate_examples(
@@ -672,6 +832,15 @@ class SkaiDataset(tfds.core.GeneratorBasedBuilder):
     return splits
 
   def _decode_record(self, record_bytes):
+    """Decode a record from TFRecords.
+
+    Args:
+      record_bytes: Bytes representing the TFRecords record.
+
+    Returns:
+      dict: Decoded record.
+
+    """
 
     example = tf.io.parse_single_example(
         record_bytes,
@@ -726,6 +895,15 @@ class SkaiDataset(tfds.core.GeneratorBasedBuilder):
     return features
 
   def _generate_examples(self, pattern: str):
+    """Generate examples from TFRecords.
+
+    Args:
+      pattern (str): Pattern for TFRecords.
+
+    Yields:
+      Tuple: Example ID and features.
+
+    """
     if not pattern:
       return
     paths = tf.io.gfile.glob(pattern)
@@ -751,23 +929,24 @@ def get_waterbirds_dataset(num_splits: int,
   """Returns datasets for training, validation, and possibly test sets.
 
   Args:
-    num_splits: Integer for number of slices of the dataset.
-    initial_sample_proportion: Float for proportion of entire training dataset
+    num_splits (int): Integer for the number of slices of the dataset.
+    initial_sample_proportion (float): Float for the proportion of the entire training dataset
       to sample initially before active sampling begins.
-    subgroup_ids: List of strings of IDs indicating subgroups.
-    subgroup_proportions: List of floats indicating proportion that each
-      subgroup should take in initial training dataset.
-    tfds_dataset_name: The name of the tfd dataset to load from.
-    include_train_sample: Whether to include the `train_sample` split.
-    data_dir: Default data directory to store the sampled waterbirds data.
-    upsampling_lambda: Number of times subgroup examples should be repeated.
-    upsampling_signal: Signal to use to determine subgroup to upsample.
+    subgroup_ids (list[str]): List of strings of IDs indicating subgroups.
+    subgroup_proportions (list[float]): List of floats indicating the proportion that each
+      subgroup should take in the initial training dataset.
+    tfds_dataset_name (str): The name of the TFDS dataset to load from.
+    include_train_sample (bool): Whether to include the `train_sample` split.
+    data_dir (str): Default data directory to store the sampled waterbirds data.
+    upsampling_lambda (int): Number of times subgroup examples should be repeated.
+    upsampling_signal (str): Signal to use to determine the subgroup to upsample.
     **additional_builder_kwargs: Additional keyword arguments to data builder.
 
   Returns:
-    A tuple containing the split training data, split validation data, the
-    combined training dataset, and a dictionary mapping evaluation dataset names
-    to their respective combined datasets.
+    Dataloader: A DataLoader instance containing the split training data, split validation data,
+      the combined training dataset, and a dictionary mapping evaluation dataset names
+      to their respective combined datasets.
+
   """
   split_size_in_pct = int(100 * initial_sample_proportion / num_splits)
   reduced_datset_sz = int(100 * initial_sample_proportion)
@@ -850,7 +1029,26 @@ def get_waterbirds10k_dataset(
     upsampling_lambda: int = 1,
     upsampling_signal: str = 'subgroup_label',
 ) -> Dataloader:
-  """Returns datasets for Waterbirds 10K."""
+  """Returns datasets for Waterbirds 10K.
+
+  Args:
+    num_splits (int): Integer for the number of slices of the dataset.
+    initial_sample_proportion (float): Float for the proportion of the entire training dataset
+      to sample initially before active sampling begins.
+    subgroup_ids (list[str]): List of strings of IDs indicating subgroups.
+    subgroup_proportions (list[float]): List of floats indicating the proportion that each
+      subgroup should take in the initial training dataset.
+    corr_strength (float): The correlation strength for the dataset.
+    data_dir (str): Default data directory to store the sampled waterbirds data.
+    upsampling_lambda (int): Number of times subgroup examples should be repeated.
+    upsampling_signal (str): Signal to use to determine the subgroup to upsample.
+
+  Returns:
+    Dataloader: A DataLoader instance containing the split training data, split validation data,
+      the combined training dataset, and a dictionary mapping evaluation dataset names
+      to their respective combined datasets.
+
+  """
   # Create unique `waterbirds10k` directory for each correlation strength.
   data_folder_name = int(corr_strength * 100)
   data_folder_name = f'waterbirds10k_corr_strength_{data_folder_name}'
@@ -878,22 +1076,23 @@ def get_celeba_dataset(
     upsampling_lambda: int = 1,
     upsampling_signal: str = 'subgroup_label',
 ) -> Dataloader:
-  """Returns datasets for training, validation, and possibly test sets.
+  """Returns datasets for CelebA.
 
   Args:
-    num_splits: Integer for number of slices of the dataset.
-    initial_sample_proportion: Float for proportion of entire training dataset
+    num_splits (int): Integer for number of slices of the dataset.
+    initial_sample_proportion (float): Float for proportion of entire training dataset
       to sample initially before active sampling begins.
-    subgroup_ids: List of strings of IDs indicating subgroups.
-    subgroup_proportions: List of floats indicating proportion that each
+    subgroup_ids (list[str]): List of strings of IDs indicating subgroups.
+    subgroup_proportions (list[float]): List of floats indicating proportion that each
       subgroup should take in initial training dataset.
-    upsampling_lambda: Number of times subgroup examples should be repeated.
-    upsampling_signal: Signal to use to determine subgroup to upsample.
+    upsampling_lambda (int): Number of times subgroup examples should be repeated.
+    upsampling_signal (str): Signal to use to determine subgroup to upsample.
 
   Returns:
     A tuple containing the split training data, split validation data, the
     combined training dataset, and a dictionary mapping evaluation dataset names
     to their respective combined datasets.
+
   """
   del subgroup_proportions, subgroup_ids
   read_config = tfds.ReadConfig()
@@ -977,29 +1176,30 @@ def get_skai_dataset(num_splits: int,
   """Returns datasets for training, validation, and possibly test sets.
 
   Args:
-    num_splits: Integer for number of slices of the dataset.
-    initial_sample_proportion: Float for proportion of entire training dataset
+    num_splits (int): Integer for the number of slices of the dataset.
+    initial_sample_proportion (float): Float for proportion of entire training dataset
       to sample initially before active sampling begins.
-    subgroup_ids: List of strings of IDs indicating subgroups.
-    subgroup_proportions: List of floats indicating proportion that each
+    subgroup_ids (list[str]): List of strings of IDs indicating subgroups.
+    subgroup_proportions (list[float]): List of floats indicating proportion that each
       subgroup should take in initial training dataset.
-    tfds_dataset_name: The name of the tfd dataset to load from.
-    data_dir: Default data directory to store the sampled data.
-    include_train_sample: Whether to include the `train_sample` split.
-    labeled_train_pattern: File pattern for labeled training data.
-    unlabeled_train_pattern: File pattern for unlabeled training data.
-    validation_pattern: File pattern for validation data.
-    use_post_disaster_only: Whether to use post-disaster imagery only rather
+    tfds_dataset_name (str): The name of the tfd dataset to load from.
+      data_dir (str): Default data directory to store the sampled data.
+    include_train_sample (bool): Whether to include the `train_sample` split.
+      labeled_train_pattern (str): File pattern for labeled training data.
+    unlabeled_train_pattern (str): File pattern for unlabeled training data.
+      validation_pattern (str): File pattern for validation data.
+    use_post_disaster_only (bool): Whether to use post-disaster imagery only rather
       than full 6-channel stacked image input.
-    upsampling_lambda: Number of times subgroup examples should be repeated.
-    upsampling_signal: Signal to use to determine subgroup to upsample.
-    load_small_images: A flag controls loading small images or not.
-    **additional_builder_kwargs: Additional keyword arguments to data builder.
+    upsampling_lambda (int): Number of times subgroup examples should be repeated.
+    upsampling_signal (str): Signal to use to determine subgroup to upsample.
+    load_small_images (bool): A flag controls loading small images or not.
+      **additional_builder_kwargs: Additional keyword arguments to data builder.
 
   Returns:
-    A tuple containing the split training data, split validation data, the
-    combined training dataset, and a dictionary mapping evaluation dataset names
-    to their respective combined datasets.
+    Dataloader: A DataLoader instance containing the split training data, split validation data,
+      the combined training dataset, and a dictionary mapping evaluation dataset names
+      to their respective combined datasets.
+
   """
 
   builder_kwargs = {

@@ -11,10 +11,23 @@ import tensorflow_datasets as tfds
 
 
 def _make_temp_dir() -> str:
+  """Create a temporary directory.
+
+    Returns:
+        str: The path to the created temporary directory.
+    """
   return tempfile.mkdtemp(dir=os.environ.get('TEST_TMPDIR'))
 
 
 def _make_serialized_image(size: int) -> bytes:
+  """Generate a serialized PNG image with random pixel values.
+
+    Args:
+        size (int): The size of the square image (width and height).
+
+    Returns:
+        bytes: The serialized PNG image.
+    """
   image = np.random.randint(0, 255, size=(size, size, 3), dtype=np.uint8)
   return tf.io.encode_png(image).numpy()
 
@@ -29,6 +42,21 @@ def _make_example(
     patch_size: int,
     large_patch_size: int,
 ) -> tf.train.Example:
+  """Create a TensorFlow Example with example data.
+
+    Args:
+        example_id (str): The unique identifier for the example.
+        longitude (float): The longitude coordinate of the example.
+        latitude (float): The latitude coordinate of the example.
+        encoded_coordinates (str): Encoded coordinates information.
+        label (float): The label associated with the example.
+        string_label (float): The string label associated with the example.
+        patch_size (int): The size of the image patches.
+        large_patch_size (int): The size of large image patches.
+
+    Returns:
+        tf.train.Example: A TensorFlow Example containing the example data.
+    """
   example = tf.train.Example()
   example.features.feature['example_id'].bytes_list.value.append(
       example_id.encode()
@@ -59,12 +87,23 @@ def _make_example(
 
 
 def _write_tfrecord(examples: List[tf.train.Example], path: str) -> None:
+  """Write a list of TensorFlow Example objects to a TFRecord file.
+
+    Args:
+        examples (List[tf.train.Example]): List of TensorFlow Example objects.
+        path (str): The path to the output TFRecord file.
+    """
   with tf.io.TFRecordWriter(path) as file_writer:
     for example in examples:
       file_writer.write(example.SerializeToString())
 
 
 def _create_test_data():
+  """Create test TFRecord files for labeled and unlabeled data.
+
+    Returns:
+        Tuple[str, str, str]: Paths to labeled train, labeled test, and unlabeled TFRecord files.
+    """
   examples_dir = _make_temp_dir()
   labeled_train_path = os.path.join(
       examples_dir, 'train_labeled_examples.tfrecord')
@@ -94,8 +133,10 @@ def _create_test_data():
 
 
 class SkaiDatasetTest(tfds.testing.DatasetBuilderTestCase):
-  """Tests for Skai dataset."""
+  """Tests for Skai dataset.
 
+    This class contains tests for the Skai dataset using TensorFlow Dataset testing framework.
+    """
   DATASET_CLASS = data.SkaiDataset
   SPLITS = {
       'labeled_train': 3,
