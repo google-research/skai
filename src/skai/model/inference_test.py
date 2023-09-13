@@ -14,10 +14,19 @@ import tensorflow as tf
 
 
 def _make_temp_dir() -> str:
+  """Creates a temporary directory."""
   return tempfile.mkdtemp(dir=os.environ.get('TEST_TMPDIR'))
 
 
 def _create_test_model(model_path: str, image_size: int):
+  """Creates a test model and saves it to the specified path.
+
+  Args:
+    model_path (str): The path where the model should be saved.
+    image_size (int): The size of input images.
+
+  This function defines a test model architecture, saves it, and stores it in the specified directory.
+  """
   small_input = tf.keras.layers.Input(
       shape=(image_size, image_size, 6), name='small_image'
   )
@@ -38,6 +47,15 @@ def _create_test_model(model_path: str, image_size: int):
 def _create_test_example(
     image_size: int, include_small_images: bool
 ) -> tf.train.Example:
+  """Creates a test example.
+
+  Args:
+    image_size (int): The size of the image.
+    include_small_images (bool): Whether to include small images (pre-disaster).
+
+  Returns:
+    tf.train.Example: A test example containing image data.
+  """
   example = tf.train.Example()
   image_bytes = tf.image.encode_png(
       np.zeros((image_size, image_size, 3), dtype=np.uint8)
@@ -52,15 +70,33 @@ def _create_test_example(
 
 
 class TestModel(inference_lib.InferenceModel):
+  """Test model for inference."""
   def __init__(self, expected_batch_size: int, score: float):
+    """
+    Initializes a TestModel.
+
+    Args:
+      expected_batch_size (int): Expected batch size for inference.
+      score (float): The score to return for predictions.
+    """
     self._expected_batch_size = expected_batch_size
     self._score = score
     self._model_prepared = False
 
   def prepare_model(self):
+    """Prepares the model for inference."""
     self._model_prepared = True
 
   def predict_scores(self, batch: list[tf.train.Example]) -> np.ndarray:
+    """
+    Predicts scores for a batch of input examples.
+
+    Args:
+      batch (list[tf.train.Example]): List of input examples.
+
+    Returns:
+      np.ndarray: Predicted scores.
+    """
     if not self._model_prepared:
       raise ValueError('Model not prepared.')
     if not isinstance(batch, list):
@@ -78,6 +114,13 @@ class TestModel(inference_lib.InferenceModel):
 class InferenceTest(absltest.TestCase):
 
   def test_run_inference(self):
+    """Test the run_inference function.
+
+    This test checks the behavior of the run_inference function by creating a test pipeline,
+    generating example data, and using a TestModel to predict scores for the examples. It
+    then verifies that the output examples have the expected scores.
+
+    """
     with test_pipeline.TestPipeline() as pipeline:
       examples = []
       for example_id in range(10):
@@ -106,6 +149,14 @@ class InferenceTest(absltest.TestCase):
       assert_that(result, _check_examples)
 
   def test_tf2_model_prediction(self):
+    """Test prediction with a TF2 model.
+
+    This test checks the prediction functionality of a TF2InferenceModel by creating a
+    TF2 model, preparing it for inference, and using it to predict scores for a batch of
+    examples. It then verifies that the output examples have the expected shape.
+
+    """
+
     model_path = os.path.join(_make_temp_dir(), 'model.keras')
     _create_test_model(model_path, 224)
     model = inference_lib.TF2InferenceModel(model_path, 224, False, [])
@@ -116,6 +167,14 @@ class InferenceTest(absltest.TestCase):
     self.assertEqual(output_examples.shape, (3,))
 
   def test_tf2_model_prediction_no_small_images(self):
+    """Test prediction with a TF2 model and no small images.
+
+    This test checks the prediction functionality of a TF2InferenceModel when provided
+    examples with no small images. It creates a TF2 model, prepares it for inference, and
+    uses it to predict scores for a batch of examples with no small images. It then verifies
+    that the output examples have the expected shape.
+
+    """
     model_path = os.path.join(_make_temp_dir(), 'model.keras')
     _create_test_model(model_path, 224)
     model = inference_lib.TF2InferenceModel(model_path, 224, False, [])

@@ -9,6 +9,7 @@ import tensorflow as tf
 class MetricsTest(tf.test.TestCase):
 
   def test_one_vs_rest_auc(self):
+    """Test the OneVsRest AUC metric."""
     auc = tf.keras.metrics.AUC()
     one_vs_rest_auc = metrics.OneVsRest(tf.keras.metrics.AUC(), 1)
 
@@ -27,6 +28,7 @@ class MetricsTest(tf.test.TestCase):
     self.assertAllClose(result, expected_result)
 
   def test_one_vs_rest_aucpr(self):
+    """Test the OneVsRest AUC-PR (Area Under the Precision-Recall Curve) metric."""
     auc = tf.keras.metrics.AUC(curve="PR")
     one_vs_rest_auc = metrics.OneVsRest(tf.keras.metrics.AUC(curve="PR"), 1)
 
