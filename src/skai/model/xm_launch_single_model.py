@@ -64,7 +64,12 @@ config_flags.DEFINE_config_file('config')
 
 
 def get_study_config() -> pyvizier.StudyConfig:
-  """Creates Vizier study_config."""
+  """
+    Creates a Vizier study configuration.
+
+    Returns:
+        pyvizier.StudyConfig: The study configuration object.
+    """
   study_config = pyvizier.StudyConfig()
   study_config.automated_stopping_config = (
       pyvizier.AutomatedStoppingConfig.decay_curve_stopping_config(
@@ -113,6 +118,16 @@ def _sweep(
     hyperparameter_name: str,
     values: Iterable[Any]
 ) -> Iterable[tuple[str, Any]]:
+  """
+    Generate hyperparameter sweep configurations.
+
+    Args:
+        hyperparameter_name (str): The name of the hyperparameter to sweep.
+        values (Iterable): A list of values to sweep.
+
+    Yields:
+        tuple: A tuple containing the hyperparameter name and a value to sweep.
+    """
   for value in values:
     yield (hyperparameter_name, value)
 
@@ -120,6 +135,15 @@ def _sweep(
 def _product(
     hyperparams: list[Iterable[tuple[str, Any]]]
 ) -> Iterable[dict[str, Any]]:
+  """
+    Generate the Cartesian product of hyperparameter configurations.
+
+    Args:
+        hyperparams (list): A list of iterables, each containing hyperparameter configurations.
+
+    Yields:
+        dict: A dictionary representing a combination of hyperparameter values.
+    """
   for combo in itertools.product(*hyperparams):
     yield dict(combo)
 

@@ -26,7 +26,29 @@ import tensorflow as tf
 
 @tf.keras.saving.register_keras_serializable('two_headed_output_model')
 class TwoHeadedOutputModel(tf.keras.Model):
-  """Defines a two-headed output model."""
+  """
+  Defines a two-headed output model.
+
+  Args:
+    model (tf.keras.Model): The base model.
+    num_subgroups (int): The number of subgroups.
+    subgroup_sizes (Dict[str, int]): Dictionary mapping subgroup labels to their sizes.
+    train_bias (bool): Whether to train with bias.
+    name (str): The name of the model.
+    worst_group_label (Optional[int]): Label for the worst group (default is 2).
+    do_reweighting (Optional[bool]): Whether to perform reweighting (default is False).
+    reweighting_signal (Optional[str]): The reweighting signal ('bias' or 'error', default is 'bias').
+    reweighting_lambda (Optional[float]): The reweighting lambda (default is 0.5).
+    error_percentile_threshold (Optional[float]): Error percentile threshold (default is 0.2).
+    num_classes (Optional[int]): The number of classes (default is 2).
+
+  Methods:
+    get_config(): Get the configuration of the model.
+    call(inputs): Call the model with input features.
+    update_id_to_bias_table(table): Update the bias table.
+    train_step(inputs): Perform a training step.
+    test_step(inputs): Perform a testing step.
+  """
 
   def __init__(self,
                model: tf.keras.Model,
@@ -62,6 +84,12 @@ class TwoHeadedOutputModel(tf.keras.Model):
       self.worst_group_label = worst_group_label
 
   def get_config(self):
+    """
+    Get the configuration of the model.
+
+    Returns:
+      dict: The model configuration.
+    """
     config = super().get_config()
     config.update({
         'model': self.model,
@@ -74,9 +102,24 @@ class TwoHeadedOutputModel(tf.keras.Model):
     return config
 
   def call(self, inputs):  # pytype: disable=signature-mismatch  # overriding-parameter-count-checks
+    """
+    Call the model with input features.
+
+    Args:
+      inputs: Input features.
+
+    Returns:
+      Tensor: The model's output.
+    """
     return self.model(inputs)
 
   def update_id_to_bias_table(self, table):
+    """
+    Update the bias table.
+
+    Args:
+      table: The bias table.
+    """
     self.id_to_bias_table = table
 
   def _compute_average_metrics(
@@ -87,10 +130,10 @@ class TwoHeadedOutputModel(tf.keras.Model):
     For the weighted metric, the subgroups are weighed by their proportionality.
 
     Args:
-      metrics: List of metrics to be parsed.
+      metrics (List[tf.keras.metrics.Metric]): List of metrics to be parsed.
 
     Returns:
-      Dictionary mapping metric name to result.
+      Dict[str, tf.keras.metrics.Metric]: Dictionary mapping metric name to result.
     """
     accs = []
     total_size = sum(self.subgroup_sizes.values())
@@ -112,6 +155,15 @@ class TwoHeadedOutputModel(tf.keras.Model):
     }
 
   def train_step(self, inputs):
+    """
+    Perform a training step.
+
+    Args:
+      inputs: Input data for training.
+
+    Returns:
+      Dict[str, tf.Tensor]: Dictionary of training results.
+    """
     features = inputs['input_feature']
     labels = inputs['label']
     example_ids = inputs['example_id']
@@ -186,6 +238,15 @@ class TwoHeadedOutputModel(tf.keras.Model):
     return results
 
   def test_step(self, inputs):
+    """
+    Perform a testing step.
+
+    Args:
+      inputs: Input data for testing.
+
+    Returns:
+      Dict[str, tf.Tensor]: Dictionary of testing results.
+    """
     features = inputs['input_feature']
     labels = inputs['label']
     example_ids = inputs['example_id']
@@ -221,7 +282,16 @@ class TwoHeadedOutputModel(tf.keras.Model):
 def compile_model(
     model: tf.keras.Model, model_params: models.ModelTrainingParameters
 ):
-  """Compiles model with optimizer, custom loss functions, and metrics."""
+  """
+  Compiles a Keras model with the specified optimizer, custom loss functions, and metrics.
+
+  Args:
+    model (tf.keras.Model): The Keras model to compile.
+    model_params (models.ModelTrainingParameters): Training parameters for the model.
+
+  Returns:
+    tf.keras.Model: The compiled Keras model.
+  """
   if model_params.optimizer == 'adam':
     optimizer = tf.keras.optimizers.Adam(
         learning_rate=model_params.learning_rate
@@ -293,14 +363,15 @@ def evaluate_model(
     save_model_checkpoints: bool = False,
     save_best_model: bool = True,
 ):
-  """Evaluates model on given validation and/or test datasets.
+  """
+  Evaluates a Keras model on given validation and/or test datasets.
 
   Args:
-    model: Keras model to be evaluated.
-    output_dir: Path to directory where model is saved.
-    eval_ds: Dictionary mapping evaluation dataset name to the dataset.
-    save_model_checkpoints: Boolean for saving checkpoints during training.
-    save_best_model: Boolean for saving best model during training.
+    model (tf.keras.Model): The Keras model to be evaluated.
+    output_dir (str): Path to the directory where the model is saved.
+    eval_ds (Dict[str, tf.data.Dataset]): A dictionary mapping evaluation dataset names to the corresponding datasets.
+    save_model_checkpoints (bool, optional): Boolean for saving checkpoints during training. Default is False.
+    save_best_model (bool, optional): Boolean for saving the best model during training. Default is True.
   """
   checkpoint_dir = os.path.join(output_dir, 'checkpoints')
   if save_model_checkpoints and tf.io.gfile.listdir(checkpoint_dir):
@@ -340,13 +411,13 @@ def init_model(
     experiment_name: str,
     example_id_to_bias_table: Optional[tf.lookup.StaticHashTable] = None,
 ) -> tf.keras.Model:
-  """Initializes an TwoHeadedOutputModel with a base model.
-
+  """
+  Initializes a TwoHeadedOutputModel with a base model.
 
   Args:
-    model_params: Dataclass object containing model and training parameters.
-    experiment_name: String describing experiment to use model name.
-    example_id_to_bias_table: Hash table mapping example ID to bias label.
+    model_params (models.ModelTrainingParameters): Dataclass object containing model and training parameters.
+    experiment_name (str): String describing the experiment to use as the model's name.
+    example_id_to_bias_table (Optional[tf.lookup.StaticHashTable]): Hash table mapping example ID to bias label.
 
   Returns:
     Initialized TwoHeadedOutputModel model.
@@ -462,15 +533,15 @@ def run_train(
     callbacks: Optional[List[tf.keras.callbacks.Callback]] = None,
     example_id_to_bias_table: Optional[tf.lookup.StaticHashTable] = None
 ) -> tf.keras.Model:
-  """Initializes and trains model on given training and validation data.
+  """Initializes and trains a model on the given training and validation data.
 
   Args:
-    train_ds: Training dataset.
-    val_ds: Evaluation dataset.
-    model_params: Dataclass object containing model and training parameters.
-    experiment_name: String to describe model being trained.
-    callbacks: Keras Callbacks, like saving checkpoints or early stopping.
-    example_id_to_bias_table: Hash table mapping example ID to bias label.
+    train_ds (tf.data.Dataset): Training dataset.
+    val_ds (tf.data.Dataset): Evaluation dataset.
+    model_params (models.ModelTrainingParameters): Dataclass object containing model and training parameters.
+    experiment_name (str): String to describe the model being trained.
+    callbacks (Optional[List[tf.keras.callbacks.Callback]]): Keras Callbacks, like saving checkpoints or early stopping. Default is None.
+    example_id_to_bias_table (Optional[tf.lookup.StaticHashTable]): Hash table mapping example ID to bias label.
 
   Returns:
     Trained model.
@@ -500,19 +571,19 @@ def train_ensemble(
     example_id_to_bias_table: Optional[tf.lookup.StaticHashTable] = None,
     is_vertex: bool = False,
 ) -> List[tf.keras.Model]:
-  """Trains an ensemble of models, locally. See xm_launch.py for parallelized.
+  """
+  Trains an ensemble of models.
 
   Args:
-    dataloader: Dataclass object containing training and validation data.
-    model_params: Dataclass object containing model and training parameters.
-    num_splits: Integer number for total slices of dataset.
-    ood_ratio: Float for the ratio of slices that will be considered
-      out-of-distribution.
-    output_dir: String for directory path where checkpoints will be saved.
-    save_model_checkpoints: Boolean for saving checkpoints during training.
-    early_stopping: Boolean for early stopping during training.
-    example_id_to_bias_table: Hash table mapping example ID to bias label.
-    is_vertex: Set to true if training on VertexAI.
+    dataloader (data.Dataloader): Dataclass object containing training and validation data.
+    model_params (models.ModelTrainingParameters): Dataclass object containing model and training parameters.
+    num_splits (int): Integer number for the total slices of the dataset.
+    ood_ratio (float): Float for the ratio of slices that will be considered out-of-distribution.
+    output_dir (str): String for the directory path where checkpoints will be saved.
+    save_model_checkpoints (bool, optional): Boolean for saving checkpoints during training. Default is True.
+    early_stopping (bool, optional): Boolean for early stopping during training. Default is True.
+    example_id_to_bias_table (Optional[tf.lookup.StaticHashTable]): Hash table mapping example ID to bias label.
+    is_vertex (bool, optional): Set to true if training on VertexAI. Default is False.
 
   Returns:
     List of trained models and, optionally, predictions.
@@ -655,12 +726,13 @@ def load_one_checkpoint(
     model_params: models.ModelTrainingParameters,
     experiment_name: str,
 ) -> tf.keras.Model:
-  """Loads a model checkpoint.
+  """
+  Loads a model checkpoint.
 
   Args:
-    checkpoint_path: Path to checkpoint
-    model_params: Model training parameters
-    experiment_name: Name of experiment
+    checkpoint_path (str): Path to checkpoint.
+    model_params (models.ModelTrainingParameters): Model training parameters.
+    experiment_name (str): Name of the experiment.
 
   Returns:
     A model checkpoint.
