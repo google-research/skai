@@ -4,7 +4,6 @@ r"""Binary to run training on a single model once.
 # pylint: enable=line-too-long
 """
 
-import datetime
 import logging as native_logging
 import os
 
@@ -117,11 +116,9 @@ def main(_) -> None:
       reweighting_signal=config.reweighting.signal
   )
   model_params.train_bias = config.train_bias
-  output_dir = config.output_dir
-  start_time = datetime.datetime.now()
-  timestamp = start_time.strftime('%Y-%m-%d-%H%M%S')
-  output_dir = f'{output_dir}_{timestamp}'
 
+  work_unit = os.path.basename(FLAGS.trial_name)
+  output_dir = os.path.join(config.output_dir, work_unit)
   tf.io.gfile.makedirs(output_dir)
   example_id_to_bias_table = None
 

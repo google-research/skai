@@ -183,7 +183,8 @@ def main(_) -> None:
     ])
 
     job_args = {
-        'config.output_dir': config.output_dir,
+        'config.output_dir': os.path.join(config.output_dir, 
+                                     str(experiment.experiment_id)),
         'config.train_bias': config.train_bias,
         'config.train_stage_2_as_ensemble': False,
         'config.round_idx': 0,

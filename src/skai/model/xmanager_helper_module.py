@@ -1,3 +1,8 @@
+"""
+Code in this module is adapted from the XManager repo as a temporary workaround for TypeError when importing xm from xmanager in python 3.8.
+Code source: https://github.com/deepmind/xmanager/tree/main/xmanager/vizier/vizier_cloud
+"""
+
 import re
 import time
 import abc
@@ -5,11 +10,6 @@ from absl import logging
 from xmanager.cloud import auth
 from typing import Any, Dict, Optional
 from google.cloud import aiplatform_v1beta1 as aip
-
-"""
-Code in this module is adapted from the XManager repo as a temporary workaround for TypeError when importing xm from xmanager in python 3.8.
-Code source: https://github.com/deepmind/xmanager/tree/main/xmanager/vizier/vizier_cloud
-"""
 
 _DEFAULT_LOCATION = 'us-central1'
 
