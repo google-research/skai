@@ -44,6 +44,7 @@ from absl import flags
 from absl import logging
 import shapely.geometry
 from skai import buildings
+from skai import earth_engine
 from skai import generate_examples
 from skai import read_raster
 import tensorflow as tf
@@ -185,12 +186,6 @@ def main(args):
   timestamped_dataset = f'{config.dataset_name}-{timestamp}'
 
   gdal_env = generate_examples.parse_gdal_env(config.gdal_env)
-  if config.before_image_patterns:
-    before_image_patterns = config.before_image_patterns
-  elif config.before_image_config:
-    before_image_patterns = _read_image_config(config.before_image_config)
-  else:
-    before_image_patterns = []
 
   if config.after_image_patterns:
     after_image_patterns = config.after_image_patterns
@@ -236,6 +231,27 @@ def main(args):
     )
   else:
     labeled_coordinates = []
+
+  if config.before_image_patterns:
+    before_image_patterns = config.before_image_patterns
+  elif config.before_image_config:
+    before_image_patterns = _read_image_config(config.before_image_config)
+  elif config.auto_select_before_images:
+    # TODO(jzxu): Remove potential multiple Earth Engine initialization calls.
+    earth_engine.initialize(config.earth_engine_service_account,
+                            config.earth_engine_private_key)
+    image_ids = earth_engine.find_covering_images(
+        building_centroids,
+        config.before_image_collection_id,
+        config.before_image_project_ids,
+        config.before_image_start_date,
+        config.before_image_end_date,
+        config.max_before_images,
+    )
+    before_image_patterns = [f'EEDAI:{i}' for i in image_ids]
+    logging.info('Chosen before images: %s', before_image_patterns)
+  else:
+    before_image_patterns = []
 
   generate_examples.generate_examples_pipeline(
       before_image_patterns,
