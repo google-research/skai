@@ -26,6 +26,19 @@ from skai import beam_utils
 class BeamUtilsTest(absltest.TestCase):
 
   def testWriteRecordsAsFiles(self):
+    """
+        Test the write_records_as_files function in the beam_utils module.
+
+        This method tests the behavior of the write_records_as_files function in the
+        beam_utils module. It creates temporary records, writes them to files, and
+        verifies the content and file names.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
     output_dir = tempfile.mkdtemp(dir=absltest.TEST_TMPDIR.value)
     temp_dir = tempfile.mkdtemp(dir=absltest.TEST_TMPDIR.value)
 

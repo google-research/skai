@@ -16,10 +16,25 @@ import tensorflow as tf
 
 
 def _make_temp_dir() -> str:
+  """Create a temporary directory and return its path.
+
+  Returns:
+    str: The path to the created temporary directory.
+"""
+
   return tempfile.mkdtemp(dir=os.environ.get('TEST_TMPDIR'))
 
 
 def _make_serialized_image(size: int, pixel_value: int) -> bytes:
+  """Create a serialized PNG image with the specified size and pixel value.
+
+    Args:
+        size (int): The size of the image (both width and height).
+        pixel_value (int): The pixel value to fill the image with.
+
+    Returns:
+        bytes: The serialized PNG image.
+    """
   image = np.ones((size, size, 3), dtype=np.uint8) * pixel_value
   return tf.io.encode_png(image).numpy()
 
@@ -36,6 +51,24 @@ def _make_example(
     before_pixel_value: int,
     after_pixel_value: int,
 ) -> tf.train.Example:
+  """
+    Create a TensorFlow Example object with the specified attributes.
+
+    Args:
+        example_id (str): The unique identifier for the example.
+        longitude (float): The longitude coordinate.
+        latitude (float): The latitude coordinate.
+        encoded_coordinates (str): Encoded coordinates.
+        label (float): The numerical label.
+        string_label (float): The string label.
+        patch_size (int): Size of the patch image.
+        large_patch_size (int): Size of the large patch image.
+        before_pixel_value (int): Pixel value for the 'pre' image.
+        after_pixel_value (int): Pixel value for the 'post' image.
+
+    Returns:
+        tf.train.Example: The TensorFlow Example object.
+    """
   example = tf.train.Example()
   example.features.feature['example_id'].bytes_list.value.append(
       example_id.encode()
@@ -66,12 +99,25 @@ def _make_example(
 
 
 def _write_tfrecord(examples: Sequence[tf.train.Example], path: str) -> None:
+  """
+    Write a list of TensorFlow Example objects to a TFRecord file.
+
+    Args:
+        examples (Sequence[tf.train.Example]): List of TensorFlow Example objects.
+        path (str): The path to the TFRecord file to be created.
+    """
   with tf.io.TFRecordWriter(path) as file_writer:
     for example in examples:
       file_writer.write(example.SerializeToString())
 
 
 def _create_test_data():
+  """
+    Create test data and write it to TFRecord files.
+
+    Returns:
+        Tuple[str, str, str]: Paths to the created TFRecord files (labeled_train, labeled_test, unlabeled).
+    """
   examples_dir = _make_temp_dir()
   labeled_train_path = os.path.join(
       examples_dir, 'train_labeled_examples.tfrecord')
@@ -96,8 +142,12 @@ def _create_test_data():
 
 
 class TrainLibTest(parameterized.TestCase):
+  """
+    A test case class for training library functions.
+    """
 
   def setUp(self):
+    """Set up test environment and data."""
     super().setUp()
     labeled_train_path, labeled_test_path, unlabeled_path = _create_test_data()
     self.labeled_train_path = labeled_train_path
@@ -179,7 +229,12 @@ class TrainLibTest(parameterized.TestCase):
       for model_name in models.MODEL_REGISTRY.keys()
   )
   def test_init_model_one_head(self, model_name):
-    """Tests that each model class can be initialized and ingest data."""
+    """
+        Tests that each model class can be initialized and ingest data.
+
+        Args:
+            model_name (str): Name of the model to initialize.
+        """
     self.model_params_one_head.model_name = model_name
     one_head_model = train_lib.init_model(
         self.model_params_one_head, 'test_init_model'
@@ -193,7 +248,12 @@ class TrainLibTest(parameterized.TestCase):
       for model_name in models.MODEL_REGISTRY.keys()
   )
   def test_init_model_two_head(self, model_name):
-    """Tests that each model class can be initialized with two output heads."""
+    """
+        Tests that each model class can be initialized with two output heads.
+
+        Args:
+            model_name (str): Name of the model to initialize.
+        """
     self.model_params_two_head.model_name = model_name
     two_head_model = train_lib.init_model(
         self.model_params_two_head,
@@ -233,7 +293,12 @@ class TrainLibTest(parameterized.TestCase):
       for model_name in ['resnet50v2']
   )
   def test_train_and_load_model_from_checkpoint(self, model_name):
-    """Tests that each model class can be saved and loaded from a checkpoint."""
+    """
+        Tests that each model class can be saved and loaded from a checkpoint.
+
+        Args:
+            model_name (str): Name of the model to save and load.
+        """
     self.model_params_one_head.model_name = model_name
     callbacks = train_lib.create_callbacks(
         self.output_dir,
@@ -277,7 +342,12 @@ class TrainLibTest(parameterized.TestCase):
       for model_name in models.MODEL_REGISTRY.keys()
   )
   def test_train_and_load_entire_model(self, model_name):
-    """Tests that each model class can be saved as a model file."""
+    """
+        Tests that each model class can be saved as a model file.
+
+        Args:
+            model_name (str): Name of the model to save and load.
+        """
     self.model_params_one_head.model_name = model_name
     callbacks = train_lib.create_callbacks(
         self.output_dir,

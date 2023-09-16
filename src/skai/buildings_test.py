@@ -37,6 +37,19 @@ def get_test_file_path(relative_test_data_path: str) -> str:
 class BuildingsTest(absltest.TestCase):
 
   def testReadBuildingsFileGeoJSON(self):
+    """
+        Test the read_buildings_file function with a GeoJSON file.
+
+        This method tests the behavior of the read_buildings_file function from the
+        buildings module when provided with a GeoJSON file. It checks if the function
+        correctly reads and filters centroids within the specified region boundaries.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
     path = get_test_file_path('test_data/building_centroids.geojson')
     regions = [Polygon.from_bounds(178.78737, -16.65851, 178.81098, -16.63617)]
     coords = buildings.read_buildings_file(path, regions)
@@ -47,6 +60,19 @@ class BuildingsTest(absltest.TestCase):
     self.assertLen(coords, 101)
 
   def testReadBuildingsFileCSV(self):
+    """
+        Test the read_buildings_file function with a CSV file.
+
+        This method tests the behavior of the read_buildings_file function from the
+        buildings module when provided with a CSV file. It checks if the function
+        correctly reads and filters centroids within the specified region boundaries.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
     path = get_test_file_path('test_data/building_centroids.csv')
     regions = [Polygon.from_bounds(178.78737, -16.65851, 178.81098, -16.63617)]
     coords = buildings.read_buildings_file(path, regions)
@@ -57,6 +83,18 @@ class BuildingsTest(absltest.TestCase):
     self.assertLen(coords, 101)
 
   def testReadAOIs(self):
+    """
+        Test the read_aois function.
+
+        This method tests the behavior of the read_aois function from the buildings
+        module. It checks if the function correctly reads and returns Area of Interests (AOIs).
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
     path = get_test_file_path('test_data/aoi.geojson')
     aois = buildings.read_aois(path)
     self.assertLen(aois, 2)
