@@ -132,7 +132,7 @@ class ExamplesGenerationConfig:
                 ' a value %f'
             ),
             field.name,
-            val,
+            getattr(ExamplesGenerationConfig, field.name),
         )
     return config
 
@@ -166,7 +166,7 @@ class ExamplesGenerationConfig:
                   ' will be it %s will be used.'
               ),
               field.name,
-              val
+              getattr(ExamplesGenerationConfig, field.name)
           )
     return config
 
