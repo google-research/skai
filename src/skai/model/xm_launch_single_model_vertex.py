@@ -10,9 +10,6 @@ from ml_collections import config_flags
 from google.cloud import aiplatform_v1beta1 as aip
 from docker_instructions import get_docker_instructions
 
-GPU_ACCELERATORS = ["P100", "V100", "P4", "T4", "A100"]
-TPU_ACCELERATORS = ["TPU_V2", "TPU_V3"]
-ACCELERATORS = [*GPU_ACCELERATORS, *TPU_ACCELERATORS]
 
 parameter_spec = aip.StudySpec.ParameterSpec
 
@@ -69,7 +66,7 @@ flags.DEFINE_enum(
     'accelerator',
     default=None,
     help='Accelerator to use for faster computations.',
-    enum_values=ACCELERATORS,
+    enum_values=['P100', 'V100', 'P4', 'T4', 'A100','TPU_V2', 'TPU_V3']
 )
 
 flags.DEFINE_integer(

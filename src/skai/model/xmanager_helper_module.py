@@ -1,5 +1,7 @@
 """
-Code in this module is adapted from the XManager repo as a temporary workaround for TypeError when importing xm from xmanager in python 3.8.
+Code in this module is adapted from the XManager repo as a 
+temporary workaround for TypeError when importing xm from xmanager in python 3.8.
+
 Code source: https://github.com/deepmind/xmanager/tree/main/xmanager/vizier/vizier_cloud
 """
 
@@ -77,8 +79,8 @@ class VizierController:
 
   def __init__(
       self,
-      experiment, #: xm.Experiment,
-      work_unit_generator, #: Callable[[xm.WorkUnit, Dict[str, Any]], Any],
+      experiment, 
+      work_unit_generator, 
       vizier_client: aip.VizierServiceClient,
       study_name: str,
       num_work_units_total: int,
@@ -107,7 +109,8 @@ class VizierController:
     self._work_unit_updaters = []
 
   def run(self, poll_frequency_in_sec: float = 60) -> None:
-    """Peridically check and sync status between vizier and work units and create new work units when needed."""
+    """Peridically check and sync status between vizier and 
+    work units and create new work units when needed."""
     while True:
       # 1. Complete trial for completed work unit; Early stop first if needed.
       for work_unit_updater in self._work_unit_updaters:
@@ -167,8 +170,8 @@ class VizierController:
 
       print(f'Creating work unit (index: {i})... \n')
 
-      def create_gen(index: int, trial: aip.Trial): # -> xm.JobGeneratorType:
-        async def gen_work_unit(work_unit, **kwargs): #: xm.WorkUnit, **kwargs):
+      def create_gen(index: int, trial: aip.Trial): 
+        async def gen_work_unit(work_unit, **kwargs): 
           await self._work_unit_generator(work_unit, kwargs)
 
           print(
@@ -196,7 +199,7 @@ class WorkUnitVizierUpdater:
   def __init__(
       self,
       vizier_client: aip.VizierServiceClient,
-      work_unit, #: xm.WorkUnit,
+      work_unit, 
       trial: aip.Trial,
   ) -> None:
     self.completed = False
@@ -204,7 +207,7 @@ class WorkUnitVizierUpdater:
     self._work_unit = work_unit
     self._trial = trial
 
-  def work_unit_status(self): # -> xm.ExperimentUnitStatus:
+  def work_unit_status(self):
     return self._work_unit.get_status()
 
   def check_for_completion(self) -> None:
@@ -252,8 +255,8 @@ class VizierExploration:
 
   def __init__(
       self,
-      experiment, #: xm.Experiment,
-      job, #: xm.JobType,
+      experiment, 
+      job, 
       study_factory: StudyFactory,
       num_trials_total: int,
       num_parallel_trial_runs: int,
