@@ -16,7 +16,7 @@ _DEFAULT_LOCATION = 'us-central1'
 class StudyFactory(abc.ABC):
   """Abstract class representing vizier study generator."""
 
-  vz_client: aip.VizierServiceClient
+  vizier_client: aip.VizierServiceClient
   study_config: aip.StudySpec
   num_trials_total: int
   display_name: str
@@ -32,7 +32,7 @@ class StudyFactory(abc.ABC):
     self.study_config = study_config
     self.num_trials_total = num_trials_total
     self.display_name = display_name
-    self.vz_client = aip.VizierServiceClient(
+    self.vizier_client = aip.VizierServiceClient(
         client_options=dict(
             api_endpoint=f'{location}-aiplatform.googleapis.com'
         )
@@ -65,7 +65,7 @@ class NewStudy(StudyFactory):
     )
 
   def study(self) -> str:
-    return self.vz_client.create_study(
+    return self.vizier_client.create_study(
         parent=f'projects/{self.project}/locations/{self.location}',
         study=aip.Study(
             display_name=self.display_name, study_spec=self.study_config
@@ -79,7 +79,7 @@ class VizierController:
       self,
       experiment, #: xm.Experiment,
       work_unit_generator, #: Callable[[xm.WorkUnit, Dict[str, Any]], Any],
-      vz_client: aip.VizierServiceClient,
+      vizier_client: aip.VizierServiceClient,
       study_name: str,
       num_work_units_total: int,
       num_parallel_work_units: int,
@@ -90,7 +90,7 @@ class VizierController:
       experiment: XM experiment.
       work_unit_generator: the function that generates WorkUnit from
         hyperparameters.
-      vz_client: the Vizier Client used for interacting with Vizier.
+      vizier_client: the Vizier Client used for interacting with Vizier.
       study_name: the study name the controller works on.
       num_work_units_total: number of work units to create in total. (TODO:
         remove this and retrieve from study spec stopping criteria once it is
@@ -99,7 +99,7 @@ class VizierController:
     """
     self._experiment = experiment
     self._work_unit_generator = work_unit_generator
-    self._vz_client = vz_client
+    self._vizier_client = vizier_client
     self._study_name = study_name
     self._num_work_units_total = num_work_units_total
     self._num_parallel_work_units = num_parallel_work_units
@@ -153,7 +153,7 @@ class VizierController:
     start_index = num_existing_work_units + 1
     for i in range(start_index, start_index + num_work_units_to_create_next):
       trial = (
-          self._vz_client.suggest_trials(
+          self._vizier_client.suggest_trials(
               request=aip.SuggestTrialsRequest(
                   parent=self._study_name,
                   suggestion_count=1,
@@ -177,7 +177,7 @@ class VizierController:
           )
           self._work_unit_updaters.append(
               WorkUnitVizierUpdater(
-                  vz_client=self._vz_client, work_unit=work_unit, trial=trial
+                  vizier_client=self._vizier_client, work_unit=work_unit, trial=trial
               )
           )
 
@@ -195,12 +195,12 @@ class WorkUnitVizierUpdater:
 
   def __init__(
       self,
-      vz_client: aip.VizierServiceClient,
+      vizier_client: aip.VizierServiceClient,
       work_unit, #: xm.WorkUnit,
       trial: aip.Trial,
   ) -> None:
     self.completed = False
-    self._vz_client = vz_client
+    self._vizier_client = vizier_client
     self._work_unit = work_unit
     self._trial = trial
 
@@ -221,7 +221,7 @@ class WorkUnitVizierUpdater:
       self._complete_trial(self._trial)
       self.completed = True
     elif (
-        self._vz_client.check_trial_early_stopping_state(
+        self._vizier_client.check_trial_early_stopping_state(
             request=aip.CheckTrialEarlyStoppingStateRequest(
                 trial_name=self._trial.name
             )
@@ -238,7 +238,7 @@ class WorkUnitVizierUpdater:
       self, trial: aip.Trial, infeasible_reason: Optional[str] = None
   ) -> None:
     """Complete a trial."""
-    self._vz_client.complete_trial(
+    self._vizier_client.complete_trial(
         request=aip.CompleteTrialRequest(
             name=trial.name,
             trial_infeasible=infeasible_reason is not None,
@@ -279,7 +279,7 @@ class VizierExploration:
     self._controller = VizierController(
         experiment,
         work_unit_generator,
-        study_factory.vz_client,
+        study_factory.vizier_client,
         study_factory.study(),
         num_trials_total,
         num_parallel_trial_runs,
@@ -312,7 +312,7 @@ class VizierWorker:
     self._trial_name = trial_name
 
     location = trial_name.split('/')[3]
-    self._vz_client = aip.VizierServiceClient(
+    self._vizier_client = aip.VizierServiceClient(
         client_options={
             'api_endpoint': f'{location}-aiplatform.googleapis.com',
         }
@@ -320,7 +320,7 @@ class VizierWorker:
 
   def add_trial_measurement(self, step: int, metrics: Dict[str, float]) -> None:
     """Add trial measurements to Vizier."""
-    self._vz_client.add_trial_measurement(
+    self._vizier_client.add_trial_measurement(
         request=aip.AddTrialMeasurementRequest(
             trial_name=self._trial_name,
             measurement=aip.Measurement(
@@ -336,7 +336,7 @@ class VizierWorker:
 
   def complete_trial(self, infeasible_reason: Optional[str] = None) -> None:
     """Complete a trial."""
-    self._vz_client.complete_trial(
+    self._vizier_client.complete_trial(
         request=aip.CompleteTrialRequest(
             name=self._trial_name,
             trial_infeasible=infeasible_reason is not None,

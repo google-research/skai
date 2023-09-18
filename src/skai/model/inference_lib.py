@@ -9,10 +9,10 @@ from skai import utils
 from skai.model import data
 import tensorflow as tf
 
-gpus = tf.config.list_physical_devices('GPU')
-if gpus:
+_GPUS = tf.config.list_physical_devices('GPU')
+if _GPUS:
   try:
-    for gpu in gpus:
+    for gpu in _GPUS:
       tf.config.experimental.set_memory_growth(gpu, True)
   except RuntimeError as e:
     print(e)
