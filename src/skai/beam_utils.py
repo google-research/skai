@@ -15,7 +15,6 @@
 
 import pathlib
 import platform
-from typing import Tuple, Optional
 
 import apache_beam as beam
 import apache_beam.io.fileio as fileio
@@ -31,7 +30,7 @@ class _BinarySink(fileio.FileSink):
   def open(self, file_handle):
     self._file_handle = file_handle
 
-  def write(self, record: Tuple[str, bytes]):
+  def write(self, record: tuple[str, bytes]):
     """Writes the binary content in the second element of the record to file."""
     self._file_handle.write(record[1])
 
@@ -85,7 +84,7 @@ def _get_setup_file_path():
 
 
 
-def _get_dataflow_container_image() -> Optional[str]:
+def _get_dataflow_container_image() -> str | None:
 
   """Gets default dataflow image based on Python version.
 
