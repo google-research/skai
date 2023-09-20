@@ -15,7 +15,6 @@
 
 import pathlib
 import platform
-
 import apache_beam as beam
 import apache_beam.io.fileio as fileio
 import apache_beam.options.value_provider as value_provider
