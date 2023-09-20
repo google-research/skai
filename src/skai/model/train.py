@@ -23,12 +23,12 @@ import tensorflow as tf
 FLAGS = flags.FLAGS
 config_flags.DEFINE_config_file('config')
 flags.DEFINE_bool('keep_logs', True, 'If True, creates a log file in output '
-                  'directory. If False, only logs to console.')
+    'directory. If False, only logs to console.')
 flags.DEFINE_bool(
     'is_vertex', False, 'True if the training job will be executed on VertexAI.'
 )
 flags.DEFINE_string('ensemble_dir', '', 'If specified, loads the models at '
-                    'this directory to consider the ensemble.')
+    'this directory to consider the ensemble.')
 flags.DEFINE_string(
     'trial_name',
     None,

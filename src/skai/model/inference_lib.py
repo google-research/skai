@@ -9,13 +9,15 @@ from skai import utils
 from skai.model import data
 import tensorflow as tf
 
-_GPUS = tf.config.list_physical_devices('GPU')
-if _GPUS:
-  try:
-    for gpu in _GPUS:
-      tf.config.experimental.set_memory_growth(gpu, True)
-  except RuntimeError as e:
-    print(e)
+def set_gpu_memory_growth() -> None:
+  gpus = tf.config.list_physical_devices('GPU')
+  if gpus:
+    try:
+      for gpu in gpus:
+        tf.config.experimental.set_memory_growth(gpu, True)
+    except RuntimeError as e:
+      print(e)
+  return
 
 class InferenceModel(object):
   """Abstract base class for an inference model.
@@ -259,6 +261,7 @@ def run_tf2_inference_with_csv_output(
     batch_size: Batch size.
     pipeline_options: Dataflow pipeline options.
   """
+  set_gpu_memory_growth()
   with beam.Pipeline(options=pipeline_options) as pipeline:
     examples = (
         pipeline

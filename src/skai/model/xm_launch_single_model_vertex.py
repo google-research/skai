@@ -46,7 +46,6 @@ flags.DEFINE_bool(
     'models, as we would for Stage 1 in Introspective Self-Play.',
 )
 flags.DEFINE_bool('eval_only', False, 'Only runs evaluation, no training.')
-
 flags.DEFINE_integer(
     'ram',
     32,
@@ -61,21 +60,25 @@ flags.DEFINE_integer(
         ' value set by the cloud AI platform will be used.'
     ),
 )
-
+flags.DEFINE_string(
+    'cloud_location',
+    'us_central1',
+    'Cloud location for project'
+)                
 flags.DEFINE_enum(
     'accelerator',
-    default=None,
-    help='Accelerator to use for faster computations.',
+    None,
+    'Accelerator to use for faster computations.',
     enum_values=['P100', 'V100', 'P4', 'T4', 'A100','TPU_V2', 'TPU_V3']
 )
 
 flags.DEFINE_integer(
     'accelerator_count',
-    default=1,
-    help=(
-        'Number of accelerator machines to use. Note that TPU_V2 and TPU_V3 '
-        'only support count=8, see '
-        'https://github.com/deepmind/xmanager/blob/main/docs/executors.md'
+    1,
+    (
+    'Number of accelerator machines to use. Note that TPU_V2 and TPU_V3 '
+    'only support count=8, see '
+    'https://github.com/deepmind/xmanager/blob/main/docs/executors.md'
     ),
 )
 config_flags.DEFINE_config_file('config')
@@ -214,7 +217,9 @@ def main(_) -> None:
             executable=train_executable, executor=executor, args=job_args
         ),
         study_factory=NewStudy(
-            study_config=get_study_config()),
+            study_config=get_study_config(),
+            location=FLAGS.location
+            ),
 
         num_trials_total=100,
         num_parallel_trial_runs=2,

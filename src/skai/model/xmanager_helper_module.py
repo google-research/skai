@@ -13,7 +13,6 @@ from xmanager.cloud import auth
 from typing import Any, Dict, Optional
 from google.cloud import aiplatform_v1beta1 as aip
 
-_DEFAULT_LOCATION = 'us-central1'
 
 class StudyFactory(abc.ABC):
   """Abstract class representing vizier study generator."""
@@ -54,13 +53,13 @@ class NewStudy(StudyFactory):
   def __init__(
       self,
       study_config: aip.StudySpec,
+      location: str,
       num_trials_total: int = 0,
       display_name: Optional[str] = None,
       project: Optional[str] = None,
-      location: Optional[str] = None,
   ) -> None:
     self.project = project or auth.get_project_name()
-    self.location = location or _DEFAULT_LOCATION
+    self.location = location 
 
     super().__init__(
         study_config, num_trials_total, display_name or '', self.location
