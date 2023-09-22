@@ -5,7 +5,7 @@ import os
 from absl import app, flags
 from xmanager import xm
 from xmanager import xm_local
-from xmanager_helper_module import VizierExploration, NewStudy
+from xmanager.vizier import vizier_cloud 
 from ml_collections import config_flags
 from google.cloud import aiplatform_v1beta1 as aip
 from docker_instructions import get_docker_instructions
@@ -55,20 +55,19 @@ flags.DEFINE_integer(
 flags.DEFINE_integer(
     'cpu',
     4,
-    (
-        'Number of vCPU instances to allocate. If left as None the default'
-        ' value set by the cloud AI platform will be used.'
+    ('Number of vCPU instances to allocate. If left as None the default'
+     ' value set by the cloud AI platform will be used.'
     ),
 )
 flags.DEFINE_string(
     'cloud_location',
-    'us_central1',
-    'Cloud location for project'
+    None,
+    'Google Cloud location (region) for vizier jobs'
 )                
 flags.DEFINE_enum(
     'accelerator',
-    None,
-    'Accelerator to use for faster computations.',
+    default=None,
+    help='Accelerator to use for faster computations.',
     enum_values=['P100', 'V100', 'P4', 'T4', 'A100','TPU_V2', 'TPU_V3']
 )
 
@@ -177,7 +176,7 @@ def main(_) -> None:
             executor_spec=xm_local.Vertex.Spec(),
             args={
                 'config': config_path,
-                'is_vertex': 'vertex' in str(executor.Spec()).lower(),
+                'is_vertex': 'vertex' in str(executor.Spec()).lower()
             },
         ),
     ])
@@ -211,17 +210,21 @@ def main(_) -> None:
     job_args['config.training.save_best_model'] = True
     job_args['config.training.num_epochs'] = config.training.num_epochs
 
-    VizierExploration(
+    if FLAGS.cloud_location is None:
+      raise ValueError(
+            f'Google Cloud location is either None or invalid. Enter a valid location.'
+        )
+    vizier_cloud.VizierExploration(
         experiment=experiment,
         job=xm.Job(
             executable=train_executable, executor=executor, args=job_args
         ),
-        study_factory=NewStudy(
+        study_factory=vizier_cloud.NewStudy(
             study_config=get_study_config(),
-            location=FLAGS.location
+            location=FLAGS.cloud_location
             ),
 
-        num_trials_total=100,
+        num_trials_total=4,
         num_parallel_trial_runs=2,
     ).launch()
 

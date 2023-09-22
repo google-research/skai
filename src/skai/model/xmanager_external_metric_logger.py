@@ -2,7 +2,7 @@
 
 from typing import Union
 from log_metrics_callback import MetricLogger
-from xmanager_helper_module import VizierWorker
+from xmanager.vizier.vizier_cloud import vizier_worker 
 
 _ScalarMetric = Union[float, int]
 
@@ -11,7 +11,7 @@ class XManagerMetricLogger(MetricLogger):
 
   def __init__(self, trial_name: str = None) -> None:
     self.trial_name = trial_name
-    self.worker = VizierWorker(trial_name)
+    self.worker = vizier_worker.VizierWorker(trial_name)
 
   def log_scalar_metric(
       self,
