@@ -41,28 +41,23 @@ def get_docker_instructions(accelerator: str) -> tuple[str, list[str]]:
     # Select a base GPU image. Other options can be found in
     # https://cloud.google.com/deep-learning-containers/docs/choosing-container
     base_image = GPU_BASE_IMAGE
-    # Make sure python executable is python3.
+    
     docker_instructions = [
-      'RUN apt-key adv --fetch-keys https://developer.download.nvidia.com/'
-      'compute/cuda/repos/ubuntu1804/x86_64/3bf863cc.pub',
-      'RUN apt-get update && apt-get install -y python3-pip wget',
-    ]
-    docker_instructions = [
-    # Add deadsnakes repo
-    'RUN apt update',
-    'RUN apt-get install software-properties-common -y',
-    'RUN add-apt-repository ppa:deadsnakes/ppa -y',
+      # Add deadsnakes repo
+      'RUN apt update',
+      'RUN apt-get install software-properties-common -y',
+      'RUN add-apt-repository ppa:deadsnakes/ppa -y',
 
-    # Install Python 3.10',
-    'RUN apt update && apt install -y python3.10 python3.10-distutils',
-    'RUN curl -sS https://bootstrap.pypa.io/get-pip.py | python3.10',
+      # Install Python 3.10',
+      'RUN apt update && apt install -y python3.10 python3.10-distutils',
+      'RUN curl -sS https://bootstrap.pypa.io/get-pip.py | python3.10',
 
-    # Replace python shell with python3.10',
-    'RUN unlink /usr/bin/python',
-    'RUN ln -s /usr/bin/python3.10 /usr/bin/python',
+      # Replace python shell with python3.10',
+      'RUN unlink /usr/bin/python',
+      'RUN ln -s /usr/bin/python3.10 /usr/bin/python',
 
-    'RUN python -m pip install --pre --extra-index-url '
-    'https://developer.download.nvidia.com/compute/redist/jp/v50 tensorflow==2.13'
+      'RUN python -m pip install --pre --extra-index-url '
+      'https://developer.download.nvidia.com/compute/redist/jp/v50 tensorflow==2.13'
     ]
 
   else:
@@ -70,7 +65,7 @@ def get_docker_instructions(accelerator: str) -> tuple[str, list[str]]:
     # https://cloud.google.com/deep-learning-containers/docs/choosing-container
     base_image = CPU_BASE_IMAGE
     docker_instructions = [
-        'RUN apt-get update && apt-get install -y python3-pip wget',
+      'RUN apt-get update && apt-get install -y python3-pip wget',
     ]
   docker_instructions += [
       'RUN apt-get install -y libgl1-mesa-glx libsm6 libxext6 libxrender-dev '
