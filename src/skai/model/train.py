@@ -117,8 +117,8 @@ def main(_) -> None:
   )
   model_params.train_bias = config.train_bias
 
-  work_unit = os.path.basename(FLAGS.trial_name)
-  output_dir = os.path.join(config.output_dir, work_unit)
+  job_id = os.path.basename(FLAGS.trial_name)
+  output_dir = os.path.join(config.output_dir, job_id)
   tf.io.gfile.makedirs(output_dir)
   example_id_to_bias_table = None
 

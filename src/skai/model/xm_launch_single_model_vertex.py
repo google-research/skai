@@ -22,6 +22,7 @@ xmanager launch src/skai/model/xm_launch_single_model_vertex.py -- \
     --config.data.tfds_data_dir=gs://skai-data/hurricane_ian \
     --config.output_dir=gs://skai-data/experiments/test_skai \
     --config.training.num_epochs=1 \
+    --cloud_location='us-central1' \
     --experiment_name=test_skai \
     --project_path=~/path/to/skai \
     --accelerator=V100 \
