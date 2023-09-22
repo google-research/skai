@@ -41,7 +41,6 @@ def get_docker_instructions(accelerator: str) -> tuple[str, list[str]]:
     # Select a base GPU image. Other options can be found in
     # https://cloud.google.com/deep-learning-containers/docs/choosing-container
     base_image = GPU_BASE_IMAGE
-    
     docker_instructions = [
       # Add deadsnakes repo
       'RUN apt update',
