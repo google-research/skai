@@ -18,7 +18,7 @@ def set_gpu_memory_growth() -> None:
     except RuntimeError as e:
       print(e)
   return
-
+set_gpu_memory_growth()
 class InferenceModel(object):
   """Abstract base class for an inference model.
 
@@ -261,7 +261,7 @@ def run_tf2_inference_with_csv_output(
     batch_size: Batch size.
     pipeline_options: Dataflow pipeline options.
   """
-  set_gpu_memory_growth()
+  
   with beam.Pipeline(options=pipeline_options) as pipeline:
     examples = (
         pipeline

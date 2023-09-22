@@ -153,7 +153,6 @@ def get_pipeline_options(
       'max_num_workers': max_workers,
       'use_public_ips': False,  # Avoids hitting public ip quota bottleneck.
       'worker_machine_type': worker_machine_type,
-      'disk_size_gb': 200,
       'dataflow_service_options':dataflow_service_options
   }
   if worker_service_account:
