@@ -224,8 +224,8 @@ def main(_) -> None:
             location=FLAGS.cloud_location
             ),
 
-        num_trials_total=4,
-        num_parallel_trial_runs=2,
+        num_trials_total=100,
+        num_parallel_trial_runs=3,
     ).launch()
 
 
