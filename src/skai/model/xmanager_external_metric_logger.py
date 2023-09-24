@@ -1,10 +1,7 @@
 """Keras callback for logging metrics to XManager."""
 
-from typing import Union
 from log_metrics_callback import MetricLogger
 from xmanager.vizier.vizier_cloud import vizier_worker 
-
-_ScalarMetric = Union[float, int]
 
 class XManagerMetricLogger(MetricLogger):
   """Class for logging metrics to XManager."""
@@ -16,7 +13,7 @@ class XManagerMetricLogger(MetricLogger):
   def log_scalar_metric(
       self,
       metric_label: str,
-      metric_value: _ScalarMetric,
+      metric_value: float | int,
       step: int,
       is_val_metric: bool,
   ) -> None:
