@@ -17,8 +17,8 @@ def set_gpu_memory_growth() -> None:
         tf.config.experimental.set_memory_growth(gpu, True)
     except RuntimeError as e:
       print(e)
-  return
 set_gpu_memory_growth()
+
 class InferenceModel(object):
   """Abstract base class for an inference model.
 
