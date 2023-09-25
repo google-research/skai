@@ -438,7 +438,7 @@ def create_callbacks(
     callbacks.append(early_stopping_callback)
 
   if is_vertex:
-    metric_logger = xmanager_external_metric_logger.XMangerMetricLogger(
+    metric_logger = xmanager_external_metric_logger.XManagerMetricLogger(
         vizier_trial_name)
     hyperparameter_tuner_callback = log_metrics_callback.LogMetricsCallback(
         [metric_logger],

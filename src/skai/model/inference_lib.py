@@ -2,7 +2,6 @@
 
 import time
 from typing import Any, Iterator
-
 import apache_beam as beam
 import apache_beam.utils.shared as beam_shared
 import numpy as np
@@ -10,6 +9,15 @@ from skai import utils
 from skai.model import data
 import tensorflow as tf
 
+def set_gpu_memory_growth() -> None:
+  gpus = tf.config.list_physical_devices('GPU')
+  if gpus:
+    try:
+      for gpu in gpus:
+        tf.config.experimental.set_memory_growth(gpu, True)
+    except RuntimeError as e:
+      print(e)
+set_gpu_memory_growth()
 
 class InferenceModel(object):
   """Abstract base class for an inference model.
@@ -253,7 +261,7 @@ def run_tf2_inference_with_csv_output(
     batch_size: Batch size.
     pipeline_options: Dataflow pipeline options.
   """
-
+  
   with beam.Pipeline(options=pipeline_options) as pipeline:
     examples = (
         pipeline

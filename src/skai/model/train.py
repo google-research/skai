@@ -4,7 +4,6 @@ r"""Binary to run training on a single model once.
 # pylint: enable=line-too-long
 """
 
-import datetime
 import logging as native_logging
 import os
 
@@ -24,12 +23,12 @@ import tensorflow as tf
 FLAGS = flags.FLAGS
 config_flags.DEFINE_config_file('config')
 flags.DEFINE_bool('keep_logs', True, 'If True, creates a log file in output '
-                  'directory. If False, only logs to console.')
+    'directory. If False, only logs to console.')
 flags.DEFINE_bool(
     'is_vertex', False, 'True if the training job will be executed on VertexAI.'
 )
 flags.DEFINE_string('ensemble_dir', '', 'If specified, loads the models at '
-                    'this directory to consider the ensemble.')
+    'this directory to consider the ensemble.')
 flags.DEFINE_string(
     'trial_name',
     None,
@@ -117,11 +116,9 @@ def main(_) -> None:
       reweighting_signal=config.reweighting.signal
   )
   model_params.train_bias = config.train_bias
-  output_dir = config.output_dir
-  start_time = datetime.datetime.now()
-  timestamp = start_time.strftime('%Y-%m-%d-%H%M%S')
-  output_dir = f'{output_dir}_{timestamp}'
 
+  job_id = os.path.basename(FLAGS.trial_name)
+  output_dir = os.path.join(config.output_dir, job_id)
   tf.io.gfile.makedirs(output_dir)
   example_id_to_bias_table = None
 

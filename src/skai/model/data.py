@@ -213,11 +213,11 @@ def create_ids_table(dataloader: Dataloader,
   np.random.seed(initial_sample_seed)
   subset_ids = np.random.choice(ids, initial_sample_size, replace=False)
   # ids_dir is populated by the sample_and_split_ids function above
-  tf.compat.v1.logging.info('Seed number %d', split_num + split_seed)
+  tf.get_logger().info('Seed number %d', split_num + split_seed)
   np.random.seed(split_num + split_seed)
   ids_i = np.random.choice(
       subset_ids, int(split_proportion * initial_sample_size), replace=False)
-  tf.compat.v1.logging.info('Subset size %d', len(ids_i))
+  tf.get_logger().info('Subset size %d', len(ids_i))
   if not training:
     ids_i = subset_ids[~np.isin(subset_ids, ids_i)]
   keys = tf.convert_to_tensor(ids_i, dtype=tf.string)
