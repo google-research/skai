@@ -319,12 +319,23 @@ def evaluate_model(
         logging.info('Bias Acc: %f', results['bias_auc'])
       if model.num_subgroups > 1:
         for i in range(model.num_subgroups):
-          logging.info('Subgroup %d Acc: %f', i,
-                       results[f'subgroup_{i}_main_acc'])
+          logging.info(
+              'Subgroup %d Acc: %f', i, results[f'subgroup_{i}_main_acc']
+          )
         logging.info('Average Acc: %f', results['avg_acc'])
         logging.info('Average Acc: %f', results['weighted_avg_acc'])
   if save_best_model:
-    loaded_model = tf.keras.models.load_model(os.path.join(output_dir, 'model'))
+    try:
+      loaded_model = tf.keras.models.load_model(
+          os.path.join(output_dir, 'model')
+      )
+    except OSError:
+      # There are multiple subdirectories named by metric.
+      best_model = sorted(
+          tf.io.gfile.listdir(os.path.join(output_dir, 'model')))[-1]
+      loaded_model = tf.keras.models.load_model(
+          os.path.join(output_dir, 'model', best_model)
+      )
     compiled_model = compile_model(
         loaded_model, loaded_model.model.model_params
     )
