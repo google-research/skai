@@ -63,11 +63,15 @@ _EVAL_IMAGE_URI = flags.DEFINE_string(
 _EVAL_WORKER_MACHINE_TYPE = flags.DEFINE_string(
     "eval_worker_machine_type",
     default="n1-standard-4",
-    help="Machine type for workers used in training.")
+    help="Machine type for workers used in evaluation.")
 _EVAL_WORKER_ACCELERATOR_TYPE = flags.DEFINE_string(
     "eval_worker_accelerator_type",
     default="NVIDIA_TESLA_P100",
-    help="Accelerator type for workers used in training.")
+    help="Accelerator type for workers used in evaluation.")
+_EVAL_WORKER_ACCELERATOR_COUNT = flags.DEFINE_integer(
+    "eval_worker_accelerator_count",
+    default=1,
+    help="Number of accelerators to use per worker in evaluation.")
 
 # Job Specs
 _DISPLAY_NAME = flags.DEFINE_string(
@@ -120,7 +124,7 @@ def _get_worker_pool_specs(flags_to_pass: List[str]) -> List[Dict[str, Any]]:
         "machine_spec": {
             "machine_type": _EVAL_WORKER_MACHINE_TYPE.value,
             "accelerator_type": _EVAL_WORKER_ACCELERATOR_TYPE.value,
-            "accelerator_count": 1
+            "accelerator_count": _EVAL_WORKER_ACCELERATOR_COUNT.value
         },
         "replica_count": 1,
         "container_spec": {

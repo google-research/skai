@@ -240,6 +240,8 @@ def compile_model(
   main_metrics = [
       tf.keras.metrics.CategoricalAccuracy(name='acc'),
       tf.keras.metrics.AUC(name='auc'),
+      tf.keras.metrics.Precision(name='precision'),
+      tf.keras.metrics.Recall(name='recall'),
   ]
   for i in range(model_params.num_classes):
     main_metrics.append(
@@ -258,6 +260,8 @@ def compile_model(
     metrics['bias'] = [
         tf.keras.metrics.CategoricalAccuracy(name='acc'),
         tf.keras.metrics.AUC(name='auc'),
+        tf.keras.metrics.Precision(name='precision'),
+        tf.keras.metrics.Recall(name='recall'),
     ]
     loss['bias'] = tf.keras.losses.CategoricalCrossentropy(
         from_logits=False, name='bias'
@@ -314,18 +318,32 @@ def evaluate_model(
       logging.info('Evaluation Dataset Name: %s', ds_name)
       logging.info('Main Acc: %f', results['main_acc'])
       logging.info('Main AUC: %f', results['main_auc'])
+      logging.info('Main Precision: %f', results['main_precision'])
+      logging.info('Main Recall: %f', results['main_recall'])
       if model.train_bias:
         logging.info('Bias Acc: %f', results['bias_acc'])
-        logging.info('Bias Acc: %f', results['bias_auc'])
+        logging.info('Bias AUC: %f', results['bias_auc'])
+        logging.info('Bias Precision: %f', results['bias_auc'])
+        logging.info('Bias Recall: %f', results['bias_auc'])
       if model.num_subgroups > 1:
         for i in range(model.num_subgroups):
-          logging.info('Subgroup %d Acc: %f', i,
-                       results[f'subgroup_{i}_main_acc'])
+          logging.info(
+              'Subgroup %d Acc: %f', i, results[f'subgroup_{i}_main_acc']
+          )
         logging.info('Average Acc: %f', results['avg_acc'])
         logging.info('Average Acc: %f', results['weighted_avg_acc'])
   if save_best_model:
-    model_dir = os.path.join(output_dir, 'model')
-    loaded_model = tf.keras.models.load_model(model_dir)
+    try:
+      loaded_model = tf.keras.models.load_model(
+          os.path.join(output_dir, 'model')
+      )
+    except OSError:
+      # There are multiple subdirectories named by metric.
+      best_model = sorted(
+          tf.io.gfile.listdir(os.path.join(output_dir, 'model')))[-1]
+      loaded_model = tf.keras.models.load_model(
+          os.path.join(output_dir, 'model', best_model)
+      )
     compiled_model = compile_model(
         loaded_model, loaded_model.model.model_params
     )
@@ -382,7 +400,7 @@ def create_callbacks(
     save_model_checkpoints: bool = False,
     save_best_model: bool = True,
     early_stopping: bool = True,
-    vizier_trial_name: str = None,
+    vizier_trial_name: str | None = None,
     batch_size: Optional[int] = 64,
     num_train_examples: Optional[int] = None,
     is_vertex: bool = False
@@ -416,14 +434,16 @@ def create_callbacks(
     callbacks.append(checkpoint_callback)
   if save_best_model:
     model_dir = os.path.join(output_dir, 'model')
-    # TODO(jlee24,mohammedelfatihsalah): Update to AUPRC.
     model_callback = tf.keras.callbacks.ModelCheckpoint(
-        filepath=model_dir,
+        filepath=os.path.join(
+            model_dir, 'aucpr-{val_main_aucpr_1_vs_rest:.2f}'
+        ),
         monitor='val_main_aucpr_1_vs_rest',
         mode='max',
         save_weights_only=False,
         save_best_only=True,
-        save_traces=True)
+        save_traces=True,
+    )
     callbacks.append(model_callback)
   if early_stopping:
     early_stopping_callback = tf.keras.callbacks.EarlyStopping(
@@ -448,6 +468,19 @@ def create_callbacks(
     )
     callbacks.append(hyperparameter_tuner_callback)
 
+  dataset_size = (
+      num_train_examples if num_train_examples != 0 else batch_size * 100
+  )
+  trial_name = vizier_trial_name if is_vertex else None
+  hyperparameter_tuner_callback = log_metrics_callback.LogMetricsCallback(
+      metric_loggers=[
+          xmanager_external_metric_logger.XManagerMetricLogger(trial_name)
+      ],
+      logging_frequency=int(dataset_size / batch_size) * batch_size,
+      batch_size=batch_size,
+      num_train_examples_per_epoch=dataset_size,
+  )
+  callbacks.append(hyperparameter_tuner_callback)
   return callbacks
 
 
@@ -590,7 +623,7 @@ def find_epoch_ckpt_path(epoch: int,
     # Uses nearest available epoch in `ckpt_epochs`.
     nearest_epoch_id = np.argmin(np.abs(ckpt_epochs - epoch))
     nearest_epoch = ckpt_epochs[nearest_epoch_id]
-    tf.compat.v1.logging.warn(
+    tf.get_logger().warn(
         'Required epoch (%s) not in list of available epochs `%s`.'
         'Use nearest epoch `%s`', epoch, np.unique(ckpt_epochs), nearest_epoch)
     epoch = nearest_epoch
@@ -631,13 +664,13 @@ def load_trained_models(combos_dir: str,
     if ckpt_epoch < 0:
       # Loads the latest checkpoint.
       checkpoint_path = tf.train.latest_checkpoint(ckpt_dir)
-      tf.compat.v1.logging.info(f'Loading best model from `{checkpoint_path}`')
+      tf.get_logger().info(f'Loading best model from `{checkpoint_path}`')
     else:
       # Loads the required checkpoint.
       # By default, select the checkpoint with highest validation AUC.
       checkpoint_path = find_epoch_ckpt_path(
           ckpt_epoch, ckpt_dir, metric_name='val_auc', mode='highest')
-      tf.compat.v1.logging.info(
+      tf.get_logger().info(
           f'Loading model for checkpoint {ckpt_epoch} from `{checkpoint_path}`')
 
     combo_model = load_one_checkpoint(checkpoint_path=checkpoint_path,
@@ -815,11 +848,15 @@ def eval_ensemble(
     logging.info('Evaluation Dataset Name: %s', ds_name)
     logging.info('Main Acc: %f', result['main_acc'])
     logging.info('Main AUC: %f', result['main_auc'])
+    logging.info('Main Precision: %f', result['main_precision'])
+    logging.info('Main Recall: %f', result['main_recall'])
     # TODO(jlee24): Bias labels are not calculated for other evaluation
     # datasets beyond validation, e.g. 'test' or 'test2'.
     # Provide way to save the predictions themselves.
     logging.info('Bias Acc: %f', result['bias_acc'])
     logging.info('Bias AUC: %f', result['bias_auc'])
+    logging.info('Bias Precision: %f', result['bias_precision'])
+    logging.info('Bias Recall: %f', result['bias_recall'])
 
 
 def run_ensemble(
@@ -877,7 +914,7 @@ def train_and_evaluate(
     early_stopping: bool,
     ensemble_dir: Optional[str] = '',
     example_id_to_bias_table: Optional[tf.lookup.StaticHashTable] = None,
-    vizier_trial_name: str = None,
+    vizier_trial_name: str | None = None,
     is_vertex: bool = False
 ):
   """Performs the operations of training, optionally ensembling, and evaluation.

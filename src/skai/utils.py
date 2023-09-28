@@ -95,6 +95,10 @@ def get_bytes_feature(example: Example, feature_name: str) -> Sequence[bytes]:
   return list(example.features.feature[feature_name].bytes_list.value)
 
 
+def get_string_feature(example: Example, feature_name: str) -> str:
+  return example.features.feature[feature_name].bytes_list.value[0].decode()
+
+
 def reformat_flags(flags_list: List[flags.Flag]) -> List[str]:
   """Converts Flag objects to strings formatted as command line arguments.
 

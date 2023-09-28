@@ -32,6 +32,10 @@ flags.DEFINE_integer(
 flags.DEFINE_string('worker_type', 'c3-standard-8', 'Dataflow worker type.')
 flags.DEFINE_string('worker_machine_type','n1-highmem-8', 'worker machine type')
 flags.DEFINE_string('dataflow_service_options', '', 'Dataflow service options')
+flags.DEFINE_list(
+    'text_labels', ['intact buildings', 'damaged buildings'], 'Text labels.'
+)
+
 
 def main(_) -> None:
   timestamp = time.strftime('%Y%m%d-%H%M%S')
@@ -58,6 +62,7 @@ def main(_) -> None:
       FLAGS.image_size,
       FLAGS.post_images_only,
       FLAGS.batch_size,
+      FLAGS.text_labels,
       pipeline_options,
   )
 

@@ -1,9 +1,10 @@
 """Functions for running model inference in beam."""
 
 import time
-from typing import Any, Iterator
+from typing import Any, Iterator, Optional
+
 import apache_beam as beam
-import apache_beam.utils.shared as beam_shared
+from apache_beam.utils import multi_process_shared
 import numpy as np
 from skai import utils
 from skai.model import data
@@ -18,6 +19,9 @@ def set_gpu_memory_growth() -> None:
     except RuntimeError as e:
       print(e)
 set_gpu_memory_growth()
+
+import tensorflow_text  # pylint: disable=unused-import
+
 
 class InferenceModel(object):
   """Abstract base class for an inference model.
@@ -58,6 +62,40 @@ def _extract_image_or_blank(
   return np.zeros((image_size, image_size, 3), dtype=np.float32)
 
 
+def _get_model_type(model: tf.keras.Model) -> Optional[str]:
+  if hasattr(model, 'model_type'):
+    return model.model_type.numpy().decode('utf-8')
+  return None
+
+
+class TF2VLMModel:
+  """VLM model wrapper for SKAI TF2 models."""
+
+  def __init__(self, model: tf.keras.Model, text_labels: list[str]):
+    self._model = model
+    self.labels_embeddings = self._model.encode_texts(
+        tf.convert_to_tensor(text_labels)
+    )
+
+  def __call__(self, batch: dict[str, Any]) -> dict[str, tf.Tensor]:
+    """Predicts probabilities for a batch of images.
+
+    Args:
+      batch: dictionary that contains the input images. The batch
+             must has "large_image" and the image pixels must
+             normalised in the range 0 - 1.0.
+    Returns:
+      a dictionary that contains probabilities of labels for
+      each image example.
+    """
+    # TODO(mohammedelfatihsalah): check the image size requirement of the save tf model.
+    image_embeddings = self._model.encode_images(batch['large_image']*255)
+    # TODO(mohammedelfatihsalah): take the temperature value from the saved tf model.
+    sims = image_embeddings @ tf.transpose(self.labels_embeddings) * 100
+    probs = tf.nn.softmax(sims, axis=-1)
+    return {'main': probs}
+
+
 class TF2InferenceModel(InferenceModel):
   """InferenceModel wrapper for SKAI TF2 models."""
 
@@ -67,11 +105,16 @@ class TF2InferenceModel(InferenceModel):
   _model: Any
 
   def __init__(
-      self, model_dir: str, image_size: int, post_image_only: bool):
+      self,
+      model_dir: str,
+      image_size: int,
+      post_image_only: bool,
+      text_labels: list[str],
+  ):
     self._model_dir = model_dir
     self._image_size = image_size
     self._post_image_only = post_image_only
-    self._shared_handle = beam_shared.Shared()
+    self._text_labels = text_labels
     self._model = None
 
   def _make_dummy_input(self):
@@ -116,20 +159,24 @@ class TF2InferenceModel(InferenceModel):
     #
     # https://medium.com/google-cloud/cache-reuse-across-dofns-in-beam-a34a926db848
     def load():
-      model = tf.keras.models.load_model(
-          self._model_dir, compile=False
-      )
-      model.optimizer = None
-      # Call predict once to make sure any hidden lazy initialization is
-      # triggered. See https://stackoverflow.com/a/43393252
-      model.predict(self._make_dummy_input())
-      return model
+      model = tf.saved_model.load(self._model_dir)
+      if _get_model_type(model) == 'vlm':
+        vlm_model = TF2VLMModel(model, self._text_labels)
+        _ = vlm_model(self._make_dummy_input())
+        return vlm_model
+      else:
+        # Call predict once to make sure any hidden lazy initialization is
+        # triggered. See https://stackoverflow.com/a/43393252
+        _ = model(self._make_dummy_input())
+        return model
 
-    self._model = self._shared_handle.acquire(load)
+    self._model = (
+        multi_process_shared.MultiProcessShared(load, 'share').acquire()
+    )
 
   def predict_scores(self, batch: list[tf.train.Example]) -> np.ndarray:
     model_input = self._extract_image_arrays(batch)
-    outputs = self._model.predict(model_input)
+    outputs = self._model(model_input)
     return outputs['main'][:, 1]
 
   def _extract_image_arrays(
@@ -249,6 +296,7 @@ def run_tf2_inference_with_csv_output(
     image_size: int,
     post_image_only: bool,
     batch_size: int,
+    text_labels: list[str],
     pipeline_options):
   """Runs example generation pipeline using TF2 model and outputs to CSV.
 
@@ -259,6 +307,8 @@ def run_tf2_inference_with_csv_output(
     image_size: Image width and height.
     post_image_only: Model expects only post-disaster images.
     batch_size: Batch size.
+    text_labels: list of text labels that will be used by the vision langauge
+      model.
     pipeline_options: Dataflow pipeline options.
   """
   
@@ -270,6 +320,8 @@ def run_tf2_inference_with_csv_output(
             examples_pattern, coder=beam.coders.ProtoCoder(tf.train.Example))
         | 'reshuffle_input' >> beam.Reshuffle()
     )
-    model = TF2InferenceModel(model_dir, image_size, post_image_only)
+    model = TF2InferenceModel(
+        model_dir, image_size, post_image_only, text_labels
+    )
     scored_examples = run_inference(examples, 'score', batch_size, model)
     examples_to_csv(scored_examples, output_prefix)

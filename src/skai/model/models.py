@@ -13,6 +13,7 @@ import tensorflow as tf
 
 MODEL_REGISTRY = {}
 RESNET_IMAGE_SIZE = 224
+TYPE_VISION = 'vision'
 
 
 def register_model(name: str):
@@ -75,6 +76,9 @@ class ResNet50v1(tf.keras.Model):
     super(ResNet50v1, self).__init__(name=model_params.model_name)
 
     self.model_params = model_params
+    self.model_name = tf.Variable(
+        TYPE_VISION, trainable=False, dtype=tf.string
+    )
     self.resnet_model = tf.keras.applications.resnet50.ResNet50(
         include_top=False,
         weights='imagenet' if model_params.load_pretrained_weights else None,
@@ -148,6 +152,9 @@ class ResNet50v2(tf.keras.Model):
     super(ResNet50v2, self).__init__(name=model_params.model_name)
 
     self.model_params = model_params
+    self.model_name = tf.Variable(
+        model_params.model_name, trainable=False, dtype=tf.string
+    )
     self.resnet_model = tf.keras.applications.resnet_v2.ResNet50V2(
         include_top=False,
         weights='imagenet' if model_params.load_pretrained_weights else None,
@@ -221,6 +228,9 @@ class TwoTower(tf.keras.Model):
     super(TwoTower, self).__init__(name=model_params.model_name)
 
     self.model_params = model_params
+    self.model_name = tf.Variable(
+        TYPE_VISION, trainable=False, dtype=tf.string
+    )
     backbone = tf.keras.applications.resnet_v2.ResNet50V2(
         include_top=False,
         weights='imagenet' if model_params.load_pretrained_weights else None,
