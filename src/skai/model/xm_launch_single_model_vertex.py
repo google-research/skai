@@ -5,7 +5,7 @@ import os
 from absl import app, flags
 from xmanager import xm
 from xmanager import xm_local
-from xmanager.vizier import vizier_cloud 
+from xmanager.vizier import vizier_cloud
 from ml_collections import config_flags
 from google.cloud import aiplatform_v1beta1 as aip
 from docker_instructions import get_docker_instructions
