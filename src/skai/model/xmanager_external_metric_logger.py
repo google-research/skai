@@ -3,6 +3,7 @@
 from skai.model.log_metrics_callback import MetricLogger
 from xmanager.vizier.vizier_cloud import vizier_worker
 
+
 class XManagerMetricLogger(MetricLogger):
   """Class for logging metrics to XManager."""
 

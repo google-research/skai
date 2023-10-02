@@ -82,7 +82,6 @@ def _get_setup_file_path():
   return str(pathlib.Path(__file__).parent.parent / 'setup.py')
 
 
-
 def _get_dataflow_container_image() -> str | None:
 
   """Gets default dataflow image based on Python version.
@@ -153,7 +152,7 @@ def get_pipeline_options(
       'max_num_workers': max_workers,
       'use_public_ips': False,  # Avoids hitting public ip quota bottleneck.
       'worker_machine_type': worker_machine_type,
-      'dataflow_service_options':dataflow_service_options
+      'dataflow_service_options': dataflow_service_options
   }
   if worker_service_account:
     options['service_account_email'] = worker_service_account

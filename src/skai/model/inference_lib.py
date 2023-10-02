@@ -311,7 +311,7 @@ def run_tf2_inference_with_csv_output(
       model.
     pipeline_options: Dataflow pipeline options.
   """
-  
+
   with beam.Pipeline(options=pipeline_options) as pipeline:
     examples = (
         pipeline

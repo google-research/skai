@@ -63,7 +63,7 @@ flags.DEFINE_string(
     'cloud_location',
     None,
     'Google Cloud location (region) for vizier jobs'
-)                
+)
 flags.DEFINE_enum(
     'accelerator',
     default=None,
@@ -130,18 +130,18 @@ def get_study_config() -> aip.StudySpec:
 def main(_) -> None:
   config = FLAGS.config
   config_path = config_flags.get_config_filename(FLAGS['config'])
-  
+
   with xm_local.create_experiment(
       experiment_title=(
           f'{FLAGS.experiment_name} {config.data.name}_{config.model.name}'
       )
   ) as experiment:
     base_image, docker_instructions = get_docker_instructions(FLAGS.accelerator)
-    
+
     executable_spec = xm.PythonContainer(
         # Package the current directory that this script is in.
         path=os.path.expanduser(FLAGS.project_path),
-        base_image=base_image, 
+        base_image=base_image,
         docker_instructions=docker_instructions,
         entrypoint=xm.CommandList([
             'pip install /skai/src/.',
@@ -182,7 +182,7 @@ def main(_) -> None:
     ])
 
     job_args = {
-        'config.output_dir': os.path.join(config.output_dir, 
+        'config.output_dir': os.path.join(config.output_dir,
                                      str(experiment.experiment_id)),
         'config.train_bias': config.train_bias,
         'config.train_stage_2_as_ensemble': False,

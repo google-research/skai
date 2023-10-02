@@ -220,7 +220,7 @@ class TwoTower(tf.keras.Model):
   """Defines Two Tower class with two output heads.
 
   One output head is for the main training task, while the other is an optional
-  head to train on bias labels. Inputs are feature vectors. 
+  head to train on bias labels. Inputs are feature vectors.
   """
 
   def __init__(self,
