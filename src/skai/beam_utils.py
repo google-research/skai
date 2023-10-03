@@ -106,9 +106,9 @@ def get_pipeline_options(
     temp_dir: str,
     max_workers: int,
     worker_service_account: str | None,
-    worker_type: str | None,
-    worker_machine_type: str | None,
-    dataflow_service_options: str
+    machine_type: str | None,
+    accelerator: str | None,
+    accelerator_count: int
 ) -> PipelineOptions:
   """Returns dataflow pipeline options.
 
@@ -122,7 +122,9 @@ def get_pipeline_options(
     worker_service_account: Email of the service account will launch workers.
         If None, uses the project's default Compute Engine service account
         (<project-number>-compute@developer.gserviceaccount.com).
-    worker_type: Dataflow worker type.
+    machine_type: Dataflow worker type.
+    accelerator: Accelerator type, e.g. nvidia-tesla-t4.
+    accelerator_count: Number of acccelerators to use.
 
   Returns:
     Dataflow options.
@@ -151,11 +153,16 @@ def get_pipeline_options(
       'setup_file': _get_setup_file_path(),
       'max_num_workers': max_workers,
       'use_public_ips': False,  # Avoids hitting public ip quota bottleneck.
-      'worker_machine_type': worker_machine_type,
-      'dataflow_service_options': dataflow_service_options
   }
   if worker_service_account:
     options['service_account_email'] = worker_service_account
   if worker_type:
     options['machine_type'] = worker_type
+
+  if accelerator:
+    dataflow_service_options = f'{accelerator};count:{accelerator_count}'
+    if 'nvidia' in accelerator:
+      dataflow_service_options += ';install-nvidia-driver'
+    options['dataflow_service_options'] = dataflow_service_options
+
   return PipelineOptions.from_dictionary(options)
