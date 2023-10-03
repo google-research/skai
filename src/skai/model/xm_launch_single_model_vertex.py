@@ -2,13 +2,14 @@ r"""XM Launcher."""
 
 import os
 
-from absl import app, flags
+from absl import app
+from absl import flags
+from docker_instructions import get_docker_instructions
+from google.cloud import aiplatform_v1beta1 as aip
+from ml_collections import config_flags
 from xmanager import xm
 from xmanager import xm_local
 from xmanager.vizier import vizier_cloud
-from ml_collections import config_flags
-from google.cloud import aiplatform_v1beta1 as aip
-from docker_instructions import get_docker_instructions
 
 
 parameter_spec = aip.StudySpec.ParameterSpec
@@ -68,16 +69,16 @@ flags.DEFINE_enum(
     'accelerator',
     default=None,
     help='Accelerator to use for faster computations.',
-    enum_values=['P100', 'V100', 'P4', 'T4', 'A100','TPU_V2', 'TPU_V3']
+    enum_values=['P100', 'V100', 'P4', 'T4', 'A100', 'TPU_V2', 'TPU_V3']
 )
 
 flags.DEFINE_integer(
     'accelerator_count',
     1,
     (
-    'Number of accelerator machines to use. Note that TPU_V2 and TPU_V3 '
-    'only support count=8, see '
-    'https://github.com/deepmind/xmanager/blob/main/docs/executors.md'
+        'Number of accelerator machines to use. Note that TPU_V2 and TPU_V3 '
+        'only support count=8, see '
+        'https://github.com/deepmind/xmanager/blob/main/docs/executors.md'
     ),
 )
 config_flags.DEFINE_config_file('config')
@@ -183,7 +184,7 @@ def main(_) -> None:
 
     job_args = {
         'config.output_dir': os.path.join(config.output_dir,
-                                     str(experiment.experiment_id)),
+                                          str(experiment.experiment_id)),
         'config.train_bias': config.train_bias,
         'config.train_stage_2_as_ensemble': False,
         'config.round_idx': 0,
@@ -211,9 +212,7 @@ def main(_) -> None:
     job_args['config.training.num_epochs'] = config.training.num_epochs
 
     if FLAGS.cloud_location is None:
-      raise ValueError(
-            f'Google Cloud location is either None or invalid. Enter a valid location.'
-        )
+      raise ValueError('Google Cloud location is either None or invalid.')
     vizier_cloud.VizierExploration(
         experiment=experiment,
         job=xm.Job(
@@ -222,7 +221,7 @@ def main(_) -> None:
         study_factory=vizier_cloud.NewStudy(
             study_config=get_study_config(),
             location=FLAGS.cloud_location
-            ),
+        ),
 
         num_trials_total=100,
         num_parallel_trial_runs=3,
