@@ -457,6 +457,17 @@ def create_callbacks(
     )
     callbacks.append(early_stopping_callback)
 
+  if is_vertex:
+    metric_logger = xmanager_external_metric_logger.XManagerMetricLogger(
+        vizier_trial_name)
+    hyperparameter_tuner_callback = log_metrics_callback.LogMetricsCallback(
+        [metric_logger],
+        batch_size * 2,
+        batch_size,
+        num_train_examples,
+    )
+    callbacks.append(hyperparameter_tuner_callback)
+
   dataset_size = (
       num_train_examples if num_train_examples != 0 else batch_size * 100
   )

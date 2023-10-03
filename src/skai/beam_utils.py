@@ -15,8 +15,6 @@
 
 import pathlib
 import platform
-from typing import Tuple
-
 import apache_beam as beam
 import apache_beam.io.fileio as fileio
 import apache_beam.options.value_provider as value_provider
@@ -31,7 +29,7 @@ class _BinarySink(fileio.FileSink):
   def open(self, file_handle):
     self._file_handle = file_handle
 
-  def write(self, record: Tuple[str, bytes]):
+  def write(self, record: tuple[str, bytes]):
     """Writes the binary content in the second element of the record to file."""
     self._file_handle.write(record[1])
 
@@ -85,16 +83,18 @@ def _get_setup_file_path():
 
 
 def _get_dataflow_container_image() -> str | None:
+
   """Gets default dataflow image based on Python version.
 
   Returns:
     Dataflow container image path.
   """
   py_version = '.'.join(platform.python_version().split('.')[:2])
-  if py_version in ['3.7', '3.8', '3.9', '3.10', '3.11']:
+  if py_version in ['3.10', '3.11']:
     return f'gcr.io/disaster-assessment/dataflow_{py_version}_image:latest'
+
   raise ValueError(
-      f'Dataflow SDK supports Python versions 3.7-3.11, not {py_version}'
+      f'Dataflow SDK supports Python versions 3.10+, not {py_version}'
   )
 
 
@@ -106,7 +106,9 @@ def get_pipeline_options(
     temp_dir: str,
     max_workers: int,
     worker_service_account: str | None,
-    worker_type: str | None,
+    machine_type: str | None,
+    accelerator: str | None,
+    accelerator_count: int
 ) -> PipelineOptions:
   """Returns dataflow pipeline options.
 
@@ -120,7 +122,9 @@ def get_pipeline_options(
     worker_service_account: Email of the service account will launch workers.
         If None, uses the project's default Compute Engine service account
         (<project-number>-compute@developer.gserviceaccount.com).
-    worker_type: Dataflow worker type.
+    machine_type: Dataflow worker type.
+    accelerator: Accelerator type, e.g. nvidia-tesla-t4.
+    accelerator_count: Number of acccelerators to use.
 
   Returns:
     Dataflow options.
@@ -148,10 +152,17 @@ def get_pipeline_options(
       'sdk_location': 'container',
       'setup_file': _get_setup_file_path(),
       'max_num_workers': max_workers,
-      'use_public_ips': False  # Avoids hitting public ip quota bottleneck.
+      'use_public_ips': False,  # Avoids hitting public ip quota bottleneck.
   }
   if worker_service_account:
     options['service_account_email'] = worker_service_account
-  if worker_type:
-    options['machine_type'] = worker_type
+  if machine_type:
+    options['machine_type'] = machine_type
+
+  if accelerator:
+    dataflow_service_options = f'{accelerator};count:{accelerator_count}'
+    if 'nvidia' in accelerator:
+      dataflow_service_options += ';install-nvidia-driver'
+    options['dataflow_service_options'] = dataflow_service_options
+
   return PipelineOptions.from_dictionary(options)

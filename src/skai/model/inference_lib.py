@@ -9,9 +9,18 @@ import numpy as np
 from skai import utils
 from skai.model import data
 import tensorflow as tf
-
-
 import tensorflow_text  # pylint: disable=unused-import
+
+
+def set_gpu_memory_growth() -> None:
+  gpus = tf.config.list_physical_devices('GPU')
+  if gpus:
+    try:
+      for gpu in gpus:
+        tf.config.experimental.set_memory_growth(gpu, True)
+    except RuntimeError as e:
+      print(e)
+set_gpu_memory_growth()
 
 
 class InferenceModel(object):
@@ -79,9 +88,11 @@ class TF2VLMModel:
       a dictionary that contains probabilities of labels for
       each image example.
     """
-    # TODO(mohammedelfatihsalah): check the image size requirement of the save tf model.
+    # TODO(mohammedelfatihsalah): check the image size requirement of the saved
+    # tf model.
     image_embeddings = self._model.encode_images(batch['large_image']*255)
-    # TODO(mohammedelfatihsalah): take the temperature value from the saved tf model.
+    # TODO(mohammedelfatihsalah): take the temperature value from the saved tf
+    # model.
     sims = image_embeddings @ tf.transpose(self.labels_embeddings) * 100
     probs = tf.nn.softmax(sims, axis=-1)
     return {'main': probs}
