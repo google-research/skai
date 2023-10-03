@@ -811,7 +811,9 @@ def generate_examples_pipeline(
       temp_dir,
       max_workers,
       worker_service_account,
-      None
+      machine_type=None,
+      accelerator=None,
+      accelerator_count=0,
   )
 
   coordinates_path = os.path.join(temp_dir, 'coordinates')
