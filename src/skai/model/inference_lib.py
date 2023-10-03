@@ -10,6 +10,7 @@ from skai import utils
 from skai.model import data
 import tensorflow as tf
 
+
 def set_gpu_memory_growth() -> None:
   gpus = tf.config.list_physical_devices('GPU')
   if gpus:

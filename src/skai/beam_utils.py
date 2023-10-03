@@ -156,8 +156,8 @@ def get_pipeline_options(
   }
   if worker_service_account:
     options['service_account_email'] = worker_service_account
-  if worker_type:
-    options['machine_type'] = worker_type
+  if machine_type:
+    options['machine_type'] = machine_type
 
   if accelerator:
     dataflow_service_options = f'{accelerator};count:{accelerator_count}'
