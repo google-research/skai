@@ -15,11 +15,8 @@ import ml_collections
 from ml_collections import config_flags
 from xmanager import xm
 from xmanager import xm_abc
-from xmanager.contrib.internal import parameter_controller
 from xmanager.vizier import vizier_abc
 
-# TODO(jlee24): Use OSS Vizier.
-from google3.learning.vizier.service.client import pyvizier
 
 
 FLAGS = flags.FLAGS
@@ -63,50 +60,6 @@ flags.DEFINE_list(
 config_flags.DEFINE_config_file('config')
 
 
-def get_study_config() -> pyvizier.StudyConfig:
-  """Creates Vizier study_config."""
-  study_config = pyvizier.StudyConfig()
-  study_config.automated_stopping_config = (
-      pyvizier.AutomatedStoppingConfig.decay_curve_stopping_config(
-          use_steps=True
-      )
-  )
-  # TODO(jlee24): Make search space controllable via experiment config.
-  search_space_root = study_config.search_space.select_root()
-  search_space_root.add_categorical_param(
-      name='args.config.optimizer.type',
-      feasible_values=('adam', 'sgd'),
-  )
-  search_space_root.add_float_param(
-      name='args.config.optimizer.learning_rate',
-      min_value=1e-6,
-      max_value=1e-2,
-      default_value=1e-3,
-      scale_type=pyvizier.ScaleType.LOG,
-  )
-  search_space_root.add_float_param(
-      name='args.config.model.l2_regularization_factor',
-      min_value=0.0,
-      max_value=3.0,
-      default_value=0.5,
-      scale_type=pyvizier.ScaleType.LINEAR,
-  )
-
-  study_config.metric_information = [
-      pyvizier.MetricInformation(
-          name='epoch_main_aucpr_1_vs_rest_val',
-          goal=pyvizier.ObjectiveMetricGoal.MAXIMIZE,
-      )
-  ]
-  study_config.measurement_selection_type = (
-      pyvizier.MeasurementSelectionType.BEST_MEASUREMENT
-  )
-
-  study_config.study_stopping_config = pyvizier.StudyStoppingConfig(
-      max_num_trials=1000
-  )
-
-  return study_config
 
 
 def _sweep(
@@ -213,7 +166,6 @@ def main(_) -> None:
           )
       )
     else:
-      @parameter_controller.controller(interpreter=xm_abc.ml_python())
       async def run_train(
           experiment: xm.Experiment,
           config: ml_collections.ConfigDict,
