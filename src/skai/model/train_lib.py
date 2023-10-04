@@ -232,7 +232,7 @@ def compile_model(
     )
   loss = {
       'main': tf.keras.losses.CategoricalCrossentropy(
-          from_logits=False, name='main'
+          from_logits=True, name='main'
       )
   }
   loss_weights = {'main': 1}
@@ -264,7 +264,7 @@ def compile_model(
         tf.keras.metrics.Recall(name='recall'),
     ]
     loss['bias'] = tf.keras.losses.CategoricalCrossentropy(
-        from_logits=False, name='bias'
+        from_logits=True, name='bias'
     )
     loss_weights['bias'] = 1
   for i in range(model_params.num_subgroups):
