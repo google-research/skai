@@ -52,9 +52,9 @@ def _create_test_example(
 
 
 class TestModel(inference_lib.InferenceModel):
-  def __init__(self, expected_batch_size: int, score: float):
+  def __init__(self, expected_batch_size: int, id_to_score: dict[int, float]):
     self._expected_batch_size = expected_batch_size
-    self._score = score
+    self._id_to_score = id_to_score
     self._model_prepared = False
 
   def prepare_model(self):
@@ -72,7 +72,12 @@ class TestModel(inference_lib.InferenceModel):
           f'Expected batch size is at most {self._expected_batch_size}, got'
           f' {len(batch)}.'
       )
-    return np.ones((self._expected_batch_size,)) * self._score
+    return np.array(
+        [
+            self._id_to_score[utils.get_int64_feature(e, 'int64_id')[0]]
+            for e in batch
+        ]
+    )
 
 
 class InferenceTest(absltest.TestCase):
@@ -80,18 +85,22 @@ class InferenceTest(absltest.TestCase):
   def test_run_inference(self):
     with test_pipeline.TestPipeline() as pipeline:
       examples = []
+      id_to_score = {}
       for example_id in range(10):
         example = tf.train.Example()
         utils.add_int64_feature('int64_id', example_id, example)
+        utils.add_bytes_feature(
+            'encoded_coordinates', f'{example_id}'.encode(), example
+        )
         examples.append(example)
+        id_to_score[example_id] = 1 / (example_id + 1)
 
       examples_collection = (
           pipeline
           | beam.Create(examples)
       )
       batch_size = 4
-      score = 0.5
-      model = TestModel(batch_size, score)
+      model = TestModel(batch_size, id_to_score)
       result = inference_lib.run_inference(
           examples_collection, 'score', batch_size, model
       )
@@ -101,7 +110,59 @@ class InferenceTest(absltest.TestCase):
             len(examples) == 10
         ), f'Expected 10 examples in output, got {len(examples)}'
         for example in examples:
-          assert example.features.feature['score'].float_list.value[0] == score
+          example_id = utils.get_int64_feature(example, 'int64_id')[0]
+          expected_score = id_to_score[example_id]
+          score = example.features.feature['score'].float_list.value[0]
+          assert np.isclose(
+              score, expected_score
+          ), f'Expected score = {expected_score}, got {score}.'
+
+      assert_that(result, _check_examples)
+
+  def test_run_inference_with_duplicates(self):
+    coords_and_scores = [
+        ('A', 0.1),
+        ('A', 0.2),
+        ('A', 0.3),
+        ('B', 0.0),
+        ('B', 1.0),
+        ('C', 0.75),
+    ]
+    with test_pipeline.TestPipeline() as pipeline:
+      examples = []
+      id_to_score = {}
+      for i, (coord, score) in enumerate(coords_and_scores):
+        example = tf.train.Example()
+        utils.add_int64_feature('int64_id', i, example)
+        utils.add_bytes_feature('encoded_coordinates', coord.encode(), example)
+        examples.append(example)
+        id_to_score[i] = score
+
+      examples_collection = (
+          pipeline
+          | beam.Create(examples)
+      )
+      batch_size = 4
+      model = TestModel(batch_size, id_to_score)
+      result = inference_lib.run_inference(
+          examples_collection, 'score', batch_size, model
+      )
+
+      def _check_examples(examples):
+        assert (
+            len(examples) == 3
+        ), f'Expected 3 examples in output, got {len(examples)}'
+        for example in examples:
+          coord = utils.get_string_feature(example, 'encoded_coordinates')
+          expected_score = {
+              'A': 0.2,
+              'B': 0.5,
+              'C': 0.75,
+          }[coord]
+          score = example.features.feature['score'].float_list.value[0]
+          assert np.isclose(
+              score, expected_score
+          ), f'Expected score = {expected_score}, got {score}.'
 
       assert_that(result, _check_examples)
 

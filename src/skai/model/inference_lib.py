@@ -1,7 +1,7 @@
 """Functions for running model inference in beam."""
 
 import time
-from typing import Any, Iterator, Optional
+from typing import Any, Iterable, Iterator, Optional
 
 import apache_beam as beam
 from apache_beam.utils import multi_process_shared
@@ -241,6 +241,37 @@ class ModelInference(beam.DoFn):
     self._batches_processed.inc(1)
 
 
+def _merge_examples(
+    keyed_examples: tuple[str, Iterable[tf.train.Example]]
+) -> tf.train.Example:
+  examples = list(keyed_examples[1])
+  scores = [utils.get_float_feature(e, 'score')[0] for e in examples]
+  output_example = tf.train.Example()
+  output_example.CopyFrom(examples[0])
+  output_example.features.feature['score'].float_list.value[:] = [
+      np.mean(scores)
+  ]
+  return output_example
+
+
+def _dedup_scored_examples(examples: beam.PCollection) -> beam.PCollection:
+  """Deduplications examples by merging those sharing the same coordinates.
+
+  Args:
+    examples: PCollection of examples with scores.
+
+  Returns:
+    PCollection of deduplicated examples.
+  """
+  return (
+      examples
+      | 'key_examples_by_coords'
+      >> beam.Map(_key_example_by_encoded_coordinates)
+      | 'group_by_coords' >> beam.GroupByKey()
+      | 'merge_examples' >> beam.Map(_merge_examples)
+  )
+
+
 def run_inference(
     examples: beam.PCollection,
     score_feature: str,
@@ -258,7 +289,7 @@ def run_inference(
   Returns:
     PCollection of Tensorflow Examples augmented with inference scores.
   """
-  return (
+  scored_examples = (
       examples
       | 'batch'
       >> beam.transforms.util.BatchElements(
@@ -266,6 +297,13 @@ def run_inference(
       )
       | 'inference' >> beam.ParDo(ModelInference(score_feature, model))
   )
+  return _dedup_scored_examples(scored_examples)
+
+
+def _key_example_by_encoded_coordinates(
+    example: tf.train.Example,
+) -> tuple[str, tf.train.Example]:
+  return (utils.get_string_feature(example, 'encoded_coordinates'), example)
 
 
 def _format_example_to_csv_row(example: tf.train.Example) -> str:
