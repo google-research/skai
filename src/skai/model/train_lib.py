@@ -482,7 +482,8 @@ def run_train(
     model_params: models.ModelTrainingParameters,
     experiment_name: str,
     callbacks: Optional[List[tf.keras.callbacks.Callback]] = None,
-    example_id_to_bias_table: Optional[tf.lookup.StaticHashTable] = None
+    example_id_to_bias_table: Optional[tf.lookup.StaticHashTable] = None,
+    strategy: Optional[tf.distribute.Strategy] = None
 ) -> tf.keras.Model:
   """Initializes and trains model on given training and validation data.
 
@@ -497,11 +498,37 @@ def run_train(
   Returns:
     Trained model.
   """
-  two_head_model = init_model(
-      model_params=model_params,
-      experiment_name=experiment_name,
-      example_id_to_bias_table=example_id_to_bias_table
-  )
+
+  def encode_strings_to_numbers(data: tf.Tensor):
+    get_hash_values = lambda x: abs(hash(x.ref()))
+
+    def encode_string_to_number(data, key):
+      encoded_values = tf.map_fn(elems=data[key], 
+                                  fn=get_hash_values, 
+                                  dtype=tf.int64) 
+      data[key] = encoded_values
+      return data
+
+    data = encode_string_to_number(data, "example_id")
+    data = encode_string_to_number(data, "string_label")
+    return data
+
+  if strategy is not None:
+    with strategy.scope():
+      two_head_model = init_model(
+          model_params=model_params,
+          experiment_name=experiment_name,
+          example_id_to_bias_table=example_id_to_bias_table
+      )
+  else:
+    two_head_model = init_model(
+          model_params=model_params,
+          experiment_name=experiment_name,
+          example_id_to_bias_table=example_id_to_bias_table
+      )
+
+  train_ds = train_ds.map(encode_strings_to_numbers) 
+  val_ds = val_ds.map(encode_strings_to_numbers)
 
   two_head_model.fit(
       train_ds,
@@ -521,6 +548,7 @@ def train_ensemble(
     early_stopping: bool = True,
     example_id_to_bias_table: Optional[tf.lookup.StaticHashTable] = None,
     is_vertex: bool = False,
+    strategy: Optional[tf.distribute.Strategy] = None
 ) -> List[tf.keras.Model]:
   """Trains an ensemble of models, locally. See xm_launch.py for parallelized.
 
@@ -559,7 +587,8 @@ def train_ensemble(
         model_params=model_params,
         experiment_name=combo_name,
         callbacks=combo_callbacks,
-        example_id_to_bias_table=example_id_to_bias_table)
+        example_id_to_bias_table=example_id_to_bias_table,
+        strategy=strategy)
     ensemble.append(combo_model)
   return ensemble
 
@@ -907,7 +936,8 @@ def train_and_evaluate(
     ensemble_dir: Optional[str] = '',
     example_id_to_bias_table: Optional[tf.lookup.StaticHashTable] = None,
     vizier_trial_name: str | None = None,
-    is_vertex: bool = False
+    is_vertex: bool = False,
+    strategy: Optional[tf.distribute.Strategy] = None
 ):
   """Performs the operations of training, optionally ensembling, and evaluation.
 
@@ -960,7 +990,9 @@ def train_and_evaluate(
         model_params=model_params,
         experiment_name=experiment_name,
         callbacks=callbacks,
-        example_id_to_bias_table=example_id_to_bias_table)
+        example_id_to_bias_table=example_id_to_bias_table,
+        strategy=strategy)
     evaluate_model(two_head_model, output_dir, dataloader.eval_ds,
                    save_model_checkpoints, save_best_model)
     return two_head_model
+  

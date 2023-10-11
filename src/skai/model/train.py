@@ -4,7 +4,6 @@ r"""Binary to run training on a single model once.
 # pylint: enable=line-too-long
 """
 
-import datetime
 import logging as native_logging
 import os
 
@@ -29,6 +28,21 @@ flags.DEFINE_bool('keep_logs', True, 'If True, creates a log file in output '
 flags.DEFINE_bool(
     'is_vertex', False, 'True if the training job will be executed on VertexAI.'
 )
+flags.DEFINE_bool(
+  'distribute',
+  default=False,
+  help=(
+    'Distribute training across multiple accelerator devices'
+  )
+)
+flags.DEFINE_enum(
+  'accelerator',
+  default='cpu',
+  help='Accelerator to use for computations',
+  enum_values=['cpu', 'gpu', 'tpu']
+  
+)
+
 flags.DEFINE_string('ensemble_dir', '', 'If specified, loads the models at '
                     'this directory to consider the ensemble.')
 flags.DEFINE_string(
@@ -38,10 +52,25 @@ flags.DEFINE_string(
     ' projects/{project}/locations/{location}/studies/{study}/trials/{trial}',
 )
 
+def get_tpu_resolver():
+  resolver = tf.distribute.cluster_resolver.TPUClusterResolver(tpu='local')
+  tf.config.experimental_connect_to_cluster(resolver)
+  tf.tpu.experimental.initialize_tpu_system(resolver)
+  print("All devices: ", tf.config.list_logical_devices('TPU'))
+  return resolver
 
 def main(_) -> None:
   config = FLAGS.config
   base_config.check_flags(config)
+  strategy=None
+  if FLAGS.accelerator == 'tpu':
+    resolver = get_tpu_resolver()
+    strategy = tf.distribute.TPUStrategy(resolver)
+
+  elif FLAGS.accelerator == 'gpu' and FLAGS.distribute==True:
+    # strategy = tf.distribute.MirroredStrategy()
+    #TODO: Add distributed strategy for GPU when distributed training on GPU is required
+    pass
 
   if FLAGS.keep_logs and not config.training.log_to_xm:
     if not tf.io.gfile.exists(config.output_dir):
@@ -118,12 +147,6 @@ def main(_) -> None:
       reweighting_signal=config.reweighting.signal
   )
   model_params.train_bias = config.train_bias
-  output_dir = config.output_dir
-  if FLAGS.is_vertex:
-    # TODO: go/skai-instadeep - Create output_dir specific to job.
-    start_time = datetime.datetime.now()
-    timestamp = start_time.strftime('%Y-%m-%d-%H%M%S')
-    output_dir = f'{output_dir}_{timestamp}'
 
   job_id = os.path.basename(FLAGS.trial_name)
   output_dir = os.path.join(config.output_dir, job_id)
@@ -206,8 +229,10 @@ def main(_) -> None:
       example_id_to_bias_table=example_id_to_bias_table,
       vizier_trial_name=FLAGS.trial_name,
       is_vertex=FLAGS.is_vertex,
+      strategy=strategy,
   )
 
 
 if __name__ == '__main__':
   app.run(main)
+  
