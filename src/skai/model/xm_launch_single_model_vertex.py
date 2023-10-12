@@ -162,10 +162,10 @@ def main(_) -> None:
 
     if FLAGS.accelerator is not None:
       if FLAGS.accelerator in ['TPU_V3', 'TPU_V2']:
-          # if FLAGS.accelerator_count != 8:
-          #   raise ValueError(
-          #       f'The accelerator {FLAGS.accelerator} only support 8 devices.'
-          #   )
+        if FLAGS.accelerator_count != 8:
+            raise ValueError(
+                f'The accelerator {FLAGS.accelerator} only support 8 devices.'
+            )
         accelerator = 'tpu'
       else:
         accelerator = 'gpu'
@@ -191,7 +191,9 @@ def main(_) -> None:
             executor_spec=xm_local.Vertex.Spec(),
             args={
                 'config': config_path,
-                'is_vertex': 'vertex' in str(executor.Spec()).lower()
+                'is_vertex': True,
+                'distribute': FLAGS.distribute,
+                'accelerator': accelerator
             },
         ),
     ])
