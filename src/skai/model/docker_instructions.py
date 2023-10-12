@@ -5,19 +5,21 @@ TPU_ACCELERATORS = ['TPU_V2', 'TPU_V3']
 
 CPU_BASE_IMAGE = 'tensorflow/tensorflow:2.13.0'
 GPU_BASE_IMAGE = 'nvcr.io/nvidia/tensorflow:23.08-tf2-py3'
-TPU_BASE_IMAGE = 'ubuntu:20.04'
+TPU_BASE_IMAGE = 'ubuntu:22.04'
 
 
 def tpuvm_docker_instructions() -> list[str]:
-  """Returns a list of docker instructions necessary to use TF 2.9.1 on TPUs."""
-  tpu_shared_object_url = 'https://storage.googleapis.com/cloud-tpu-tpuvm-artifacts/libtpu/1.3.0/libtpu.so'
-  tf_wheel_url = 'https://storage.googleapis.com/cloud-tpu-tpuvm-artifacts/tensorflow/tf-2.9.1/tensorflow-2.9.1-cp38-cp38-linux_x86_64.whl'
+  """Returns a list of docker instructions necessary to use TensorFlow on TPUs."""
+  tf_wheel_name = 'tensorflow-2.14.0-cp310-cp310-manylinux_2_17_x86_64.manylinux2014_x86_64.whl'
+  tf_wheel_url= 'https://storage.googleapis.com/cloud-tpu-tpuvm-artifacts/tensorflow/tf-2.14.0/' + tf_wheel_name
+  tpu_shared_object_url = 'https://storage.googleapis.com/cloud-tpu-tpuvm-artifacts/libtpu/1.8.0/libtpu.so'
+  # tf_wheel_url = 'https://storage.googleapis.com/cloud-tpu-tpuvm-artifacts/tensorflow/tf-2.9.1/tensorflow-2.9.1-cp38-cp38-linux_x86_64.whl'
   return [
       f'RUN wget {tpu_shared_object_url} -O /lib/libtpu.so',
       'RUN chmod 700 /lib/libtpu.so',
       f'RUN wget {tf_wheel_url}',
-      'RUN pip3 install tensorflow-2.9.1-cp38-cp38-linux_x86_64.whl',
-      'RUN rm tensorflow-2.9.1-cp38-cp38-linux_x86_64.whl',
+      f'RUN pip3 install {tf_wheel_name}',
+      f'RUN rm {tf_wheel_name}',
   ]
 
 
