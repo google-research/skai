@@ -499,20 +499,22 @@ def run_train(
     Trained model.
   """
 
-  def encode_strings_to_numbers(data: tf.Tensor):
-    """Encode string data components, example_id and string_label to numerical codes"""
+  def encode_strings_to_numbers(input_data: tf.Tensor):
+    """
+    Encode string data components, example_id and string_label 
+    to numerical codes
+    """
     get_hash_values = lambda x: abs(hash(x.ref()))
-
-    def encode_string_to_number(data, key):
-      encoded_values = tf.map_fn(elems=data[key], 
-                                  fn=get_hash_values, 
-                                  dtype=tf.int64) 
-      data[key] = encoded_values
+    def encode_string_to_number(input_data, key):
+      encoded_values = tf.map_fn(elems=input_data[key],
+                                  fn=get_hash_values,
+                                  dtype=tf.int64)
+      input_data[key] = encoded_values
       return data
 
-    data = encode_string_to_number(data, "example_id")
-    data = encode_string_to_number(data, "string_label")
-    return data
+    input_data = encode_string_to_number(input_data, 'example_id')
+    input_data = encode_string_to_number(input_data, 'string_label')
+    return input_data
 
   if strategy is not None:
     with strategy.scope():
@@ -528,7 +530,7 @@ def run_train(
           example_id_to_bias_table=example_id_to_bias_table
       )
 
-  train_ds = train_ds.map(encode_strings_to_numbers) 
+  train_ds = train_ds.map(encode_strings_to_numbers)
   val_ds = val_ds.map(encode_strings_to_numbers)
 
   two_head_model.fit(

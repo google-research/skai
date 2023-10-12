@@ -40,7 +40,6 @@ flags.DEFINE_enum(
   default='cpu',
   help='Accelerator to use for computations',
   enum_values=['cpu', 'gpu', 'tpu']
-  
 )
 
 flags.DEFINE_string('ensemble_dir', '', 'If specified, loads the models at '
@@ -56,7 +55,6 @@ def get_tpu_resolver():
   resolver = tf.distribute.cluster_resolver.TPUClusterResolver(tpu='local')
   tf.config.experimental_connect_to_cluster(resolver)
   tf.tpu.experimental.initialize_tpu_system(resolver)
-  print("All devices: ", tf.config.list_logical_devices('TPU'))
   return resolver
 
 def main(_) -> None:
@@ -67,9 +65,10 @@ def main(_) -> None:
     resolver = get_tpu_resolver()
     strategy = tf.distribute.TPUStrategy(resolver)
 
-  elif FLAGS.accelerator == 'gpu' and FLAGS.distribute==True:
+  elif FLAGS.accelerator == 'gpu' and FLAGS.distribute is True:
     # strategy = tf.distribute.MirroredStrategy()
-    #TODO: Add distributed strategy for GPU when distributed training on GPU is required
+    #TODO: Add distributed strategy for GPU
+    # when distributed training on GPU is required
     pass
 
   if FLAGS.keep_logs and not config.training.log_to_xm:
