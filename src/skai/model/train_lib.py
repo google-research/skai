@@ -500,6 +500,7 @@ def run_train(
   """
 
   def encode_strings_to_numbers(data: tf.Tensor):
+    """Encode string data components, example_id and string_label to numerical codes"""
     get_hash_values = lambda x: abs(hash(x.ref()))
 
     def encode_string_to_number(data, key):
