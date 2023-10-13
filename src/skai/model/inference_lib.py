@@ -1,7 +1,7 @@
 """Functions for running model inference in beam."""
 
 import time
-from typing import Any, Iterator, Optional
+from typing import Any, Iterable, Iterator, Optional
 
 import apache_beam as beam
 from apache_beam.utils import multi_process_shared
@@ -9,9 +9,18 @@ import numpy as np
 from skai import utils
 from skai.model import data
 import tensorflow as tf
-
-
 import tensorflow_text  # pylint: disable=unused-import
+
+
+def set_gpu_memory_growth() -> None:
+  gpus = tf.config.list_physical_devices('GPU')
+  if gpus:
+    try:
+      for gpu in gpus:
+        tf.config.experimental.set_memory_growth(gpu, True)
+    except RuntimeError as e:
+      print(e)
+set_gpu_memory_growth()
 
 
 class InferenceModel(object):
@@ -114,9 +123,11 @@ class TF2VLMModel:
       a dictionary that contains probabilities of labels for
       each image example.
     """
-    # TODO(mohammedelfatihsalah): check the image size requirement of the save tf model.
+    # TODO(mohammedelfatihsalah): check the image size requirement of the saved
+    # tf model.
     image_embeddings = self._model.encode_images(batch['large_image']*255)
-    # TODO(mohammedelfatihsalah): take the temperature value from the saved tf model.
+    # TODO(mohammedelfatihsalah): take the temperature value from the saved tf
+    # model.
     sims = image_embeddings @ tf.transpose(self.labels_embeddings) * 100
     probs = tf.nn.softmax(sims, axis=-1)
     return {'main': probs}
@@ -292,6 +303,37 @@ class ModelInference(beam.DoFn):
     self._batches_processed.inc(1)
 
 
+def _merge_examples(
+    keyed_examples: tuple[str, Iterable[tf.train.Example]]
+) -> tf.train.Example:
+  examples = list(keyed_examples[1])
+  scores = [utils.get_float_feature(e, 'score')[0] for e in examples]
+  output_example = tf.train.Example()
+  output_example.CopyFrom(examples[0])
+  output_example.features.feature['score'].float_list.value[:] = [
+      np.mean(scores)
+  ]
+  return output_example
+
+
+def _dedup_scored_examples(examples: beam.PCollection) -> beam.PCollection:
+  """Deduplications examples by merging those sharing the same coordinates.
+
+  Args:
+    examples: PCollection of examples with scores.
+
+  Returns:
+    PCollection of deduplicated examples.
+  """
+  return (
+      examples
+      | 'key_examples_by_coords'
+      >> beam.Map(_key_example_by_encoded_coordinates)
+      | 'group_by_coords' >> beam.GroupByKey()
+      | 'merge_examples' >> beam.Map(_merge_examples)
+  )
+
+
 def run_inference(
     examples: beam.PCollection,
     score_feature: str,
@@ -309,7 +351,7 @@ def run_inference(
   Returns:
     PCollection of Tensorflow Examples augmented with inference scores.
   """
-  return (
+  scored_examples = (
       examples
       | 'batch'
       >> beam.transforms.util.BatchElements(
@@ -317,6 +359,13 @@ def run_inference(
       )
       | 'inference' >> beam.ParDo(ModelInference(score_feature, model))
   )
+  return _dedup_scored_examples(scored_examples)
+
+
+def _key_example_by_encoded_coordinates(
+    example: tf.train.Example,
+) -> tuple[str, tf.train.Example]:
+  return (utils.get_string_feature(example, 'encoded_coordinates'), example)
 
 
 def _format_example_to_csv_row(example: tf.train.Example) -> str:

@@ -132,7 +132,7 @@ class ExamplesGenerationConfig:
                 ' a value %f'
             ),
             field.name,
-            val,
+            getattr(config, field.name),
         )
     return config
 
@@ -166,7 +166,7 @@ class ExamplesGenerationConfig:
                   ' will be it %s will be used.'
               ),
               field.name,
-              val
+              getattr(config, field.name)
           )
     return config
 
@@ -811,7 +811,9 @@ def generate_examples_pipeline(
       temp_dir,
       max_workers,
       worker_service_account,
-      None
+      machine_type=None,
+      accelerator=None,
+      accelerator_count=0,
   )
 
   coordinates_path = os.path.join(temp_dir, 'coordinates')

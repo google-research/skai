@@ -302,7 +302,7 @@ def compile_model(
     )
   loss = {
       'main': tf.keras.losses.CategoricalCrossentropy(
-          from_logits=False, name='main'
+          from_logits=True, name='main'
       )
   }
   loss_weights = {'main': 1}
@@ -310,6 +310,8 @@ def compile_model(
   main_metrics = [
       tf.keras.metrics.CategoricalAccuracy(name='acc'),
       tf.keras.metrics.AUC(name='auc'),
+      tf.keras.metrics.Precision(name='precision'),
+      tf.keras.metrics.Recall(name='recall'),
   ]
   for i in range(model_params.num_classes):
     main_metrics.append(
@@ -328,9 +330,11 @@ def compile_model(
     metrics['bias'] = [
         tf.keras.metrics.CategoricalAccuracy(name='acc'),
         tf.keras.metrics.AUC(name='auc'),
+        tf.keras.metrics.Precision(name='precision'),
+        tf.keras.metrics.Recall(name='recall'),
     ]
     loss['bias'] = tf.keras.losses.CategoricalCrossentropy(
-        from_logits=False, name='bias'
+        from_logits=True, name='bias'
     )
     loss_weights['bias'] = 1
   for i in range(model_params.num_subgroups):
@@ -385,17 +389,32 @@ def evaluate_model(
       logging.info('Evaluation Dataset Name: %s', ds_name)
       logging.info('Main Acc: %f', results['main_acc'])
       logging.info('Main AUC: %f', results['main_auc'])
+      logging.info('Main Precision: %f', results['main_precision'])
+      logging.info('Main Recall: %f', results['main_recall'])
       if model.train_bias:
         logging.info('Bias Acc: %f', results['bias_acc'])
-        logging.info('Bias Acc: %f', results['bias_auc'])
+        logging.info('Bias AUC: %f', results['bias_auc'])
+        logging.info('Bias Precision: %f', results['bias_auc'])
+        logging.info('Bias Recall: %f', results['bias_auc'])
       if model.num_subgroups > 1:
         for i in range(model.num_subgroups):
-          logging.info('Subgroup %d Acc: %f', i,
-                       results[f'subgroup_{i}_main_acc'])
+          logging.info(
+              'Subgroup %d Acc: %f', i, results[f'subgroup_{i}_main_acc']
+          )
         logging.info('Average Acc: %f', results['avg_acc'])
         logging.info('Average Acc: %f', results['weighted_avg_acc'])
   if save_best_model:
-    loaded_model = tf.keras.models.load_model(os.path.join(output_dir, 'model'))
+    try:
+      loaded_model = tf.keras.models.load_model(
+          os.path.join(output_dir, 'model')
+      )
+    except OSError:
+      # There are multiple subdirectories named by metric.
+      best_model = sorted(
+          tf.io.gfile.listdir(os.path.join(output_dir, 'model')))[-1]
+      loaded_model = tf.keras.models.load_model(
+          os.path.join(output_dir, 'model', best_model)
+      )
     compiled_model = compile_model(
         loaded_model, loaded_model.model.model_params
     )
@@ -512,10 +531,13 @@ def create_callbacks(
   dataset_size = (
       num_train_examples if num_train_examples != 0 else batch_size * 100
   )
+
   trial_name = vizier_trial_name if is_vertex else None
   hyperparameter_tuner_callback = log_metrics_callback.LogMetricsCallback(
       metric_loggers=[
-          xmanager_external_metric_logger.XManagerMetricLogger(trial_name)
+          xmanager_external_metric_logger.XManagerMetricLogger(
+              trial_name, output_dir
+          )
       ],
       logging_frequency=int(dataset_size / batch_size) * batch_size,
       batch_size=batch_size,
@@ -890,11 +912,15 @@ def eval_ensemble(
     logging.info('Evaluation Dataset Name: %s', ds_name)
     logging.info('Main Acc: %f', result['main_acc'])
     logging.info('Main AUC: %f', result['main_auc'])
+    logging.info('Main Precision: %f', result['main_precision'])
+    logging.info('Main Recall: %f', result['main_recall'])
     # TODO(jlee24): Bias labels are not calculated for other evaluation
     # datasets beyond validation, e.g. 'test' or 'test2'.
     # Provide way to save the predictions themselves.
     logging.info('Bias Acc: %f', result['bias_acc'])
     logging.info('Bias AUC: %f', result['bias_auc'])
+    logging.info('Bias Precision: %f', result['bias_precision'])
+    logging.info('Bias Recall: %f', result['bias_recall'])
 
 
 def run_ensemble(

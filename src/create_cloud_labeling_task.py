@@ -48,10 +48,14 @@ from absl import logging
 from skai import cloud_labeling
 
 FLAGS = flags.FLAGS
-flags.DEFINE_string('cloud_project', 'disaster-assessment', 'GCP project name.')
-flags.DEFINE_string('cloud_location', 'us-central1', 'Project location.')
-flags.DEFINE_string('examples_pattern', '', 'Pattern matching TFRecords.')
-flags.DEFINE_string('images_dir', '', 'Directory to write images to.')
+flags.DEFINE_string('cloud_project', None, 'GCP project name.', required=True)
+flags.DEFINE_string('cloud_location', None, 'Project location.', required=True)
+flags.DEFINE_string(
+    'examples_pattern', None, 'Pattern matching TFRecords.', required=True
+)
+flags.DEFINE_string(
+    'images_dir', None, 'Directory to write images to.', required=True
+)
 flags.DEFINE_string(
     'import_file_path', None,
     'If specified, use this import file directly instead of generating new '
