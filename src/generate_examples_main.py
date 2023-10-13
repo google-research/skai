@@ -36,6 +36,7 @@ python generate_examples_main.py \
   --cloud_region=us-west1
 """
 
+import os
 import time
 from typing import List
 
@@ -164,6 +165,8 @@ flags.DEFINE_string(
 
 Polygon = shapely.geometry.polygon.Polygon
 
+BUILDINGS_FILE_NAME = 'processed_buildings.parquet'
+
 
 def _read_image_config(path: str) -> List[str]:
   with tf.io.gfile.GFile(path, 'r') as f:
@@ -207,35 +210,32 @@ def main(args):
     raise ValueError('At least labels_file (for labeled examples extraction) '
                      'or buildings_method != none (for unlabeled data) should '
                      'be specified.')
-  if config.buildings_method != 'none':
+
+  buildings_path = os.path.join(config.output_dir, BUILDINGS_FILE_NAME)
+  if config.labels_file:
+    generate_examples.read_labels_file(
+        config.labels_file,
+        config.label_property,
+        config.labels_to_classes,
+        config.num_keep_labeled_examples,
+        buildings_path
+    )
+    buildings_labeled = True
+  else:
     if config.aoi_path:
       aois = buildings.read_aois(config.aoi_path)
     else:
       aois = [read_raster.get_raster_bounds(path, gdal_env)
               for path in after_image_patterns]
     try:
-      building_centroids = generate_examples.get_building_centroids(
-          config, aois
+      generate_examples.download_building_footprints(
+          config, aois, buildings_path
       )
     except generate_examples.NotInitializedEarthEngineError:
       logging.fatal('Could not initialize Earth Engine.', exc_info=True)
     except generate_examples.NoBuildingFoundError:
       logging.fatal('No building is found.', exc_info=True)
-    logging.info('Found %d buildings in area of interest.',
-                 len(building_centroids))
-  else:
-    # Only if one wants to extract labeled examples and labels_file is provided.
-    building_centroids = []
-
-  if config.labels_file:
-    labeled_coordinates = generate_examples.read_labels_file(
-        config.labels_file,
-        config.label_property,
-        config.labels_to_classes,
-        config.num_keep_labeled_examples,
-    )
-  else:
-    labeled_coordinates = []
+    buildings_labeled = False
 
   generate_examples.generate_examples_pipeline(
       before_image_patterns,
@@ -245,8 +245,8 @@ def main(args):
       config.resolution,
       config.output_dir,
       config.output_shards,
-      building_centroids,
-      labeled_coordinates,
+      buildings_path,
+      buildings_labeled,
       config.use_dataflow,
       gdal_env,
       timestamped_dataset,
