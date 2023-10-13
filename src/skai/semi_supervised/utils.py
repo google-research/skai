@@ -25,13 +25,38 @@ _GPUS = None
 
 
 class EasyDict(dict):
+  """
+    A dictionary class that allows access to keys as attributes.
+
+    This class extends the built-in dictionary class and provides the ability
+    to access dictionary keys as attributes for convenience.
+
+    Example:
+    ```
+    my_dict = EasyDict({'key1': 'value1', 'key2': 'value2'})
+    print(my_dict.key1)  # Accessing key1 as an attribute
+    ```
+    """
 
   def __init__(self, *args, **kwargs):
+    """
+        Initialize an EasyDict instance.
+
+        Args:
+            *args: Variable-length positional arguments.
+            **kwargs: Variable-length keyword arguments.
+        """
     super().__init__(*args, **kwargs)
     self.__dict__ = self
 
 
 def get_config():
+  """
+    Get a TensorFlow configuration for GPU usage.
+
+    Returns:
+        tf.ConfigProto: TensorFlow configuration for GPU usage.
+    """
   config = tf.ConfigProto()
   if len(get_available_gpus()) > 1:
     config.allow_soft_placement = True
@@ -40,11 +65,25 @@ def get_config():
 
 
 def setup_tf():
+  """
+    Set up TensorFlow environment.
+
+    This function sets environment variables and logging levels for TensorFlow.
+    """
   os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
   tf.logging.set_verbosity(tf.logging.ERROR)
 
 
 def smart_shape(x):
+  """
+    Get the shape of a TensorFlow tensor with support for dynamic shapes.
+
+    Args:
+        x: TensorFlow tensor.
+
+    Returns:
+        list: List of dimensions representing the shape.
+    """
   s = x.shape
   st = tf.shape(x)
   return [s[i] if s[i].value is not None else st[i] for i in range(4)]
@@ -129,14 +168,38 @@ def getter_ema(ema, getter, name, *args, **kwargs):
 
 
 def model_vars(scope=None):
+  """
+    Get the trainable variables in the specified scope.
+
+    Args:
+        scope (str, optional): The variable scope to filter by. Default is None.
+
+    Returns:
+        list: List of trainable variables in the specified scope.
+    """
   return tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope)
 
 
 def gpu(x):
+  """
+    Get the GPU device string for the given GPU index.
+
+    Args:
+        x (int): Index of the GPU.
+
+    Returns:
+        str: GPU device string in the format '/gpu:X'.
+    """
   return '/gpu:%d' % (x % max(1, len(get_available_gpus())))
 
 
 def get_available_gpus():
+  """
+    Get a tuple of available GPU device names.
+
+    Returns:
+        tuple: Tuple of available GPU device names.
+    """
   global _GPUS
   if _GPUS is None:
     config = tf.ConfigProto()

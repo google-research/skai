@@ -30,6 +30,17 @@ TRANSFORMATION_LEVEL = 0.8  # Degree of severity with which to apply
 class CTAugmentTest(parameterized.TestCase, tf.test.TestCase):
 
   def test_get_policy(self):
+    """
+        Test the get_policy method of CTAugment.
+
+        This method tests the behavior of the get_policy method in the CTAugment class.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
     augmenter2 = ctaugment.CTAugment(depth=2)
     self.assertLen(augmenter2.policy(True), 2)
     self.assertLen(augmenter2.policy(False), 2)
@@ -38,6 +49,17 @@ class CTAugmentTest(parameterized.TestCase, tf.test.TestCase):
     self.assertLen(augmenter3.policy(False), 3)
 
   def test_apply_policy(self):
+    """
+        Test the apply_policy method of CTAugment.
+
+        This method tests the behavior of the apply_policy method in the CTAugment class.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
     augmenter = ctaugment.CTAugment(depth=2)
     policy = augmenter.policy(True)
     # TODO(jlee24): Make cutout size a flag to specify
@@ -47,6 +69,17 @@ class CTAugmentTest(parameterized.TestCase, tf.test.TestCase):
     self.assertNotAllEqual(image, augmented_image)
 
   def test_update_rates(self):
+    """
+        Test the update_rates method of CTAugment.
+
+        This method tests the behavior of the update_rates method in the CTAugment class.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
     augmenter = ctaugment.CTAugment(depth=2)
     policy = augmenter.policy(False)
     stats_before_update = augmenter.stats()
@@ -55,6 +88,17 @@ class CTAugmentTest(parameterized.TestCase, tf.test.TestCase):
     self.assertNotEqual(stats_before_update, stats_after_update)
 
   def test_cutout_numpy(self):
+    """
+        Test the cutout_numpy function.
+
+        This function tests the behavior of the cutout_numpy function in the ctaugment module.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
     image = np.ones((64, 64, 3))
     image[:, :] = (250, 0, 0)  # Set pixels to red
     transformed_image = ctaugment.cutout_numpy(image.astype('uint8'))
@@ -132,6 +176,18 @@ class CTAugmentTest(parameterized.TestCase, tf.test.TestCase):
           'level': TRANSFORMATION_LEVEL
       })
   def test_transformation(self, transformation, level):
+    """
+        Test various image transformations.
+
+        This method tests various image transformations provided by the ctaugment module.
+
+        Args:
+            transformation (function): The transformation function to test.
+            level: The transformation level.
+
+        Returns:
+            None
+        """
     image = np.ones((64, 64, 3))
     image[:10, :] = 0  # Set some pixels to black
     image[10:30, :] = (250, 0, 0)  # Set some pixels to red

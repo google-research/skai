@@ -29,7 +29,17 @@ from skai.semi_supervised.dataloader import prepare_ssl_data
 
 def _create_mixmatch(dataset: prepare_ssl_data.SSLDataset, log_width: int,
                      params: Dict[str, Any]):
-  """Initialize training parameters and model for MixMatch."""
+  """
+    Initialize training parameters and model for MixMatch.
+
+    Args:
+        dataset (prepare_ssl_data.SSLDataset): SSLDataset instance for data handling.
+        log_width (int): Logarithm of the width of the network.
+        params (Dict[str, Any]): Dictionary containing training parameters.
+
+    Returns:
+        mixmatch.MixMatch: Initialized MixMatch model.
+    """
   mixmatch_params = mixmatch.MixMatchTrainingParams(
       lr=params['lr'],
       weight_decay=params['weight_decay'],
@@ -57,7 +67,17 @@ def _create_mixmatch(dataset: prepare_ssl_data.SSLDataset, log_width: int,
 
 def _create_fixmatch(dataset: prepare_ssl_data.SSLDataset, log_width: int,
                      params: Dict[str, Any]):
-  """Initialize training parameters and model for FixMatch."""
+  """
+    Initialize training parameters and model for FixMatch.
+
+    Args:
+        dataset (prepare_ssl_data.SSLDataset): SSLDataset instance for data handling.
+        log_width (int): Logarithm of the width of the network.
+        params (Dict[str, Any]): Dictionary containing training parameters.
+
+    Returns:
+        fixmatch.Strategy: Initialized FixMatch model.
+    """
   fixmatch_params = fixmatch.FixMatchTrainingParams(
       lr=params['lr'],
       weight_decay=params['weight_decay'],
@@ -83,7 +103,17 @@ def _create_fixmatch(dataset: prepare_ssl_data.SSLDataset, log_width: int,
 
 def _create_fully_supervised(dataset: prepare_ssl_data.SSLDataset,
                              log_width: int, params: Dict[str, Any]):
-  """Initialize training parameters and model for Fully Supervised Baseline."""
+  """
+    Initialize training parameters and model for Fully Supervised Baseline.
+
+    Args:
+        dataset (prepare_ssl_data.SSLDataset): SSLDataset instance for data handling.
+        log_width (int): Logarithm of the width of the network.
+        params (Dict[str, Any]): Dictionary containing training parameters.
+
+    Returns:
+        fully_supervised_baseline.FullySupervisedBaseline: Initialized Fully Supervised Baseline model.
+    """
   fully_supervised_params = fully_supervised.FullySupervisedTrainingParams(
       lr=params['lr'],
       weight_decay=params['weight_decay'],

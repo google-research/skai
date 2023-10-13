@@ -27,17 +27,36 @@ class InferenceModel(object):
   """Abstract base class for an inference model.
 
   This should be subclassed for each actual model type.
+
+  Attributes:
+    model: The underlying TensorFlow model for inference.
   """
 
   def prepare_model(self) -> None:
-    """Prepares model for inference calls.
+    """Prepares the model for inference calls.
 
     This function will be called in the setup function of the DoFn.
-    """
+    Subclasses should implement any necessary setup steps, such as loading
+    model weights.
+
+    Raises:
+      NotImplementedError: Subclasses must implement this method.
+     """
     raise NotImplementedError()
 
   def predict_scores(self, batch: list[tf.train.Example]) -> np.ndarray:
-    """Predicts scores for a batch of input examples."""
+    """Predicts scores for a batch of input examples.
+
+    Args:
+      batch (list[tf.train.Example]): A batch of input examples.
+
+    Returns:
+      np.ndarray: An array of predicted scores for the input examples.
+
+    Raises:
+      NotImplementedError: Subclasses must implement this method.
+    """
+
     raise NotImplementedError()
 
 
@@ -49,12 +68,12 @@ def _extract_image_or_blank(
   If the image feature is missing, returns a blank image instead.
 
   Args:
-    example: Example to extract image from.
-    feature: Image feature name.
-    image_size: Image size.
+    example (tf.train.Example): Example to extract an image from.
+    feature (str): Name of the image feature.
+    image_size (int): Desired image size.
 
   Returns:
-    Image as a numpy array, or an array of 0s if image feature is missing.
+    np.ndarray: Extracted image as a numpy array or a blank image (if feature is missing).
   """
   if feature in example.features.feature:
     image_bytes = utils.get_bytes_feature(example, feature)[0]
@@ -63,6 +82,15 @@ def _extract_image_or_blank(
 
 
 def _get_model_type(model: tf.keras.Model) -> Optional[str]:
+  """Get the model type attribute from a TensorFlow model if available.
+
+  Args:
+    model (tf.keras.Model): The TensorFlow model.
+
+  Returns:
+    Optional[str]: The model type as a string, or None if not available.
+  """
+
   if hasattr(model, 'model_type'):
     return model.model_type.numpy().decode('utf-8')
   return None
@@ -72,6 +100,13 @@ class TF2VLMModel:
   """VLM model wrapper for SKAI TF2 models."""
 
   def __init__(self, model: tf.keras.Model, text_labels: list[str]):
+    """
+    Initialize the TF2VLMModel.
+
+    Args:
+      model (tf.keras.Model): The underlying TensorFlow 2 model.
+      text_labels (list[str]): List of text labels used for encoding.
+    """
     self._model = model
     self.labels_embeddings = self._model.encode_texts(
         tf.convert_to_tensor(text_labels)
@@ -113,6 +148,15 @@ class TF2InferenceModel(InferenceModel):
       post_image_only: bool,
       text_labels: list[str],
   ):
+    """
+    Initialize the TF2InferenceModel.
+
+    Args:
+      model_dir (str): Directory containing the TensorFlow model.
+      image_size (int): Size of images.
+      post_image_only (bool): Whether to use only post-disaster images.
+      text_labels (List[str]): List of text labels used for encoding.
+      """
     self._model_dir = model_dir
     self._image_size = image_size
     self._post_image_only = post_image_only
@@ -120,6 +164,7 @@ class TF2InferenceModel(InferenceModel):
     self._model = None
 
   def _make_dummy_input(self):
+    
     num_channels = 3 if self._post_image_only else 6
     image = np.zeros(
         (1, self._image_size, self._image_size, num_channels), dtype=np.float32
@@ -177,6 +222,15 @@ class TF2InferenceModel(InferenceModel):
     )
 
   def predict_scores(self, batch: list[tf.train.Example]) -> np.ndarray:
+    """
+    Predict scores for a batch of examples.
+
+    Args:
+      batch (List[tf.train.Example]): List of input examples.
+
+    Returns:
+      np.ndarray: Array of predicted scores.
+    """
     model_input = self._extract_image_arrays(batch)
     outputs = self._model(model_input)
     return outputs['main'][:, 1]
@@ -185,7 +239,15 @@ class TF2InferenceModel(InferenceModel):
       self,
       examples: list[tf.train.Example],
   ) -> dict[str, np.ndarray]:
-    """Reads images from a batch of examples as numpy arrays."""
+    """
+    Read images from a batch of examples as numpy arrays.
+
+    Args:
+      examples (List[tf.train.Example]): List of input examples.
+
+    Returns:
+      dict[str, np.ndarray]: Dictionary of image arrays.
+    """
     small_images = []
     large_images = []
     for example in examples:
@@ -307,6 +369,7 @@ def _key_example_by_encoded_coordinates(
 
 
 def _format_example_to_csv_row(example: tf.train.Example) -> str:
+  """Converts a TF Example to a CSV row."""
   example_id = utils.get_bytes_feature(example, 'example_id')[0].decode()
   longitude, latitude = utils.get_float_feature(example, 'coordinates')
   score = utils.get_float_feature(example, 'score')[0]

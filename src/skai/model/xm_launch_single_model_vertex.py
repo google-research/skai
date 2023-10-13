@@ -85,9 +85,14 @@ config_flags.DEFINE_config_file('config')
 
 
 def get_study_config() -> aip.StudySpec:
-  """Get study configs for vizier."""
+    """
+    Get study configurations for Vizier.
 
-  return aip.StudySpec(
+    Returns:
+        aip.StudySpec: A Vizier study specification.
+    """
+
+    return aip.StudySpec(
       parameters=[
           aip.StudySpec.ParameterSpec(
               parameter_id='config.optimizer.learning_rate',

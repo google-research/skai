@@ -26,7 +26,16 @@ CHECKPOINT_SUBDIR = 'checkpoints/'
 
 
 def compute_signal_epochs(num_signal_ckpts: int, num_total_epochs: int):
-  """Computes the epochs to compute introspection signals."""
+  """Computes the epochs to compute introspection signals.
+
+  Args:
+    num_signal_ckpts (int): The number of introspection signal checkpoints.
+    num_total_epochs (int): The total number of training epochs.
+
+  Returns:
+    List[int]: A list of epoch numbers at which introspection signals
+    should be computed, including the best checkpoint at -1.
+  """
   if num_signal_ckpts <= 0:
     # This will inform the `train_tf_lib.load_trained_models` to just use the
     # best checkpoint.
@@ -44,7 +53,16 @@ def compute_signal_epochs(num_signal_ckpts: int, num_total_epochs: int):
 def load_existing_bias_table(
     path_to_table: str,
     signal: Optional[str] = BIAS_LABEL_KEY) -> tf.lookup.StaticHashTable:
-  """Loads bias table from file."""
+  """Loads bias table from file.
+
+  Args:
+    path_to_table (str): The path to the bias table CSV file.
+    signal (Optional[str]): The signal to load from the table.
+
+  Returns:
+    tf.lookup.StaticHashTable: A TensorFlow StaticHashTable containing the
+    bias information.
+  """
   df = pd.read_csv(path_to_table)
   key_tensor = np.array([eval(x).decode('UTF-8') for    #  pylint:disable=eval-used
                          x in df[EXAMPLE_ID_KEY].to_list()])
@@ -397,17 +415,17 @@ def get_example_id_to_tracin_value_table(
   """Generates a lookup table mapping example ID to tracin value.
 
   Args:
-    dataloader: Dataclass object containing training and validation data.
-    model_checkpoints: List of model checkpoints.
-    has_bias: Do the trained models have a bias prediction head
-    split: Which split of the dataset to use ('train'/'val'/'test')
-    included_layers: Layers to include in Tracin computation (all trainable
-      layers from the index forward are included)
-    save_dir: Directory in which bias table will be saved as CSV.
-    save_table: Boolean for whether or not to save table.
-    table_name_suffix: String to add to the name of the created table
+    dataloader (data.Dataloader): Dataclass object containing training and validation data.
+    model_checkpoints (List[tf.keras.Model]): List of model checkpoints.
+    has_bias (bool): Do the trained models have a bias prediction head.
+    split (Optional[str]): Which split of the dataset to use ('train'/'val'/'test').
+    included_layers (Optional[int]): Layers to include in Tracin computation (all trainable layers from the index forward are included).
+    save_dir (Optional[str]): Directory in which bias table will be saved as CSV.
+    save_table (Optional[bool]): Boolean for whether or not to save table.
+    table_name_suffix (Optional[str]): String to add to the name of the created table.
+
   Returns:
-    A lookup table mapping example ID to tracin score.
+    tf.lookup.StaticHashTable: A lookup table mapping example ID to tracin score.
   """
 
   ds = dataloader.train_ds
@@ -438,7 +456,14 @@ def get_example_id_to_tracin_value_table(
 
 
 def load_existing_tracin_table(path_to_table: str):
-  """Loads tracin table from file."""
+  """Loads tracin table from file.
+
+  Args:
+    path_to_table (str): Path to the tracin table CSV file.
+
+  Returns:
+    tf.lookup.StaticHashTable: A lookup table mapping example ID to tracin score.
+  """
   df = pd.read_csv(path_to_table)
   key_tensor = np.array([eval(x).decode('UTF-8') for    #  pylint:disable=eval-used
                          x in df[EXAMPLE_ID_KEY].to_list()])
@@ -500,6 +525,21 @@ def calculate_tracin_values(
       included_layers_end: int,
       use_prediction_gradient: Optional[bool] = False
   ) -> Tuple[tf.Tensor, Any, Any]:
+    """Calculates self-influence scores for a batch of examples using a list of checkpoints.
+
+    Args:
+        batch (Dict[str, tf.Tensor]): A dictionary containing tensors for the batch, including 'example_id', 'input_feature', and 'label'.
+        checkpoints (List[tf.keras.Model]): A list of Keras models to use for self-influence calculation.
+        included_layers_start (int): Index of the first layer to include in influence calculation.
+        included_layers_end (int): Index of the last layer (exclusive) to include in influence calculation.
+        use_prediction_gradient (Optional[bool], optional): If True, use prediction gradient for influence calculation. Defaults to False.
+
+    Returns:
+        Tuple[tf.Tensor, Any, Any]: A tuple containing:
+        - example_ids (tf.Tensor): Tensor containing example IDs.
+        - self_influences (Any): The calculated self-influence scores.
+        - probs (Any): The probabilities predicted by the models for the examples.
+    """
     example_ids = batch['example_id']
     features = batch['input_feature']
     labels = batch['label']
@@ -563,7 +603,23 @@ def calculate_tracin_values(
 
 
 def filter_ids_fn(hash_table, value=1):
-  """Filter dataset based on whether ids take a certain value in hash table."""
+  """Create a filter function to select dataset examples based on their associated values in a hash table.
+
+  Args:
+    hash_table (tf.lookup.StaticHashTable): A TensorFlow StaticHashTable mapping example IDs to values.
+    value (int, optional): The value to compare with in the hash table. Defaults to 1.
+
+  Returns:
+    Callable: A filter function that can be used to filter dataset examples based on their values in the hash table.
+  """
   def filter_fn(examples):
+    """Filter function to select examples based on their values in the hash table.
+
+      Args:
+        examples (dict): A dictionary containing example data, including 'example_id'.
+
+      Returns:
+        bool: True if the example's value in the hash table matches the specified value, False otherwise.
+      """
     return hash_table.lookup(examples['example_id']) == value
   return filter_fn

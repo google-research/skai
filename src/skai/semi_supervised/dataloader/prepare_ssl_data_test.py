@@ -58,6 +58,17 @@ def _create_mask_bytes():
 def _create_png_example(use_mask: bool,
                         use_pre_disaster_image: bool,
                         label: int = 0.0):
+  """
+    Create a TensorFlow Example serialized as a string with PNG images.
+
+    Args:
+        use_mask (bool): Indicates whether to include mask images.
+        use_pre_disaster_image (bool): Indicates whether to include pre-disaster images.
+        label (float, optional): Label value for the example. Default is 0.0.
+
+    Returns:
+        bytes: Serialized TensorFlow Example containing PNG images and features.
+    """
   before_png = _create_image_bytes()
   after_png = _create_image_bytes()
   features_config = {
@@ -86,6 +97,7 @@ def _create_png_example(use_mask: bool,
 class PrepareSslDataTest(absltest.TestCase):
 
   def setUp(self):
+    """Set up the test environment."""
     super().setUp()
     self.tmp_dir = tempfile.mkdtemp()
     # Create files for each dataset source
@@ -190,6 +202,7 @@ class PrepareSslDataTest(absltest.TestCase):
     ]
 
   def testGetExampleFiles(self):
+    """Test the retrieval of example files."""
     train_label = prepare_ssl_data.get_example_files(self.train_label_ex)
     self.assertNotEmpty(train_label)
     train_unlabel = prepare_ssl_data.get_example_files(self.train_unlabel_ex)
@@ -207,14 +220,17 @@ class PrepareSslDataTest(absltest.TestCase):
     self.assertNotEmpty(test_masks)
 
   def testGetNoneExampleFiles(self):
+    """Test the case when no example files are provided."""
     with self.assertRaises(ValueError):
       _ = prepare_ssl_data.get_example_files([])
 
   def testGetNonexistentExampleFiles(self):
+    """Test when nonexistent example files are provided."""
     with self.assertRaises(ValueError):
       _ = prepare_ssl_data.get_example_files(['nonexistent.tfrecord'])
 
   def testCreateDataset(self):
+    """Test the creation of SSL datasets."""
     with tf.Session() as sess:
       for use_mask, example_sets in zip(
           [False, True],
@@ -242,6 +258,7 @@ class PrepareSslDataTest(absltest.TestCase):
                          (161, 161, 8 if use_mask else 6))
 
   def testCreateDatasetNoTrainingData(self):
+    """Test when no training data is provided."""
     with self.assertRaises(ValueError):
       _ = prepare_ssl_data.create_dataset(
           name='test_dataset',
@@ -258,6 +275,7 @@ class PrepareSslDataTest(absltest.TestCase):
           do_memoize=False)
 
   def testCreateDatasetEvalMode(self):
+    """Test dataset creation in evaluation mode."""
     with tf.Session() as sess:
       ssl_data = prepare_ssl_data.create_dataset(
           name='test_dataset',
@@ -279,6 +297,7 @@ class PrepareSslDataTest(absltest.TestCase):
       self.assertEqual(example[prepare_ssl_data.IMAGE_KEY].shape, (161, 161, 6))
 
   def testTakeBalanced(self):
+    """Test the `take_balanced` function."""
 
     def input_data_generator():
       """Generates 10 images and labels for use as a dataset."""
@@ -311,6 +330,7 @@ class PrepareSslDataTest(absltest.TestCase):
       self.assertCountEqual([0, 0, 0, 1, 1, 1], output_labels)
 
   def testCreateDatasetWithTakeBalanced(self):
+    """Test creating a dataset with balanced sampling."""
     with tf.Session() as sess:
       ssl_data = prepare_ssl_data.create_dataset(
           name='test_dataset',
@@ -336,6 +356,7 @@ class PrepareSslDataTest(absltest.TestCase):
       self.assertCountEqual(output_labels, [0, 0, 0, 1, 1, 1])
 
   def testCreateMultiClassDataset(self):
+    """Test creating a multi-class dataset."""
     with tf.Session() as sess:
       ssl_data = prepare_ssl_data.create_dataset(
           name='test_multi_class_dataset',
@@ -359,6 +380,7 @@ class PrepareSslDataTest(absltest.TestCase):
       self.assertCountEqual(output_labels, [0, 1, 2, 3, 0, 1])
 
   def testCreateDatasetWithPostDisasterImageOnly(self):
+    """Test creating a dataset with only post-disaster images."""
     with tf.Session() as sess:
       ssl_data = prepare_ssl_data.create_dataset(
           name='test_dataset_post_disaster_image_only',

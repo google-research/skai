@@ -14,10 +14,24 @@ RESNET_IMAGE_SIZE = 224
 
 
 def _make_temp_dir() -> str:
+  """Create a temporary directory and return its path.
+
+    Returns:
+        str: The path to the created temporary directory.
+    """
   return tempfile.mkdtemp(dir=os.environ.get('TEST_TMPDIR'))
 
 
 def _make_serialized_image(size: int, pixel_value: int) -> bytes:
+  """Create a serialized PNG image with a specified size and pixel value.
+
+    Args:
+        size (int): The size (width and height) of the square image.
+        pixel_value (int): The pixel value to fill the image with.
+
+    Returns:
+        bytes: The serialized PNG image.
+    """
   image = np.ones((size, size, 3), dtype=np.uint8) * pixel_value
   return tf.io.encode_png(image).numpy()
 
@@ -34,6 +48,23 @@ def _make_example(
     before_pixel_value: int,
     after_pixel_value: int,
 ) -> tf.train.Example:
+  """Create a TensorFlow Example from provided attributes.
+
+    Args:
+        example_id (str): Identifier for the example.
+        longitude (float): Longitude coordinate.
+        latitude (float): Latitude coordinate.
+        encoded_coordinates (str): Encoded coordinates.
+        label (float): Numeric label.
+        string_label (float): String label.
+        patch_size (int): Size of the image patches.
+        large_patch_size (int): Size of large image patches.
+        before_pixel_value (int): Pixel value for "before" images.
+        after_pixel_value (int): Pixel value for "after" images.
+
+    Returns:
+        tf.train.Example: A TensorFlow Example containing the provided attributes.
+    """
   example = tf.train.Example()
   example.features.feature['example_id'].bytes_list.value.append(
       example_id.encode()
@@ -64,12 +95,27 @@ def _make_example(
 
 
 def _write_tfrecord(examples: List[tf.train.Example], path: str) -> None:
+  """Write a list of TensorFlow Examples to a TFRecord file.
+
+    Args:
+        examples (List[tf.train.Example]): List of TensorFlow Examples to write.
+        path (str): The path to the output TFRecord file.
+
+    Returns:
+        None
+    """
   with tf.io.TFRecordWriter(path) as file_writer:
     for example in examples:
       file_writer.write(example.SerializeToString())
 
 
 def _create_test_data():
+  """Create test data and save it to TFRecord files.
+
+    Returns:
+        Tuple[str, str, str]: A tuple containing the paths to the labeled training,
+        labeled test, and unlabeled TFRecord files.
+    """
   examples_dir = _make_temp_dir()
   labeled_train_path = os.path.join(
       examples_dir, 'train_labeled_examples.tfrecord')
@@ -100,6 +146,10 @@ def _create_test_data():
 
 class DataLoaderTest(absltest.TestCase):
   def setUp(self):
+    """Set up the test environment.
+
+        This method is called before each test case to prepare the necessary data.
+        """
     super().setUp()
 
     labeled_train_path, labeled_test_path, unlabeled_path = _create_test_data()
@@ -108,6 +158,11 @@ class DataLoaderTest(absltest.TestCase):
     self.unlabeled_path = unlabeled_path
 
   def test_get_skai_dataset_post_only(self):
+    """Test loading the SKAI dataset with post-disaster images only.
+
+        This test checks if the SKAI dataset is loaded correctly with post-disaster
+        images only and validates the shape and dtype of the loaded images.
+        """
     dataset_builder = data.get_dataset('skai')
 
     kwargs = {
@@ -138,6 +193,12 @@ class DataLoaderTest(absltest.TestCase):
     np.testing.assert_equal(input_feature, 1.0)
 
   def test_get_skai_dataset_pre_post(self):
+    """Test loading the SKAI dataset with both pre and post-disaster images.
+
+        This test checks if the SKAI dataset is loaded correctly with both
+        pre and post-disaster images and validates the shape and dtype of the loaded
+        images.
+        """
     dataset_builder = data.get_dataset('skai')
 
     kwargs = {
@@ -168,6 +229,11 @@ class DataLoaderTest(absltest.TestCase):
     np.testing.assert_equal(input_feature[:, :, 3:], 1.0)
 
   def test_get_skai_dataset_small_images(self):
+    """Test loading the SKAI dataset with small images.
+
+        This test checks if the SKAI dataset is loaded correctly with small images
+        and validates the shape and dtype of the loaded images.
+        """
     dataset_builder = data.get_dataset('skai')
 
     kwargs = {
@@ -208,6 +274,11 @@ class DataLoaderTest(absltest.TestCase):
     np.testing.assert_equal(large_image[:, :, 3:], 1.0)
 
   def test_upsample_subgroup(self):
+    """Test upsampling a subgroup in the dataset.
+
+        This test checks if a subgroup in the dataset is upsampled correctly based
+        on the specified lambda_value and validates the resulting dataset sizes.
+        """
     dataset_builder = data.get_dataset('skai')
 
     kwargs = {
