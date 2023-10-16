@@ -25,3 +25,4 @@ tqdm
 openlocationcode
 xmanager
 tensorflow-text
+scipy

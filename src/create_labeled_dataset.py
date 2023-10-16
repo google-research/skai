@@ -42,6 +42,8 @@ flags.DEFINE_integer('random_seed', None,
                      'If specified, random seed for train/test split.')
 flags.DEFINE_float('test_fraction', 0.2,
                    'Fraction of labeled examples to use for testing.')
+flags.DEFINE_float('connecting_distance_meters', 77.0,
+                   'Maximum distance for two points to be connected.')
 flags.DEFINE_list(
     'string_to_numeric_labels',
     [
@@ -75,6 +77,7 @@ def main(unused_argv):
       FLAGS.test_fraction,
       FLAGS.train_output_path,
       FLAGS.test_output_path,
+      FLAGS.connecting_distance_meters,
       FLAGS.use_multiprocessing)
 
 
