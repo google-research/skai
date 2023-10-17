@@ -16,10 +16,13 @@
 Please see https://wiki.openstreetmap.org/wiki/Overpass_API for details.
 """
 
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 import xml.etree.ElementTree as ET
+import geopandas as gpd
 import requests
 import shapely.geometry
+
+from skai import buildings
 
 Polygon = shapely.geometry.polygon.Polygon
 Point = shapely.geometry.point.Point
@@ -123,18 +126,17 @@ def get_buildings_in_region(region: Polygon,
 
 
 def get_building_centroids_in_regions(
-    regions: List[Polygon], overpass_url: str) -> List[Tuple[float, float]]:
+    regions: List[Polygon], overpass_url: str, output_path: str) -> None:
   """Queries OpenStreetMap Overpass API for all building centroids in a region.
 
   Args:
     regions: Regions of interest as polygons. Must be in EPSG:4326 (long/lat).
     overpass_url: Overpass URL e.g. https://lz4.overpass-api.de/api/interpreter.
-
-  Returns:
-    A list of building centroids in all regions.
+    output_path: Save footprints to this path as a GeoPackage.
   """
-  centroids = []
+  polygons = []
   for region in regions:
-    polygons = get_buildings_in_region(region, overpass_url)
-    centroids.extend([(p.centroid.x, p.centroid.y) for p in polygons])
-  return centroids
+    polygons.extend(get_buildings_in_region(region, overpass_url))
+  buildings.write_buildings_file(
+      gpd.GeoDataFrame(geometry=polygons), output_path
+  )

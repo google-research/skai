@@ -16,10 +16,9 @@
 
 import base64
 import io
-import os
-import pickle
+import math
 import struct
-from typing import Any, Iterable, List, Sequence, Tuple
+from typing import Iterable, List, Sequence, Tuple
 
 from absl import flags
 import PIL.Image
@@ -129,14 +128,13 @@ def decode_coordinates(encoded_coords: str) -> Tuple[float, float]:
   return struct.unpack('<ff', buffer)
 
 
-def write_coordinates_file(coordinates: List[Any], path: str) -> None:
-  output_dir = os.path.dirname(path)
-  if not tf.io.gfile.exists(output_dir):
-    tf.io.gfile.makedirs(output_dir)
-  with tf.io.gfile.GFile(path, 'wb') as f:
-    pickle.dump(coordinates, f)
-
-
-def read_coordinates_file(path: str) -> List[Any]:
-  with tf.io.gfile.GFile(path, 'rb') as f:
-    return pickle.load(f)
+def convert_wgs_to_utm(lon: float, lat: float):
+  """Based on lat and lng, return best utm epsg-code."""
+  utm_band = str((math.floor((lon + 180) / 6) % 60) + 1)
+  if len(utm_band) == 1:
+    utm_band = '0' + utm_band
+  if lat >= 0:
+    epsg_code = '326' + utm_band
+    return epsg_code
+  epsg_code = '327' + utm_band
+  return epsg_code

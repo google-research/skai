@@ -19,16 +19,28 @@ from absl.testing import absltest
 
 import apache_beam as beam
 from apache_beam.testing import test_pipeline
-from apache_beam.testing.util import assert_that
+import apache_beam.testing.util as test_util
+import geopandas as gpd
 import rasterio
 
+from skai import buildings
 from skai import read_raster
-from skai import utils
 
 TEST_IMAGE_PATH = 'test_data/blank.tif'
 
 Window = read_raster._Window
 WindowGroup = read_raster._WindowGroup
+
+
+def _create_buildings_file(
+    coordinates: list[tuple[float, float]], output_path: str
+) -> gpd.GeoDataFrame:
+  longitudes = [c[0] for c in coordinates]
+  latitudes = [c[1] for c in coordinates]
+  gdf = gpd.GeoDataFrame(
+      geometry=gpd.points_from_xy(longitudes, latitudes), crs=4326
+  )
+  buildings.write_buildings_file(gdf, output_path)
 
 
 class ReadRasterTest(absltest.TestCase):
@@ -99,19 +111,19 @@ class ReadRasterTest(absltest.TestCase):
         assert patches[2][1][0] == expected_image_path
         assert patches[2][1][1].shape == (64, 64, 3)
 
-      assert_that(patches, _check_output_patches)
+      test_util.assert_that(patches, _check_output_patches)
 
-  def test_coordinates_to_groups(self):
+  def test_buildings_to_groups(self):
     coordinates = [
-        (178.482925, -16.632893, -1.0, 'no_damage'),
-        (178.482283, -16.632279, -1.0, 'no_damage'),
-        (178.482284, -16.632279, -1.0, 'no_damage')]
+        (178.482925, -16.632893),
+        (178.482283, -16.632279),
+        (178.482284, -16.632279)]
 
     with tempfile.NamedTemporaryFile(dir=absltest.TEST_TMPDIR.value) as f:
-      coordinates_path = f.name
-      utils.write_coordinates_file(coordinates, coordinates_path)
-      groups = list(read_raster._coordinates_to_groups(
-          self.test_image_path, coordinates_path, 32, 0.5, {}))
+      buildings_path = f.name
+      _create_buildings_file(coordinates, buildings_path)
+      groups = list(read_raster._buildings_to_groups(
+          self.test_image_path, buildings_path, 32, 0.5, {}))
       self.assertLen(groups, 2)
 
   def test_get_raster_bounds(self):

@@ -203,9 +203,9 @@ class NotInitializedEarthEngineError(Exception):
     super().__init__('Earth Engine could not be initialized.')
 
 
-def get_building_centroids(
-    config, regions: List[Polygon]
-) -> List[Tuple[float, float]]:
+def download_building_footprints(
+    config, regions: list[Polygon], output_path: str
+) -> None:
   """Finds building centroids based on flag settings.
 
   This function is meant to be called from generate_examples_main.py.
@@ -214,21 +214,20 @@ def get_building_centroids(
     config: A configuration object that specify how to get the building
       centroids.
     regions: List of polygons of regions to find buildings in.
-
-  Returns:
-    List of building centroids in (longitude, latitude) format.
+    output_path: Path to write buildings file to.
 
   Raises:
     ValueError: if buildings_method flag has unknown value.
     NotInitializedEarthEngineError: if earth couldnot be initialized.
     NoBuildingFoundError: if no building is found in the area of interest.
   """
-  centroids = None
   if config.buildings_method == 'file':
-    centroids = buildings.read_buildings_file(config.buildings_file, regions)
+    buildings.convert_buildings_file(
+        config.buildings_file, regions, output_path
+    )
   elif config.buildings_method == 'open_street_map':
-    centroids = open_street_map.get_building_centroids_in_regions(
-        regions, config.overpass_url
+    open_street_map.get_building_centroids_in_regions(
+        regions, config.overpass_url, output_path
     )
   elif config.buildings_method == 'open_buildings':
     if not earth_engine.initialize(
@@ -236,20 +235,14 @@ def get_building_centroids(
     ):
       raise NotInitializedEarthEngineError()
     logging.info('Querying Open Buildings centroids. This may take a while.')
-    output_path = os.path.join(
-        config.output_dir, 'open_buildings_centroids.csv'
+    earth_engine.get_open_buildings_centroids(
+        regions,
+        config.open_buildings_feature_collection,
+        config.open_buildings_confidence,
+        output_path,
     )
-    centroids = earth_engine.get_open_buildings_centroids(
-        regions, config.open_buildings_feature_collection,
-        config.open_buildings_confidence, output_path
-    )
-    logging.info('Open Buildings centroids saved to %s', output_path)
   else:
     raise ValueError('Invalid value for "buildings_method" flag.')
-
-  if not centroids:
-    raise NoBuildingFoundError()
-  return list(set(centroids))  # Deduplicate.
 
 
 def _to_grayscale(image: np.ndarray) -> np.ndarray:
@@ -443,10 +436,12 @@ class GenerateExamplesFn(beam.DoFn):
         longitude, latitude, before_image_id, after_image_id
     )
     int64_id = _make_int64_id(example_id)
-    plus_code = openlocationcode.encode(
-        latitude=latitude, longitude=longitude, codeLength=_PLUS_CODE_LENGTH
-    )
-    utils.add_bytes_feature('plus_code', plus_code.encode(), example)
+    if 'plus_code' not in scalar_features:
+      plus_code = openlocationcode.encode(
+          latitude=latitude, longitude=longitude, codeLength=_PLUS_CODE_LENGTH
+      )
+      utils.add_bytes_feature('plus_code', plus_code.encode(), example)
+
     utils.add_bytes_feature('example_id', example_id.encode(), example)
     utils.add_int64_feature('int64_id', int64_id, example)
     utils.add_bytes_feature(
@@ -531,16 +526,33 @@ class GenerateExamplesFn(beam.DoFn):
         yield example
 
 
-def _coordinates_to_scalar_features(coordinates_path: str):
-  coordinates = utils.read_coordinates_file(coordinates_path)
-  for longitude, latitude, label, string_label in coordinates:
+def _extract_scalar_features_from_buildings_file(buildings_path: str):
+  """Extracts scalar features of each example from buildings file.
+
+  Args:
+    buildings_path: Path to serialized buildings file.
+
+  Yields:
+    Tuple of (encoded coordinates, scalar features dictionary).
+  """
+  buildings_gdf = buildings.read_buildings_file(buildings_path)
+  for _, row in buildings_gdf.iterrows():
+    longitude = row['longitude']
+    latitude = row['latitude']
+    label = row['label'] if 'label' in row.index else -1.0
+    string_label = row['string_label'] if 'string_label' in row.index else ''
+
     encoded_coords = utils.encode_coordinates(longitude, latitude)
-    feature = _FeatureUnion(scalar_features={
+    scalar_features = {
         'coordinates': [longitude, latitude],
         'label': [label],
         'string_label': [string_label]
-    })
-    yield (encoded_coords, feature)
+    }
+    if 'full_plus_code' in row.index:
+      scalar_features['plus_code'] = [row['full_plus_code']]
+    if 'area_in_meters' in row.index:
+      scalar_features['area_in_meters'] = [row['area_in_meters']]
+    yield (encoded_coords, _FeatureUnion(scalar_features=scalar_features))
 
 
 def _remove_large_images(example: Example) -> Example:
@@ -576,7 +588,7 @@ def _generate_examples(
     pipeline,
     before_image_patterns: List[str],
     after_image_patterns: List[str],
-    coordinates_path: str,
+    buildings_path: str,
     large_patch_size: int,
     example_patch_size: int,
     resolution: float,
@@ -590,7 +602,7 @@ def _generate_examples(
     pipeline: Beam pipeline.
     before_image_patterns: List of before image path patterns.
     after_image_patterns: List of after image path patterns.
-    coordinates_path: Path to file containing building coordinates.
+    buildings_path: Path to serialized building footprints GeoDataFrame file.
     large_patch_size: Size in pixels of before and after image patches for
       labeling and alignment. Typically 256.
     example_patch_size: Size of patches to extract into examples. Typically 64.
@@ -604,10 +616,10 @@ def _generate_examples(
   """
   scalar_features = (
       pipeline
-      | stage_prefix + 'encode_coordinates_path' >> beam.Create(
-          [coordinates_path])
+      | stage_prefix + 'encode_buildings_path' >> beam.Create(
+          [buildings_path])
       | stage_prefix + 'create_scalar_features' >> beam.FlatMap(
-          _coordinates_to_scalar_features))
+          _extract_scalar_features_from_buildings_file))
 
   input_collections = [scalar_features]
   after_image_size = large_patch_size
@@ -621,7 +633,7 @@ def _generate_examples(
     before_raster_paths = _expand_patterns(before_image_patterns)
     before_patches = read_raster.extract_patches_from_rasters(
         pipeline,
-        coordinates_path,
+        buildings_path,
         before_raster_paths,
         large_patch_size,
         resolution,
@@ -637,7 +649,7 @@ def _generate_examples(
   after_raster_paths = _expand_patterns(after_image_patterns)
   after_patches = read_raster.extract_patches_from_rasters(
       pipeline,
-      coordinates_path,
+      buildings_path,
       after_raster_paths,
       after_image_size,
       resolution,
@@ -676,10 +688,11 @@ def _generate_examples(
 def read_labels_file(
     path: str,
     label_property: str,
-    labels_to_classes: List[str] = None,
-    max_points: int = None
-) -> List[Tuple[float, float, float, str]]:
-  """Reads labels from a GIS file.
+    labels_to_classes: List[str],
+    max_points: int,
+    output_path: str,
+) -> None:
+  """Reads labels from a GIS file and writes to the standard buildings format.
 
   If the "label_property" is a string, then it is assumed to be the name of a
   class, e.g. "damaged". In labels_to_classes, user can specify the mapping of
@@ -694,10 +707,8 @@ def read_labels_file(
     label_property: The property to use as the label, e.g. "string_label".
     labels_to_classes: List of string in "class=label" format, e.g.
       ["no_damage=0", "damaged=1", "destroyed=1"].
-    max_points: Number of labeled examples to keep
-
-  Returns:
-    List of tuples of the form (longitude, latitude, float label).
+    max_points: Number of labeled examples to keep.
+    output_path: Buildings file output path.
   """
   # Parse labels_to_classes into dictionary format if specified
   if labels_to_classes:
@@ -715,28 +726,30 @@ def read_labels_file(
         raise
 
   # Generate coordinates from label file
-  df = gpd.read_file(path).to_crs(epsg=4326)
-  coordinates = []
-  for _, row in df.iterrows():
-    centroid = row.geometry.centroid
+  gdf = gpd.read_file(path)
+  if max_points:
+    gdf = gdf.iloc[:max_points]
+  string_labels = []
+  float_labels = []
+  for _, row in gdf.iterrows():
     label = row[label_property]
     if isinstance(label, str):
       try:
-        float_label = label_to_class_dict[label]
-        coordinates.append((centroid.x, centroid.y, float_label, label))
+        string_labels.append(label)
+        float_labels.append(label_to_class_dict[label])
       except KeyError:
         logging.warning('Label %s is not recognized.', label)
     elif isinstance(label, (int, float)):
-      float_label = float(label)
-      coordinates.append((centroid.x, centroid.y, float_label, str(label)))
+      string_labels.append(str(label))
+      float_labels.append(float(label))
     else:
       raise ValueError(f'Unrecognized label property type {type(label)}')
 
-  if max_points:
-    coordinates = coordinates[:max_points]
-
-  # logging.info('Read %d labeled coordinates.', len(coordinates))
-  return coordinates
+  output_gdf = gpd.GeoDataFrame(
+      {'string_label': string_labels, 'label': float_labels},
+      geometry=gpd.geometry,
+  )
+  buildings.write_buildings_file(output_gdf, output_path)
 
 
 def parse_gdal_env(settings: List[str]) -> Dict[str, str]:
@@ -767,8 +780,8 @@ def generate_examples_pipeline(
     resolution: float,
     output_dir: str,
     num_output_shards: int,
-    unlabeled_coordinates: List[Tuple[float, float]],
-    labeled_coordinates: List[Tuple[float, float, float, str]],
+    buildings_path: str,
+    buildings_labeled: bool,
     use_dataflow: bool,
     gdal_env: Dict[str, str],
     dataflow_job_name: Optional[str],
@@ -788,10 +801,8 @@ def generate_examples_pipeline(
     resolution: Desired resolution of image patches.
     output_dir: Parent output directory.
     num_output_shards: Number of output shards.
-    unlabeled_coordinates: List of coordinates (longitude, latitude) to extract
-      unlabeled examples for.
-    labeled_coordinates: List of coordinates (longitude, latitude, label,
-      string_label) to extract labeled examples for.
+    buildings_path: Path to file containing building footprints.
+    buildings_labeled: True if buildings have labels.
     use_dataflow: If true, run pipeline on GCP Dataflow.
     gdal_env: GDAL environment configuration.
     dataflow_job_name: Name of dataflow job.
@@ -816,26 +827,20 @@ def generate_examples_pipeline(
       accelerator_count=0,
   )
 
-  coordinates_path = os.path.join(temp_dir, 'coordinates')
-  if unlabeled_coordinates:
-    small_examples_output_prefix = (
-        os.path.join(output_dir, 'examples', 'unlabeled', 'unlabeled'))
-    large_examples_output_prefix = (
-        os.path.join(output_dir, 'examples', 'unlabeled-large', 'unlabeled'))
-    labeled_coordinates = [(longitude, latitude, -1.0, '')
-                           for longitude, latitude in unlabeled_coordinates]
-    utils.write_coordinates_file(labeled_coordinates, coordinates_path)
-
-  elif labeled_coordinates:
+  if buildings_labeled:
     small_examples_output_prefix = (
         os.path.join(output_dir, 'examples', 'labeled', 'labeled'))
     large_examples_output_prefix = (
         os.path.join(output_dir, 'examples', 'labeled-large', 'labeled'))
-    utils.write_coordinates_file(labeled_coordinates, coordinates_path)
+  else:
+    small_examples_output_prefix = (
+        os.path.join(output_dir, 'examples', 'unlabeled', 'unlabeled'))
+    large_examples_output_prefix = (
+        os.path.join(output_dir, 'examples', 'unlabeled-large', 'unlabeled'))
 
   with beam.Pipeline(options=pipeline_options) as pipeline:
     large_examples, small_examples = _generate_examples(
-        pipeline, before_image_patterns, after_image_patterns, coordinates_path,
+        pipeline, before_image_patterns, after_image_patterns, buildings_path,
         large_patch_size, example_patch_size, resolution, gdal_env,
         'generate_examples', cloud_detector_model_path)
 

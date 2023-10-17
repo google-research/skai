@@ -18,17 +18,17 @@ import glob
 import os
 import pathlib
 import tempfile
-from typing import Any, List, Tuple
+from typing import Any
 
 from absl.testing import absltest
 from absl.testing import parameterized
 import apache_beam as beam
 from apache_beam.testing import test_pipeline
-from apache_beam.testing.util import assert_that
-from apache_beam.testing.util import equal_to
+import apache_beam.testing.util as test_util
+import geopandas as gpd
 import numpy as np
+from skai import buildings
 from skai import generate_examples
-from skai import utils
 import tensorflow as tf
 
 
@@ -48,7 +48,7 @@ def _deserialize_image(serialized_image: bytes) -> np.ndarray:
   return tf.io.decode_image(serialized_image).numpy()
 
 
-def _unordered_all_close(list1: List[Any], list2: List[Any]) -> bool:
+def _unordered_all_close(list1: list[Any], list2: list[Any]) -> bool:
   """Return that two lists of coordinates are close to each other."""
   if len(list1) != len(list2):
     return False
@@ -58,14 +58,65 @@ def _unordered_all_close(list1: List[Any], list2: List[Any]) -> bool:
   return np.allclose(sorted_list1, sorted_list2)
 
 
+def _create_buildings_file(
+    coordinates: list[tuple[float, float]], output_path: str
+) -> gpd.GeoDataFrame:
+  longitudes = [c[0] for c in coordinates]
+  latitudes = [c[1] for c in coordinates]
+  gdf = gpd.GeoDataFrame(
+      {
+          'area_in_meters': [0.0] * len(coordinates),
+      },
+      geometry=gpd.points_from_xy(longitudes, latitudes),
+      crs=4326,
+  )
+  buildings.write_buildings_file(gdf, output_path)
+
+
+def _create_labeled_buildings_file(
+    coordinates: list[tuple[float, float, float, str]], output_path: str
+) -> gpd.GeoDataFrame:
+  longitudes = [c[0] for c in coordinates]
+  latitudes = [c[1] for c in coordinates]
+  labels = [c[2] for c in coordinates]
+  string_labels = [c[3] for c in coordinates]
+  area_in_meters = [0.0] * len(coordinates)
+  gdf = gpd.GeoDataFrame(
+      {
+          'label': labels,
+          'string_label': string_labels,
+          'area_in_meters': area_in_meters,
+      },
+      geometry=gpd.points_from_xy(longitudes, latitudes),
+      crs=4326,
+  )
+  buildings.write_buildings_file(gdf, output_path)
+
+
+def _create_buildings_file_with_plus_code(
+    coordinates: list[tuple[float, float]], output_path: str
+) -> gpd.GeoDataFrame:
+  longitudes = [c[0] for c in coordinates]
+  latitudes = [c[1] for c in coordinates]
+  gdf = gpd.GeoDataFrame(
+      {
+          'area_in_meters': [0.0] * len(coordinates),
+          'full_plus_code': ['abc'] * len(coordinates),
+      },
+      geometry=gpd.points_from_xy(longitudes, latitudes),
+      crs=4326,
+  )
+  buildings.write_buildings_file(gdf, output_path)
+
+
 def _check_examples(
     before_image_id: str,
     after_image_id: str,
     small_patch_size: int,
     large_patch_size: int,
-    expected_coordinates: List[Tuple[float, float, float]],
-    expected_string_labels: List[str],
-    expected_plus_codes: List[str],
+    expected_coordinates: list[tuple[float, float, float]],
+    expected_string_labels: list[str],
+    expected_plus_codes: list[str],
     expect_blank_before: bool,
     expect_large_patch: bool):
   """Validates examples generated from beam pipeline.
@@ -106,7 +157,8 @@ def _check_examples(
           'example_id',
           'int64_id',
           'plus_code',
-          'string_label'
+          'string_label',
+          'area_in_meters',
       ])
       if expect_large_patch:
         expected_feature_names.update(
@@ -192,7 +244,7 @@ class GenerateExamplesTest(parameterized.TestCase):
     super().setUp()
     current_dir = pathlib.Path(__file__).parent
     self.test_image_path = str(current_dir / TEST_IMAGE_PATH)
-    self.coordinates_path = str(current_dir / 'coordinates')
+    self.buildings_path = str(current_dir / 'buildings')
     self.test_image_path_patterns = str(current_dir / 'test_data/country_*.tif')
     self.test_config_path = str(current_dir / TEST_CONFIG_PATH)
     self.test_missing_dataset_name_config_path = str(
@@ -205,18 +257,19 @@ class GenerateExamplesTest(parameterized.TestCase):
   def testGenerateExamplesFn(self):
     """Tests GenerateExamplesFn class."""
 
-    unlabeled_coordinates = [(178.482925, -16.632893, -1.0, ''),
-                             (178.482283, -16.632279, -1.0, '')]
-    utils.write_coordinates_file(unlabeled_coordinates, self.coordinates_path)
+    _create_buildings_file(
+        [(178.482925, -16.632893), (178.482283, -16.632279)],
+        self.buildings_path,
+    )
 
     with test_pipeline.TestPipeline() as pipeline:
       large_examples, small_examples = generate_examples._generate_examples(
           pipeline, [self.test_image_path], [self.test_image_path],
-          self.coordinates_path, 62, 32, 0.5, {}, 'unlabeled')
+          self.buildings_path, 62, 32, 0.5, {}, 'unlabeled')
 
       # Example at second input coordinate should be dropped because its patch
       # falls mostly outside the before and after image bounds.
-      assert_that(
+      test_util.assert_that(
           large_examples,
           _check_examples(
               self.test_image_path,
@@ -231,7 +284,7 @@ class GenerateExamplesTest(parameterized.TestCase):
           ),
           label='assert_large_examples',
       )
-      assert_that(
+      test_util.assert_that(
           small_examples,
           _check_examples(
               self.test_image_path,
@@ -250,16 +303,20 @@ class GenerateExamplesTest(parameterized.TestCase):
   def testGenerateExamplesFnLabeled(self):
     """Tests GenerateExamplesFn class."""
 
-    labeled_coordinates = [(178.482925, -16.632893, 0, 'no_damage'),
-                           (178.482924, -16.632894, 1, 'destroyed')]
-    utils.write_coordinates_file(labeled_coordinates, self.coordinates_path)
+    _create_labeled_buildings_file(
+        [
+            (178.482925, -16.632893, 0, 'no_damage'),
+            (178.482924, -16.632894, 1, 'destroyed'),
+        ],
+        self.buildings_path,
+    )
 
     with test_pipeline.TestPipeline() as pipeline:
       large_examples, small_examples = generate_examples._generate_examples(
           pipeline, [self.test_image_path], [self.test_image_path],
-          self.coordinates_path, 62, 32, 0.5, {}, 'labeled')
+          self.buildings_path, 62, 32, 0.5, {}, 'labeled')
 
-      assert_that(
+      test_util.assert_that(
           large_examples,
           _check_examples(
               self.test_image_path,
@@ -275,7 +332,7 @@ class GenerateExamplesTest(parameterized.TestCase):
           label='assert_large_examples',
       )
 
-      assert_that(
+      test_util.assert_that(
           small_examples,
           _check_examples(
               self.test_image_path,
@@ -291,21 +348,68 @@ class GenerateExamplesTest(parameterized.TestCase):
           label='assert_small_examples',
       )
 
-  def testGenerateExamplesFnNoBefore(self):
-    """Tests GenerateExamplesFn class without before image."""
+  def testGenerateExamplesFnWithPlusCodes(self):
+    """Tests GenerateExamplesFn class."""
 
-    coordinates = [(178.482925, -16.632893, -1.0, ''),
-                   (178.482283, -16.632279, -1.0, '')]
-    utils.write_coordinates_file(coordinates, self.coordinates_path)
+    _create_buildings_file_with_plus_code(
+        [(178.482925, -16.632893), (178.482283, -16.632279)],
+        self.buildings_path,
+    )
 
     with test_pipeline.TestPipeline() as pipeline:
       large_examples, small_examples = generate_examples._generate_examples(
-          pipeline, [], [self.test_image_path], self.coordinates_path, 62, 32,
+          pipeline, [self.test_image_path], [self.test_image_path],
+          self.buildings_path, 62, 32, 0.5, {}, 'unlabeled')
+
+      # Example at second input coordinate should be dropped because its patch
+      # falls mostly outside the before and after image bounds.
+      test_util.assert_that(
+          large_examples,
+          _check_examples(
+              self.test_image_path,
+              self.test_image_path,
+              32,
+              62,
+              [(178.482925, -16.632893, -1.0)],
+              [''],
+              ['abc'],
+              False,
+              True,
+          ),
+          label='assert_large_examples',
+      )
+      test_util.assert_that(
+          small_examples,
+          _check_examples(
+              self.test_image_path,
+              self.test_image_path,
+              32,
+              62,
+              [(178.482925, -16.632893, -1.0)],
+              [''],
+              ['abc'],
+              False,
+              False,
+          ),
+          label='assert_small_examples',
+      )
+
+  def testGenerateExamplesFnNoBefore(self):
+    """Tests GenerateExamplesFn class without before image."""
+
+    _create_buildings_file(
+        [(178.482925, -16.632893), (178.482283, -16.632279)],
+        self.buildings_path,
+    )
+
+    with test_pipeline.TestPipeline() as pipeline:
+      large_examples, small_examples = generate_examples._generate_examples(
+          pipeline, [], [self.test_image_path], self.buildings_path, 62, 32,
           0.5, {}, 'unlabeled')
 
       # Example at second input coordinate should be dropped because its patch
       # falls mostly outside the before and after image bounds.
-      assert_that(
+      test_util.assert_that(
           large_examples,
           _check_examples(
               '',
@@ -321,7 +425,7 @@ class GenerateExamplesTest(parameterized.TestCase):
           label='assert_large_examples',
       )
 
-      assert_that(
+      test_util.assert_that(
           small_examples,
           _check_examples(
               '',
@@ -339,8 +443,7 @@ class GenerateExamplesTest(parameterized.TestCase):
 
   def testGenerateExampleFnPathPattern(self):
     """Test GenerateExampleFn class with a path pattern."""
-    coordinates = [(178.482925, -16.632893, -1.0, '')]
-    utils.write_coordinates_file(coordinates, self.coordinates_path)
+    _create_buildings_file([(178.482925, -16.632893)], self.buildings_path)
 
     expected_before_image_ids = glob.glob(self.test_image_path_patterns)
 
@@ -348,7 +451,7 @@ class GenerateExamplesTest(parameterized.TestCase):
       # The path patterns specify two before images.
       large_examples, small_examples = generate_examples._generate_examples(
           pipeline, [self.test_image_path_patterns],
-          [self.test_image_path], self.coordinates_path, 62, 32, 0.5,
+          [self.test_image_path], self.buildings_path, 62, 32, 0.5,
           {}, 'unlabeled')
 
       small_examples_before_ids = (
@@ -358,17 +461,24 @@ class GenerateExamplesTest(parameterized.TestCase):
           large_examples | 'Map large examples to before image ids' >>
           beam.Map(_get_before_image_id))
 
-      assert_that(small_examples_before_ids,
-                  equal_to(expected_before_image_ids),
-                  'check small examples before image ids')
+      test_util.assert_that(
+          small_examples_before_ids,
+          test_util.equal_to(expected_before_image_ids),
+          'check small examples before image ids',
+      )
 
-      assert_that(large_examples_before_ids,
-                  equal_to(expected_before_image_ids),
-                  'check large examples before image ids')
+      test_util.assert_that(
+          large_examples_before_ids,
+          test_util.equal_to(expected_before_image_ids),
+          'check large examples before image ids',
+      )
 
   def testGenerateExamplesPipeline(self):
     output_dir = tempfile.mkdtemp(dir=absltest.TEST_TMPDIR.value)
-    coordinates = [(178.482925, -16.632893), (178.482283, -16.632279)]
+    _create_buildings_file(
+        [(178.482925, -16.632893), (178.482283, -16.632279)],
+        self.buildings_path,
+    )
     generate_examples.generate_examples_pipeline(
         before_image_patterns=[self.test_image_path],
         after_image_patterns=[self.test_image_path],
@@ -377,8 +487,8 @@ class GenerateExamplesTest(parameterized.TestCase):
         resolution=0.5,
         output_dir=output_dir,
         num_output_shards=1,
-        unlabeled_coordinates=coordinates,
-        labeled_coordinates=[],
+        buildings_path=self.buildings_path,
+        buildings_labeled=False,
         use_dataflow=False,
         gdal_env={},
         dataflow_job_name='test',

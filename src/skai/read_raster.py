@@ -27,6 +27,7 @@ import rasterio.plot
 import rtree
 import shapely.geometry
 
+from skai import buildings
 from skai import utils
 
 Metrics = beam.metrics.Metrics
@@ -241,17 +242,17 @@ def _resample_image(image: np.ndarray, patch_size: int) -> np.ndarray:
       image, (patch_size, patch_size), interpolation=cv2.INTER_CUBIC)
 
 
-def _coordinates_to_groups(
+def _buildings_to_groups(
     raster_path: str,
-    coordinates_path: str,
+    buildings_path: str,
     patch_size: int,
     resolution: float,
     gdal_env: Dict[str, str]) -> Iterable[Tuple[str, _WindowGroup]]:
-  """Converts a list of coordinates into pixel windows and then groups them.
+  """Converts building centroids into pixel windows and then groups them.
 
   Args:
     raster_path: Path to raster image.
-    coordinates_path: Path to coordinates file.
+    buildings_path: Path to buildings file.
     patch_size: Size of patches to extract.
     resolution: Resolution of patches to extract.
     gdal_env: GDAL environment configuration.
@@ -259,10 +260,11 @@ def _coordinates_to_groups(
   Yields:
     Tuples of raster path and grouped windows.
   """
-  coordinates = utils.read_coordinates_file(coordinates_path)
-  coords_with_ids = [(utils.encode_coordinates(longitude,
-                                               latitude), longitude, latitude)
-                     for longitude, latitude, _, _ in coordinates]
+  coords_df = buildings.read_building_coordinates(buildings_path)
+  coords_with_ids = [
+      (utils.encode_coordinates(lng, lat), lng, lat)
+      for lng, lat in zip(coords_df.longitude, coords_df.latitude)
+  ]
   with rasterio.Env(**gdal_env):
     raster = rasterio.open(raster_path)
     raster_res = _get_raster_resolution_in_meters(raster)
@@ -343,7 +345,7 @@ class ReadRasterWindowGroupFn(beam.DoFn):
 
 def extract_patches_from_rasters(
     pipeline: beam.Pipeline,
-    coordinates_path: str,
+    buildings_path: str,
     raster_paths: List[str],
     patch_size: int,
     resolution: float,
@@ -353,8 +355,7 @@ def extract_patches_from_rasters(
 
   Args:
     pipeline: Beam pipeline.
-    coordinates_path: Path to CSV file containing the longitude, latitude
-      coordinates to extract patches for.
+    buildings_path: Path to building footprints file.
     raster_paths: Raster paths.
     patch_size: Desired size of output patches.
     resolution: Desired resolution of output patches.
@@ -367,8 +368,8 @@ def extract_patches_from_rasters(
   return (pipeline
           | stage_prefix + '_encode_raster_paths' >> beam.Create(raster_paths)
           | stage_prefix + '_make_window_groups' >> beam.FlatMap(
-              _coordinates_to_groups,
-              coordinates_path=coordinates_path,
+              _buildings_to_groups,
+              buildings_path=buildings_path,
               patch_size=patch_size,
               resolution=resolution,
               gdal_env=gdal_env)

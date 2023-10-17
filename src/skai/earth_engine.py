@@ -16,7 +16,6 @@
 
 import json
 import shutil
-from typing import List, Optional, Tuple
 import urllib.request
 
 from absl import logging
@@ -24,6 +23,7 @@ import ee  # pytype: disable=import-error  # mapping-is-not-sequence
 import geopandas as gpd
 import pandas as pd
 import shapely.geometry
+from skai import buildings
 import tensorflow as tf
 
 ShapelyGeometry = shapely.geometry.base.BaseGeometry
@@ -43,17 +43,14 @@ def _get_open_building_feature_centroid(feature: ee.Feature) -> ee.Feature:
 
 
 def _download_feature_collection(
-    collection: ee.FeatureCollection, properties: List[str],
-    output_path: str) -> gpd.GeoDataFrame:
+    collection: ee.FeatureCollection, properties: list[str],
+    output_path: str) -> None:
   """Downloads a FeatureCollection from Earth Engine as a GeoDataFrame.
 
   Args:
     collection: EE FeatureCollection to download.
     properties: List of properties to download.
-    output_path: Path to save CSV file to.
-
-  Returns:
-    FeatureCollection data as a GeoDataFrame.
+    output_path: Path of GeoDataFrame feather output.
   """
   url = collection.getDownloadURL('csv', properties)
   with urllib.request.urlopen(url) as url_file, tf.io.gfile.GFile(
@@ -70,19 +67,20 @@ def _download_feature_collection(
     properties = df.drop(columns=['.geo'])
   elif 'longitude' in df.columns and 'latitude' in df.columns:
     geometry = gpd.points_from_xy(df['longitude'], df['latitude'])
-    properties = df.drop(columns=['longitude', 'latitude'])
+    properties = df
   else:
-    geometry = None
-    properties = None
+    raise ValueError('No geometries found in feature collection.')
 
-  return gpd.GeoDataFrame(properties, geometry=geometry)
+  buildings.write_buildings_file(
+      gpd.GeoDataFrame(properties, geometry=geometry), output_path
+  )
 
 
-def get_open_buildings(regions: List[ShapelyGeometry],
+def get_open_buildings(regions: list[ShapelyGeometry],
                        collection: str,
                        confidence: float,
                        as_centroids: bool,
-                       output_path: str) -> gpd.GeoDataFrame:
+                       output_path: str) -> None:
   """Downloads Open Buildings footprints for the Area of Interest from EE.
 
   Args:
@@ -90,11 +88,7 @@ def get_open_buildings(regions: List[ShapelyGeometry],
     collection: Name of Earth Engine FeatureCollection containing footprints.
     confidence: Confidence threshold for included buildings.
     as_centroids: If true, download centroids instead of full footprints.
-    output_path: Save footprints to this file in addition to returning the
-      GeoDataFrame.
-
-  Returns:
-    GeoDataFrame of building footprints.
+    output_path: Save footprints to this file as a GeoPackage.
   """
   bounds = ee.FeatureCollection([_shapely_to_ee_feature(r) for r in regions])
   open_buildings = ee.FeatureCollection(collection)
@@ -102,34 +96,26 @@ def get_open_buildings(regions: List[ShapelyGeometry],
   aoi_buildings = aoi_buildings.filter(f'confidence >= {confidence}')
   if as_centroids:
     centroids = aoi_buildings.map(_get_open_building_feature_centroid)
-    return _download_feature_collection(centroids, ['longitude', 'latitude'],
-                                        output_path)
+    _download_feature_collection(
+        centroids,
+        [
+            'longitude',
+            'latitude',
+            'full_plus_code',
+            'confidence',
+            'area_in_meters',
+        ],
+        output_path,
+    )
   else:
-    return _download_feature_collection(aoi_buildings, ['.geo'], output_path)
+    _download_feature_collection(
+        aoi_buildings,
+        ['.geo', 'full_plus_code', 'confidence', 'area_in_meters'],
+        output_path,
+    )
 
 
-def get_open_buildings_centroids(
-    regions: List[ShapelyGeometry],
-    collection: str,
-    confidence: float,
-    output_path: str) -> List[Tuple[float, float]]:
-  """Downloads Open Buildings footprints as centroids of regions of interest.
-
-  Args:
-    regions: List of regions as shapely geometries.
-    collection: Name of Earth Engine FeatureCollection containing footprints.
-    confidence: Confidence threshold for included buildings.
-    output_path: Save footprints to this file in addition to returning the
-      GeoDataFrame.
-
-  Returns:
-    List of (longitude, latitude) building centroids.
-  """
-  gdf = get_open_buildings(regions, collection, confidence, True, output_path)
-  return list(zip(gdf['geometry'].x, gdf['geometry'].y))
-
-
-def initialize(service_account: str, private_key: Optional[str]) -> bool:
+def initialize(service_account: str, private_key: str | None) -> bool:
   """Initializes EE server connection.
 
   When not using a service account, this function assumes that the user has
