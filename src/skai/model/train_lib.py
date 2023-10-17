@@ -505,12 +505,12 @@ def run_train(
     to numerical codes
     """
     get_hash_values = lambda x: abs(hash(x.ref()))
-    def encode_string_to_number(input_data, key):
-      encoded_values = tf.map_fn(elems=input_data[key],
+    def encode_string_to_number(inputs, key):
+      encoded_values = tf.map_fn(elems=inputs[key],
                                   fn=get_hash_values,
                                   dtype=tf.int64)
-      input_data[key] = encoded_values
-      return data
+      inputs[key] = encoded_values
+      return inputs
 
     input_data = encode_string_to_number(input_data, 'example_id')
     input_data = encode_string_to_number(input_data, 'string_label')
