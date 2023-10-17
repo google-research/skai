@@ -166,9 +166,9 @@ def main(_) -> None:
             raise ValueError(
                 f'The accelerator {FLAGS.accelerator} only support 8 devices.'
             )
-        accelerator = 'tpu'
+        accelerator_type = 'tpu'
       else:
-        accelerator = 'gpu'
+        accelerator_type = 'gpu'
 
       resources_args = {
         FLAGS.accelerator: FLAGS.accelerator_count,
@@ -177,7 +177,7 @@ def main(_) -> None:
       }
     else:
       resources_args = {'RAM': FLAGS.ram * xm.GiB, 'CPU': FLAGS.cpu * xm.vCPU}
-      accelerator = 'cpu'
+      accelerator_type = 'cpu'
 
     executor = xm_local.Vertex(
         requirements=xm.JobRequirements(
@@ -193,7 +193,7 @@ def main(_) -> None:
                 'config': config_path,
                 'is_vertex': True,
                 'distribute': FLAGS.distribute,
-                'accelerator': accelerator
+                'accelerator_type': accelerator_type
             },
         ),
     ])
@@ -240,7 +240,7 @@ def main(_) -> None:
         ),
 
         num_trials_total=100,
-        num_parallel_trial_runs=3,
+        num_parallel_trial_runs=1,
     ).launch()
 
 

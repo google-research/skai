@@ -36,7 +36,7 @@ flags.DEFINE_bool(
   )
 )
 flags.DEFINE_enum(
-  'accelerator',
+  'accelerator_type',
   default='cpu',
   help='Accelerator to use for computations',
   enum_values=['cpu', 'gpu', 'tpu']
@@ -61,11 +61,11 @@ def main(_) -> None:
   config = FLAGS.config
   base_config.check_flags(config)
   strategy=None
-  if FLAGS.accelerator == 'tpu':
+  if FLAGS.accelerator_type == 'tpu':
     resolver = get_tpu_resolver()
     strategy = tf.distribute.TPUStrategy(resolver)
 
-  elif FLAGS.accelerator == 'gpu' and FLAGS.distribute is True:
+  elif FLAGS.accelerator_type == 'gpu' and FLAGS.distribute is True:
     # strategy = tf.distribute.MirroredStrategy()
     #TODO: Add distributed strategy for GPU
     # when distributed training on GPU is required
