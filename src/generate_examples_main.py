@@ -162,6 +162,11 @@ flags.DEFINE_integer(
 flags.DEFINE_string(
     'configuration_path', None, 'A path to a json configuration file'
 )
+flags.DEFINE_bool(
+    'wait_for_dataflow',
+    True,
+    'Wait for dataflow job to finish before finishing execution.',
+)
 
 Polygon = shapely.geometry.polygon.Polygon
 
@@ -254,6 +259,7 @@ def main(args):
       config.cloud_region,
       config.worker_service_account,
       config.max_dataflow_workers,
+      FLAGS.wait_for_dataflow,
       config.cloud_detector_model_path
   )
 

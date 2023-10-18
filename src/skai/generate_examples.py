@@ -89,7 +89,7 @@ class ExamplesGenerationConfig:
   buildings_file: Optional[str] = None
   overpass_url: Optional[str] = 'https://lz4.overpass-api.de/api/interpreter'
   open_buildings_feature_collection: Optional[str] = (
-      'GOOGLE/Research/open-buildings/v2/polygons'
+      'GOOGLE/Research/open-buildings/v3/polygons'
   )
   open_buildings_confidence: float = 0.0
   earth_engine_service_account: Optional[str] = ''
@@ -235,10 +235,11 @@ def download_building_footprints(
     ):
       raise NotInitializedEarthEngineError()
     logging.info('Querying Open Buildings centroids. This may take a while.')
-    earth_engine.get_open_buildings_centroids(
+    earth_engine.get_open_buildings(
         regions,
         config.open_buildings_feature_collection,
         config.open_buildings_confidence,
+        False,
         output_path,
     )
   else:
@@ -789,7 +790,8 @@ def generate_examples_pipeline(
     cloud_region: Optional[str],
     worker_service_account: Optional[str],
     max_workers: int,
-    cloud_detector_model_path: Optional[str] = None) -> None:
+    wait_for_dataflow_job: bool,
+    cloud_detector_model_path: Optional[str]) -> None:
   """Runs example generation pipeline.
 
   Args:
@@ -810,6 +812,8 @@ def generate_examples_pipeline(
     cloud_region: Cloud region, e.g. us-central1.
     worker_service_account: Email of service account that will launch workers.
     max_workers: Maximum number of workers to use.
+    wait_for_dataflow_job: If true, wait for dataflow job to complete before
+        returning.
     cloud_detector_model_path: Path to tflite cloud detector model.
   """
 
@@ -838,28 +842,31 @@ def generate_examples_pipeline(
     large_examples_output_prefix = (
         os.path.join(output_dir, 'examples', 'unlabeled-large', 'unlabeled'))
 
-  with beam.Pipeline(options=pipeline_options) as pipeline:
-    large_examples, small_examples = _generate_examples(
-        pipeline, before_image_patterns, after_image_patterns, buildings_path,
-        large_patch_size, example_patch_size, resolution, gdal_env,
-        'generate_examples', cloud_detector_model_path)
+  pipeline = beam.Pipeline(options=pipeline_options)
+  large_examples, small_examples = _generate_examples(
+      pipeline, before_image_patterns, after_image_patterns, buildings_path,
+      large_patch_size, example_patch_size, resolution, gdal_env,
+      'generate_examples', cloud_detector_model_path)
 
-    _ = (
-        small_examples
-        | 'serialize_small_examples' >> beam.Map(
-            lambda e: e.SerializeToString())
-        | 'write_small_examples' >> beam.io.tfrecordio.WriteToTFRecord(
-            small_examples_output_prefix,
-            file_name_suffix='.tfrecord',
-            num_shards=num_output_shards))
-    _ = (
-        large_examples
-        | 'serialize_large_examples' >> beam.Map(
-            lambda e: e.SerializeToString())
-        | 'write_large_examples' >> beam.io.tfrecordio.WriteToTFRecord(
-            large_examples_output_prefix,
-            file_name_suffix='.tfrecord',
-            num_shards=num_output_shards))
+  _ = (
+      small_examples
+      | 'serialize_small_examples' >> beam.Map(
+          lambda e: e.SerializeToString())
+      | 'write_small_examples' >> beam.io.tfrecordio.WriteToTFRecord(
+          small_examples_output_prefix,
+          file_name_suffix='.tfrecord',
+          num_shards=num_output_shards))
+  _ = (
+      large_examples
+      | 'serialize_large_examples' >> beam.Map(
+          lambda e: e.SerializeToString())
+      | 'write_large_examples' >> beam.io.tfrecordio.WriteToTFRecord(
+          large_examples_output_prefix,
+          file_name_suffix='.tfrecord',
+          num_shards=num_output_shards))
+  result = pipeline.run()
+  if wait_for_dataflow_job:
+    result.wait_until_finish()
 
 
 def validate_image_patterns(
