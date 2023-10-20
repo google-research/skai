@@ -83,7 +83,6 @@ def _get_setup_file_path():
 
 
 def _get_dataflow_container_image() -> str | None:
-
   """Gets default dataflow image based on Python version.
 
   Returns:
@@ -95,6 +94,21 @@ def _get_dataflow_container_image() -> str | None:
 
   raise ValueError(
       f'Dataflow SDK supports Python versions 3.10+, not {py_version}'
+  )
+
+
+def _get_gpu_dataflow_container_image() -> str | None:
+  """Gets container image with GPU support based on Python version.
+
+  Returns:
+    Dataflow container image path.
+  """
+  py_version = '.'.join(platform.python_version().split('.')[:2])
+  if py_version in ['3.10', '3.11']:
+    return f'gcr.io/disaster-assessment/inference/skai-inference-python{py_version}-gpu:latest'
+
+  raise ValueError(
+      f'SKAI supports Python versions 3.10+, not {py_version}'
   )
 
 
@@ -148,7 +162,6 @@ def get_pipeline_options(
       'temp_location': temp_dir,
       'runner': 'DataflowRunner',
       'experiments': 'use_runner_v2',
-      'sdk_container_image': _get_dataflow_container_image(),
       'sdk_location': 'container',
       'setup_file': _get_setup_file_path(),
       'max_num_workers': max_workers,
@@ -160,9 +173,13 @@ def get_pipeline_options(
     options['machine_type'] = machine_type
 
   if accelerator:
-    dataflow_service_options = f'{accelerator};count:{accelerator_count}'
-    if 'nvidia' in accelerator:
-      dataflow_service_options += ';install-nvidia-driver'
-    options['dataflow_service_options'] = dataflow_service_options
+    options['dataflow_service_options'] = ';'.join([
+        f'worker_accelerator=type:{accelerator}',
+        f'count:{accelerator_count}',
+        'install-nvidia-driver',
+    ])
+    options['sdk_container_image'] = _get_gpu_dataflow_container_image()
+  else:
+    options['sdk_container_image'] = _get_dataflow_container_image()
 
   return PipelineOptions.from_dictionary(options)
