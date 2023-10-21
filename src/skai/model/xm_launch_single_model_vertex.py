@@ -81,6 +81,15 @@ flags.DEFINE_integer(
         'https://github.com/deepmind/xmanager/blob/main/docs/executors.md'
     ),
 )
+
+flags.DEFINE_bool(
+  'distribute',
+  default=False,
+  help=(
+    'Distribute training across multiple accelerator devices'
+  )
+)
+
 config_flags.DEFINE_config_file('config')
 
 
@@ -151,13 +160,15 @@ def main(_) -> None:
         use_deep_module=True,
     )
     if FLAGS.accelerator is not None:
-      if (
-          FLAGS.accelerator in ['TPU_V3', 'TPU_V2']
-          and FLAGS.accelerator_count != 8
-      ):
-        raise ValueError(
-            f'The accelerator {FLAGS.accelerator} only support 8 devices.'
-        )
+      if FLAGS.accelerator in ['TPU_V3', 'TPU_V2']:
+        if FLAGS.accelerator_count != 8:
+            raise ValueError(
+                f'The accelerator {FLAGS.accelerator} only support 8 devices.'
+            )
+        accelerator_type = 'tpu'
+      else:
+        accelerator_type = 'gpu'
+    
       resources_args = {
           FLAGS.accelerator: FLAGS.accelerator_count,
           'RAM': FLAGS.ram * xm.GiB,
@@ -165,6 +176,8 @@ def main(_) -> None:
       }
     else:
       resources_args = {'RAM': FLAGS.ram * xm.GiB, 'CPU': FLAGS.cpu * xm.vCPU}
+      accelerator_type = 'cpu'
+
     executor = xm_local.Vertex(
         requirements=xm.JobRequirements(
             service_tier=xm.ServiceTier.PROD, **resources_args
@@ -177,7 +190,9 @@ def main(_) -> None:
             executor_spec=xm_local.Vertex.Spec(),
             args={
                 'config': config_path,
-                'is_vertex': 'vertex' in str(executor.Spec()).lower()
+                'is_vertex': True,
+                'distribute': FLAGS.distribute,
+                'accelerator_type': accelerator_type
             },
         ),
     ])
