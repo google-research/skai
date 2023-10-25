@@ -288,12 +288,14 @@ class TrainLibTest(parameterized.TestCase):
         num_train_examples=self.dataloader.num_train_examples)
 
     # Callback should save model automatically.
+    strategy = tf.distribute.get_strategy()
     train_lib.run_train(
         self.dataloader.train_ds.batch(2),
         self.dataloader.eval_ds['val'].batch(2),
         self.model_params_one_head,
         'test_model_eval',
         callbacks=callbacks,
+        strategy=strategy,
     )
 
     model_dir = self.output_dir
