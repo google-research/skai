@@ -9,7 +9,6 @@ import numpy as np
 from skai import utils
 from skai.model import data
 import tensorflow as tf
-import tensorflow_text  # pylint: disable=unused-import
 
 
 def set_gpu_memory_growth() -> None:

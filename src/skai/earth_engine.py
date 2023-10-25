@@ -72,7 +72,7 @@ def _download_feature_collection(
     raise ValueError('No geometries found in feature collection.')
 
   buildings.write_buildings_file(
-      gpd.GeoDataFrame(properties, geometry=geometry), output_path
+      gpd.GeoDataFrame(properties, geometry=geometry, crs=4326), output_path
   )
 
 

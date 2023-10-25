@@ -1,9 +1,9 @@
 absl-py>=0.12.0
-apache_beam
+apache_beam==2.50.0
 earthengine-api
 geopandas
 google_apitools
-google-cloud-aiplatform
+google-cloud-aiplatform>=1.35.0
 google-cloud-bigquery-storage
 ml-collections
 numpy
@@ -16,7 +16,7 @@ rasterio
 requests
 rio-cogeo
 rtree
-shapely<2
+shapely>=2
 scikit-learn
 tensorflow
 tensorflow-datasets

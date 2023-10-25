@@ -495,7 +495,9 @@ class GenerateExamplesTest(parameterized.TestCase):
         cloud_project=None,
         cloud_region=None,
         worker_service_account=None,
-        max_workers=0)
+        max_workers=0,
+        wait_for_dataflow_job=True,
+        cloud_detector_model_path=None)
 
     tfrecords = os.listdir(os.path.join(output_dir, 'examples', 'unlabeled'))
     self.assertSameElements(tfrecords, ['unlabeled-00000-of-00001.tfrecord'])
@@ -534,7 +536,7 @@ class GenerateExamplesTest(parameterized.TestCase):
     )
     self.assertEqual(
         config.open_buildings_feature_collection,
-        'GOOGLE/Research/open-buildings/v2/polygons',
+        'GOOGLE/Research/open-buildings/v3/polygons',
     )
     self.assertEqual(config.earth_engine_service_account, '')
     self.assertIsNone(config.earth_engine_private_key)
