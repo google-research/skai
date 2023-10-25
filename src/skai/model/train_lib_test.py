@@ -173,6 +173,7 @@ class TrainLibTest(parameterized.TestCase):
     log_metrics_callback.LogMetricsCallback = mock.Mock(
         return_value=tf.keras.callbacks.Callback()
     )
+    self.strategy = tf.distribute.get_strategy()
 
   @parameterized.named_parameters(
       (model_name, model_name)
@@ -244,14 +245,13 @@ class TrainLibTest(parameterized.TestCase):
         num_train_examples=self.dataloader.num_train_examples)
 
     # Callback should save checkpoint automatically.
-    strategy = tf.distribute.get_strategy()
     train_lib.run_train(
         self.dataloader.train_ds.batch(2),
         self.dataloader.eval_ds['val'].batch(2),
         self.model_params_one_head,
         'test_model_eval',
         callbacks=callbacks,
-        strategy=strategy,
+        strategy=self.strategy,
     )
     checkpoint_dir = os.path.join(self.output_dir, 'checkpoints')
     self.assertNotEmpty(tf.io.gfile.listdir(checkpoint_dir))
@@ -290,14 +290,13 @@ class TrainLibTest(parameterized.TestCase):
         num_train_examples=self.dataloader.num_train_examples)
 
     # Callback should save model automatically.
-    strategy = tf.distribute.get_strategy()
     train_lib.run_train(
         self.dataloader.train_ds.batch(2),
         self.dataloader.eval_ds['val'].batch(2),
         self.model_params_one_head,
         'test_model_eval',
         callbacks=callbacks,
-        strategy=strategy,
+        strategy=self.strategy,
     )
 
     model_dir = self.output_dir
