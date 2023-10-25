@@ -52,7 +52,6 @@ flags.DEFINE_integer(
   32,
   'Fixed amount of RAM for the work unit in GB',
 )
-
 flags.DEFINE_integer(
     'cpu',
     4,
@@ -71,7 +70,6 @@ flags.DEFINE_enum(
     help='Accelerator to use for faster computations.',
     enum_values=['P100', 'V100', 'P4', 'T4', 'A100', 'TPU_V2', 'TPU_V3']
 )
-
 flags.DEFINE_integer(
     'accelerator_count',
     1,
@@ -81,7 +79,6 @@ flags.DEFINE_integer(
         'https://github.com/deepmind/xmanager/blob/main/docs/executors.md'
     ),
 )
-
 flags.DEFINE_bool(
   'distribute',
   default=False,
@@ -177,8 +174,6 @@ def main(_) -> None:
       }
     else:
       resources_args = {'RAM': FLAGS.ram * xm.GiB, 'CPU': FLAGS.cpu * xm.vCPU}
-      accelerator_type = 'cpu'
-
       accelerator_type = 'cpu'
 
     executor = xm_local.Vertex(

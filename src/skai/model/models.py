@@ -14,7 +14,7 @@ import tensorflow as tf
 MODEL_REGISTRY = {}
 RESNET_IMAGE_SIZE = 224
 TYPE_VISION = 'vision'
-
+MODEL_NAME_TO_KEY =  {TYPE_VISION: 1}
 
 def register_model(name: str):
   """Provides decorator to register model classes."""
@@ -92,7 +92,7 @@ class ResNet50v1(tf.keras.Model):
 
     self.model_params = model_params
     self.model_name = tf.Variable(
-        TYPE_VISION, trainable=False, dtype=tf.string
+        MODEL_NAME_TO_KEY[TYPE_VISION], trainable=False, dtype=tf.int32
     )
     self.resnet_model = tf.keras.applications.resnet50.ResNet50(
         include_top=False,
@@ -247,9 +247,9 @@ class TwoTower(tf.keras.Model):
     super(TwoTower, self).__init__(name=model_params.model_name)
 
     self.model_params = model_params
-    # self.model_name = tf.Variable(
-    #     TYPE_VISION, trainable=False, dtype=tf.string
-    # )
+    self.model_name = tf.Variable(
+        MODEL_NAME_TO_KEY[TYPE_VISION], trainable=False, dtype=tf.int32
+    )
     backbone = tf.keras.applications.resnet_v2.ResNet50V2(
         include_top=False,
         weights='imagenet' if model_params.load_pretrained_weights else None,

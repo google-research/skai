@@ -18,6 +18,7 @@ from skai.model import models
 from skai.model import sampling_policies
 from skai.model import train_lib
 from skai.model.configs import base_config
+from skai.model.train_strategy import get_strategy
 import tensorflow as tf
 
 
@@ -49,12 +50,6 @@ flags.DEFINE_string(
     'Name of the job trial that measurements should be submitted to. Format:'
     ' projects/{project}/locations/{location}/studies/{study}/trials/{trial}',
 )
-
-def get_tpu_resolver():
-  resolver = tf.distribute.cluster_resolver.TPUClusterResolver(tpu='local')
-  tf.config.experimental_connect_to_cluster(resolver)
-  tf.tpu.experimental.initialize_tpu_system(resolver)
-  return resolver
 
 
 def main(_) -> None:
@@ -204,16 +199,14 @@ def main(_) -> None:
   dataloader = data.apply_batch(dataloader, config.data.batch_size)
 
   if FLAGS.accelerator_type == 'tpu':
-    resolver = get_tpu_resolver()
-    strategy = tf.distribute.TPUStrategy(resolver)
+    # Encode string data components as numerical
+    # This is useful when using TPU which does not accept string datatype
     dataloader = data.apply_map(dataloader, 
                               data.encode_strings_as_numbers('example_id'))
     dataloader = data.apply_map(dataloader, 
                               data.encode_strings_as_numbers('string_label'))
-  elif FLAGS.accelerator_type == 'gpu' and FLAGS.distribute is True:
-    strategy = tf.distribute.MirroredStrategy()
-  else:
-    strategy = tf.distribute.get_strategy()
+
+  strategy = get_strategy(accelerator_type=FLAGS.accelerator_type)
 
   _ = train_lib.train_and_evaluate(
       train_as_ensemble=config.train_stage_2_as_ensemble,
