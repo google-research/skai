@@ -498,40 +498,12 @@ def run_train(
   Returns:
     Trained model.
   """
-
-  def encode_strings_to_numbers(input_data: tf.Tensor):
-    """
-    Encode string data components, example_id and string_label 
-    to numerical codes
-    """
-    get_hash_values = lambda x: abs(hash(x.ref()))
-    def encode_string_to_number(inputs, key):
-      encoded_values = tf.map_fn(elems=inputs[key],
-                                  fn=get_hash_values,
-                                  dtype=tf.int64)
-      inputs[key] = encoded_values
-      return inputs
-
-    input_data = encode_string_to_number(input_data, 'example_id')
-    input_data = encode_string_to_number(input_data, 'string_label')
-    return input_data
-
-  if strategy is not None:
-    with strategy.scope():
-      two_head_model = init_model(
-          model_params=model_params,
-          experiment_name=experiment_name,
-          example_id_to_bias_table=example_id_to_bias_table
-      )
-  else:
+  with strategy.scope():
     two_head_model = init_model(
-          model_params=model_params,
-          experiment_name=experiment_name,
-          example_id_to_bias_table=example_id_to_bias_table
-      )
-
-  train_ds = train_ds.map(encode_strings_to_numbers)
-  val_ds = val_ds.map(encode_strings_to_numbers)
+        model_params=model_params,
+        experiment_name=experiment_name,
+        example_id_to_bias_table=example_id_to_bias_table
+    )
 
   two_head_model.fit(
       train_ds,
@@ -998,4 +970,3 @@ def train_and_evaluate(
     evaluate_model(two_head_model, output_dir, dataloader.eval_ds,
                    save_model_checkpoints, save_best_model)
     return two_head_model
-  

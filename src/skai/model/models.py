@@ -247,9 +247,9 @@ class TwoTower(tf.keras.Model):
     super(TwoTower, self).__init__(name=model_params.model_name)
 
     self.model_params = model_params
-    self.model_name = tf.Variable(
-        TYPE_VISION, trainable=False, dtype=tf.string
-    )
+    # self.model_name = tf.Variable(
+    #     TYPE_VISION, trainable=False, dtype=tf.string
+    # )
     backbone = tf.keras.applications.resnet_v2.ResNet50V2(
         include_top=False,
         weights='imagenet' if model_params.load_pretrained_weights else None,

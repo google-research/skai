@@ -3,8 +3,8 @@
 GPU_ACCELERATORS = ['P100', 'V100', 'P4', 'T4', 'A100']
 TPU_ACCELERATORS = ['TPU_V2', 'TPU_V3']
 
-CPU_BASE_IMAGE = 'tensorflow/tensorflow:2.13.0'
-GPU_BASE_IMAGE = 'nvcr.io/nvidia/tensorflow:23.08-tf2-py3'
+CPU_BASE_IMAGE = 'tensorflow/tensorflow:2.14.0'
+GPU_BASE_IMAGE = 'tensorflow/tensorflow:2.14.0-gpu'
 TPU_BASE_IMAGE = 'ubuntu:22.04'
 
 
@@ -42,22 +42,7 @@ def get_docker_instructions(accelerator: str) -> tuple[str, list[str]]:
     # https://cloud.google.com/deep-learning-containers/docs/choosing-container
     base_image = GPU_BASE_IMAGE
     docker_instructions = [
-        # Add deadsnakes repo
-        'RUN apt update',
-        'RUN apt-get install software-properties-common -y',
-        'RUN add-apt-repository ppa:deadsnakes/ppa -y',
-
-        # Install Python 3.10',
-        'RUN apt update && apt install -y python3.10 python3.10-distutils',
-        'RUN curl -sS https://bootstrap.pypa.io/get-pip.py | python3.10',
-
-        # Replace python shell with python3.10',
-        'RUN unlink /usr/bin/python',
-        'RUN ln -s /usr/bin/python3.10 /usr/bin/python',
-
-        'RUN python -m pip install --pre --extra-index-url ' +
-        'https://developer.download.nvidia.com/compute/redist/jp/v50 ' +
-        'tensorflow==2.13'
+      'RUN apt-get update && apt-get install -y libcairo2-dev libjpeg-dev libgif-dev'
     ]
 
   else:

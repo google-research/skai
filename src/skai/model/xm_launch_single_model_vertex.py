@@ -88,8 +88,8 @@ flags.DEFINE_bool(
   help=(
     'Distribute training across multiple accelerator devices'
   )
-
 )
+
 config_flags.DEFINE_config_file('config')
 
 
@@ -169,7 +169,7 @@ def main(_) -> None:
         accelerator_type = 'tpu'
       else:
         accelerator_type = 'gpu'
-
+    
       resources_args = {
         FLAGS.accelerator: FLAGS.accelerator_count,
         'RAM': FLAGS.ram * xm.GiB,
@@ -177,6 +177,8 @@ def main(_) -> None:
       }
     else:
       resources_args = {'RAM': FLAGS.ram * xm.GiB, 'CPU': FLAGS.cpu * xm.vCPU}
+      accelerator_type = 'cpu'
+
       accelerator_type = 'cpu'
 
     executor = xm_local.Vertex(
@@ -239,8 +241,8 @@ def main(_) -> None:
             location=FLAGS.cloud_location
         ),
 
-        num_trials_total=100,
-        num_parallel_trial_runs=3,
+        num_trials_total=2,
+        num_parallel_trial_runs=1,
     ).launch()
 
 

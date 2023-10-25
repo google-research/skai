@@ -40,8 +40,7 @@ flags.DEFINE_enum(
   default='cpu',
   help='Accelerator to use for computations',
   enum_values=['cpu', 'gpu', 'tpu']
-)
-
+  )
 flags.DEFINE_string('ensemble_dir', '', 'If specified, loads the models at '
                     'this directory to consider the ensemble.')
 flags.DEFINE_string(
@@ -57,19 +56,10 @@ def get_tpu_resolver():
   tf.tpu.experimental.initialize_tpu_system(resolver)
   return resolver
 
+
 def main(_) -> None:
   config = FLAGS.config
   base_config.check_flags(config)
-  strategy=None
-  if FLAGS.accelerator_type == 'tpu':
-    resolver = get_tpu_resolver()
-    strategy = tf.distribute.TPUStrategy(resolver)
-
-  elif FLAGS.accelerator_type == 'gpu' and FLAGS.distribute is True:
-    # strategy = tf.distribute.MirroredStrategy()
-    #TODO: Add distributed strategy for GPU
-    # when distributed training on GPU is required
-    pass
 
   if FLAGS.keep_logs and not config.training.log_to_xm:
     if not tf.io.gfile.exists(config.output_dir):
@@ -213,6 +203,18 @@ def main(_) -> None:
   # Apply batching (must apply batching only after filtering)
   dataloader = data.apply_batch(dataloader, config.data.batch_size)
 
+  if FLAGS.accelerator_type == 'tpu':
+    resolver = get_tpu_resolver()
+    strategy = tf.distribute.TPUStrategy(resolver)
+    dataloader = data.apply_map(dataloader, 
+                              data.encode_strings_as_numbers('example_id'))
+    dataloader = data.apply_map(dataloader, 
+                              data.encode_strings_as_numbers('string_label'))
+  elif FLAGS.accelerator_type == 'gpu' and FLAGS.distribute is True:
+    strategy = tf.distribute.MirroredStrategy()
+  else:
+    strategy = tf.distribute.get_strategy()
+
   _ = train_lib.train_and_evaluate(
       train_as_ensemble=config.train_stage_2_as_ensemble,
       dataloader=dataloader,
@@ -228,10 +230,9 @@ def main(_) -> None:
       example_id_to_bias_table=example_id_to_bias_table,
       vizier_trial_name=FLAGS.trial_name,
       is_vertex=FLAGS.is_vertex,
-      strategy=strategy,
+      strategy=strategy
   )
 
 
 if __name__ == '__main__':
   app.run(main)
-  
