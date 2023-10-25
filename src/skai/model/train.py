@@ -61,19 +61,6 @@ def main(_) -> None:
   config = FLAGS.config
   base_config.check_flags(config)
 
-  strategy=None
-  if FLAGS.accelerator_type == 'tpu':
-    resolver = get_tpu_resolver()
-    strategy = tf.distribute.TPUStrategy(resolver)
-
-  elif FLAGS.accelerator_type == 'gpu' and FLAGS.distribute is True:
-    # strategy = tf.distribute.MirroredStrategy()
-    #TODO: Add distributed strategy for GPU
-    # when distributed training on GPU is required
-    pass
-  else:
-    strategy = tf.distribute.get_strategy()
-
   if FLAGS.keep_logs and not config.training.log_to_xm:
     if not tf.io.gfile.exists(config.output_dir):
       tf.io.gfile.makedirs(config.output_dir)
@@ -221,6 +208,19 @@ def main(_) -> None:
     df.to_csv(os.path.join(output_dir, table_name + '.csv'), index=False)
   # Apply batching (must apply batching only after filtering)
   dataloader = data.apply_batch(dataloader, config.data.batch_size)
+
+  strategy=None
+  if FLAGS.accelerator_type == 'tpu':
+    resolver = get_tpu_resolver()
+    strategy = tf.distribute.TPUStrategy(resolver)
+    dataloader = data.apply_map(dataloader, 
+                              data.encode_strings_as_numbers('example_id'))
+    dataloader = data.apply_map(dataloader, 
+                              data.encode_strings_as_numbers('string_label'))
+  elif FLAGS.accelerator_type == 'gpu' and FLAGS.distribute is True:
+    strategy = tf.distribute.MirroredStrategy()
+  else:
+    strategy = tf.distribute.get_strategy()
 
   _ = train_lib.train_and_evaluate(
       train_as_ensemble=config.train_stage_2_as_ensemble,

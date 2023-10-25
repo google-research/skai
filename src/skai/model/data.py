@@ -162,6 +162,41 @@ def apply_batch(dataloader, batch_size):
       dataloader.eval_ds[k] = v.batch(batch_size)
   return dataloader
 
+def apply_map(dataloader, map_fn):
+  """Apply batching to dataloader."""
+  dataloader.train_splits = [
+      data.map(map_fn) for data in dataloader.train_splits
+  ]
+  dataloader.val_splits = [
+      data.map(map_fn) for data in dataloader.val_splits
+  ]
+  num_splits = len(dataloader.train_splits)
+  train_ds = gather_data_splits(
+      list(range(num_splits)), dataloader.train_splits)
+  val_ds = gather_data_splits(list(range(num_splits)), dataloader.val_splits)
+  dataloader.train_ds = train_ds
+  dataloader.eval_ds['val'] = val_ds
+  for (k, v) in dataloader.eval_ds.items():
+    if k != 'val':
+      dataloader.eval_ds[k] = v.map(map_fn)
+  return dataloader
+
+def encode_strings_as_numbers(feature: str):
+  """
+  Encode string data components, example_id and string_label 
+  to numerical codes
+  """
+  get_hash_values = lambda x: abs(hash(x.ref()))
+  
+  def inner(inputs):
+    feature_from_id = inputs[feature]
+    feature_code = tf.map_fn(elems=feature_from_id,
+                                fn=get_hash_values,
+                                dtype=tf.int64
+                                )
+    inputs[feature] = tf.cast(feature_code, tf.int32)
+    return inputs
+  return inner
 
 def gather_data_splits(
     slice_idx: list[int],
