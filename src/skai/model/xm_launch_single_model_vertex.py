@@ -240,7 +240,7 @@ def main(_) -> None:
         ),
 
         num_trials_total=100,
-        num_parallel_trial_runs=1,
+        num_parallel_trial_runs=3,
     ).launch()
 
 
