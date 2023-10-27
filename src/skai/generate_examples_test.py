@@ -497,7 +497,8 @@ class GenerateExamplesTest(parameterized.TestCase):
         worker_service_account=None,
         max_workers=0,
         wait_for_dataflow_job=True,
-        cloud_detector_model_path=None)
+        cloud_detector_model_path=None,
+        output_metadata_file=False)
 
     tfrecords = os.listdir(os.path.join(output_dir, 'examples', 'unlabeled'))
     self.assertSameElements(tfrecords, ['unlabeled-00000-of-00001.tfrecord'])
