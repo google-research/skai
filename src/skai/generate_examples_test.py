@@ -503,6 +503,56 @@ class GenerateExamplesTest(parameterized.TestCase):
     tfrecords = os.listdir(os.path.join(output_dir, 'examples', 'unlabeled'))
     self.assertSameElements(tfrecords, ['unlabeled-00000-of-00001.tfrecord'])
 
+  def testGenerateExamplesWithOutputMetaDataFile(self):
+    output_dir = tempfile.mkdtemp(dir=absltest.TEST_TMPDIR.value)
+    _create_buildings_file(
+        [(178.482925, -16.632893), (178.482283, -16.632279)],
+        self.buildings_path,
+    )
+    generate_examples.generate_examples_pipeline(
+        before_image_patterns=[self.test_image_path],
+        after_image_patterns=[self.test_image_path],
+        large_patch_size=32,
+        example_patch_size=32,
+        resolution=0.5,
+        output_dir=output_dir,
+        num_output_shards=1,
+        buildings_path=self.buildings_path,
+        buildings_labeled=False,
+        use_dataflow=False,
+        gdal_env={},
+        dataflow_job_name='test',
+        cloud_project=None,
+        cloud_region=None,
+        worker_service_account=None,
+        max_workers=0,
+        wait_for_dataflow_job=True,
+        cloud_detector_model_path=None,
+        output_metadata_file=True,
+    )
+
+    tfrecords = os.listdir(os.path.join(output_dir, 'examples', 'unlabeled'))
+    f_handle = open(
+        file=os.path.join(output_dir, 'examples', 'metadata_examples.csv'),
+        mode='r',
+    )
+    metadata_contents = []
+    for line in f_handle:
+      metadata_contents.append(line.rstrip())
+
+    self.assertSameElements(tfrecords, ['unlabeled-00000-of-00001.tfrecord'])
+    self.assertSameElements(
+        metadata_contents,
+        [
+            'example_id,encoded_coordinates,longitude,latitude,post_image_id,'
+            + 'pre_image_id,plus_code',
+            '4022748eade841cb039230af0e1d4c86,'
+            + 'A17B32432A1085C1,178.48292541503906,-16.632892608642578,'
+            + '/tmp/skai/src/skai/test_data/blank.tif,'
+            + '/tmp/skai/src/skai/test_data/blank.tif,5VMW9F8M+R5V8F4',
+        ],
+    )
+
   def testConfigLoadedCorrectlyFromJsonFile(self):
     config = generate_examples.ExamplesGenerationConfig.init_from_json_path(
         self.test_config_path
