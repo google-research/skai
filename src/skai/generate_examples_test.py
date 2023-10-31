@@ -305,8 +305,8 @@ class GenerateExamplesTest(parameterized.TestCase):
 
     _create_labeled_buildings_file(
         [
-            (178.482925, -16.632893, 0, 'no_damage'),
-            (178.482924, -16.632894, 1, 'destroyed'),
+            (178.482925, -16.632893, 0.0, 'no_damage'),
+            (178.482924, -16.632894, 1.0, 'destroyed'),
         ],
         self.buildings_path,
     )

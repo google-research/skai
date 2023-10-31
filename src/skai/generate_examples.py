@@ -25,7 +25,7 @@ import os
 import pickle
 import struct
 import typing
-from typing import Any, Dict, Iterable, Iterator, List, Optional, Tuple, Union
+from typing import Any, Dict, Iterable, Iterator, List, Optional, Tuple
 
 import apache_beam as beam
 import cv2
@@ -33,6 +33,7 @@ import geopandas as gpd
 import numpy as np
 from openlocationcode import openlocationcode
 import shapely.geometry
+import shapely.wkb
 from skai import beam_utils
 from skai import buildings
 from skai import cloud_detector
@@ -402,7 +403,8 @@ class GenerateExamplesFn(beam.DoFn):
       before_image: np.ndarray,
       after_image_id: str,
       after_image: np.ndarray,
-      scalar_features: Dict[str, List[Union[float, str]]]) -> Optional[Example]:
+      scalar_features: Dict[str, List[Any]],
+  ) -> Optional[Example]:
     """Create Tensorflow Example from inputs.
 
     Args:
@@ -474,10 +476,16 @@ class GenerateExamplesFn(beam.DoFn):
       )
 
     for name, value in scalar_features.items():
-      if all(isinstance(v, str) for v in value):
+      if all(isinstance(v, bytes) for v in value):
+        utils.add_bytes_list_feature(name, value, example)
+      elif all(isinstance(v, str) for v in value):
         utils.add_bytes_list_feature(name, [v.encode() for v in value], example)
-      else:
+      elif all(isinstance(v, float) for v in value):
         utils.add_float_list_feature(name, value, example)
+      elif all(isinstance(v, int) for v in value):
+        utils.add_int64_list_feature(name, value, example)
+      else:
+        raise ValueError(f'Unknown value type for feature {name}.')
     return example
 
   def process(
@@ -545,7 +553,6 @@ def _extract_scalar_features_from_buildings_file(buildings_path: str):
     latitude = row['latitude']
     label = row['label'] if 'label' in row.index else -1.0
     string_label = row['string_label'] if 'string_label' in row.index else ''
-
     encoded_coords = utils.encode_coordinates(longitude, latitude)
     scalar_features = {
         'coordinates': [longitude, latitude],
@@ -556,6 +563,8 @@ def _extract_scalar_features_from_buildings_file(buildings_path: str):
       scalar_features['plus_code'] = [row['full_plus_code']]
     if 'area_in_meters' in row.index:
       scalar_features['area_in_meters'] = [row['area_in_meters']]
+    if row.geometry.type != 'Point':
+      scalar_features['footprint_wkb'] = [shapely.wkb.dumps(row.geometry)]
     yield (encoded_coords, _FeatureUnion(scalar_features=scalar_features))
 
 
@@ -905,7 +914,7 @@ class WriteMetadataToCSVFn(beam.DoFn):
 
   Attributes:
     metadata_output_file_path: File path to output meta data of all examples.
-    field_names: Field names to be included in output file. 
+    field_names: Field names to be included in output file.
   """
 
   def __init__(self, metadata_output_file_path: str, field_names: List[str]):

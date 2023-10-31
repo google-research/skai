@@ -14,12 +14,17 @@
 
 """Functions for running model inference in beam."""
 
+import csv
+import io
 import time
 from typing import Any, Iterable, Iterator, Optional
 
 import apache_beam as beam
 from apache_beam.utils import multi_process_shared
 import numpy as np
+import shapely.wkb
+import shapely.wkt
+
 from skai import utils
 from skai.model import data
 import tensorflow as tf
@@ -316,14 +321,59 @@ def run_inference(
 def _key_example_by_encoded_coordinates(
     example: tf.train.Example,
 ) -> tuple[str, tf.train.Example]:
-  return (utils.get_string_feature(example, 'encoded_coordinates'), example)
+  encoded_coordinates = utils.get_bytes_feature(example, 'encoded_coordinates')[
+      0
+  ]
+  return (
+      encoded_coordinates.decode(),
+      example,
+  )
+
+
+def _create_csv_row(row_values):
+  buffer = io.StringIO()
+  writer = csv.writer(buffer)
+  writer.writerow(row_values)
+  return buffer.getvalue()
 
 
 def _format_example_to_csv_row(example: tf.train.Example) -> str:
+  """Convert an example into text CSV format.
+
+  Args:
+    example: Input example.
+
+  Returns:
+    CSV text string.
+  """
   example_id = utils.get_bytes_feature(example, 'example_id')[0].decode()
   longitude, latitude = utils.get_float_feature(example, 'coordinates')
-  score = utils.get_float_feature(example, 'score')[0]
-  return f'{example_id},{longitude},{latitude},{score}'
+  try:
+    score = utils.get_float_feature(example, 'score')[0]
+  except IndexError:
+    score = None
+  try:
+    plus_code = utils.get_bytes_feature(example, 'plus_code')[0].decode()
+  except IndexError:
+    plus_code = ''
+  try:
+    area = utils.get_float_feature(example, 'area_in_meters')[0]
+  except IndexError:
+    area = None
+  try:
+    footprint_wkb = utils.get_bytes_feature(example, 'footprint_wkb')[0]
+    footprint_wkt = shapely.wkt.dumps(shapely.wkb.loads(footprint_wkb))
+  except IndexError:
+    footprint_wkt = None
+  return _create_csv_row([
+      example_id,
+      longitude,
+      latitude,
+      score,
+      plus_code,
+      area,
+      footprint_wkt,
+  ])
 
 
 def examples_to_csv(examples: beam.PCollection, output_prefix: str) -> None:
