@@ -295,7 +295,7 @@ class DataEncoder:
     return transformed_batch
 
   def _apply_map_to_features(self, dataloader: Dataloader, 
-                             map_fn: collections.abc.Callable[...], 
+                             map_fn: collections.abc.Callable[[tf.Tensor], tf.Tensor],
                              feature: str):
     """
       Apply a map function to a TensorFlow DataLoader and return the modified DataLoader.
