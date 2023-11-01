@@ -163,42 +163,169 @@ def apply_batch(dataloader, batch_size):
   return dataloader
 
 
-def apply_map(dataloader, map_fn):
-  """Apply a map function to dataloader."""
-  dataloader.train_splits = [
-      data.map(map_fn) for data in dataloader.train_splits
-  ]
-  dataloader.val_splits = [
-      data.map(map_fn) for data in dataloader.val_splits
-  ]
-  num_splits = len(dataloader.train_splits)
-  train_ds = gather_data_splits(
-      list(range(num_splits)), dataloader.train_splits)
-  val_ds = gather_data_splits(list(range(num_splits)), dataloader.val_splits)
-  dataloader.train_ds = train_ds
-  dataloader.eval_ds['val'] = val_ds
-  for (k, v) in dataloader.eval_ds.items():
-    if k != 'val':
-      dataloader.eval_ds[k] = v.map(map_fn)
-  return dataloader
+class DataEncoder:
+  def __init__(self):
+    self.string_label_categories: dict[str, int] = {b'bad_example' :0,
+                                    b'destroyed'   :1,
+                                    b'major_damage':2,
+                                    b'minor_damage':3,
+                                    b'no_damage'   :4}
 
+  def encode_example_ids(self, dataloader: Dataloader)-> Dataloader:
+    """
+      Encode example IDs from hexadecimal strings to integers in a TensorFlow DataLoader.
 
-def encode_strings_as_numbers(feature: str):
-  """
-  Encode string data components to numerical values
-  """
-  get_hash_values = lambda x: abs(hash(x.ref()))
+      Args:
+      - dataloader: The TensorFlow DataLoader containing example IDs to be encoded.
+
+      Returns:
+      - dataloader: The modified TensorFlow DataLoader with encoded example IDs.
+      """
+    return self._apply_map_to_features(dataloader,
+          self._convert_hex_strings_to_int,
+          'example_id')
+ 
+  def encode_string_labels(self, dataloader: Dataloader)-> Dataloader:
+    """
+    Encode string data components to numerical values.
+
+    Args:
+     dataloader: The dataloader.
+
+    Returns:
+     dataloader with string label encoded.
+    """
+    return self._apply_map_to_features(dataloader,
+          self._convert_label_to_int,
+          'string_label')
   
-  def inner(inputs):
-    feature_from_id = inputs[feature]
-    feature_code = tf.map_fn(elems=feature_from_id,
-                                fn=get_hash_values,
-                                dtype=tf.int32
-                                )
-    inputs[feature] = feature_code
-    return inputs
-  return inner
+  def decode_example_ids(self, inputs: tf.Tensor | Dataloader):
+    """
+    Decode example IDs from integers to hexadecimal strings in a batch.
 
+    Args:
+    - inputs: A batch of data or dataloader containing encoded example IDs.
+
+    Returns:
+    - transformed_batch: The modified batch or dataloader with decoded example IDs.
+    """
+    if isinstance(inputs, Dataloader):
+      return self._apply_map_to_features(
+          inputs,
+          self._convert_int_to_hex_strings,
+          'example_id')
+    else:
+      return self._convert_int_to_hex_strings(inputs)
+
+  def decode_string_labels(self, inputs: tf.Tensor | Dataloader):
+    if isinstance(inputs, Dataloader):
+      return self._apply_map_to_features(
+          inputs,
+          self._convert_int_to_label,
+          'string_label')
+    else:
+      return self._convert_int_to_label(inputs)
+    
+  def _convert_hex_strings_to_int(self, hex_strings):
+    segment_size=4
+    def split_long_integer(number):
+      segments = []
+      while number > 0:
+        segment = number % (10 ** segment_size)  # Extract the last `segment_size` digits
+        segments.append(segment)
+        number //= 10 ** segment_size  # Remove the last `segment_size` digits
+      return segments
+    
+    output = []
+    for hex_string in hex_strings:
+      integer = int(hex_string.numpy(), 16)
+      short_integers = split_long_integer(integer)
+      short_integers += [len(short_integers)]
+      output.append(short_integers)
+    padded_sequences = tf.keras.preprocessing.sequence.pad_sequences(
+      output, padding='pre')
+    return tf.constant(padded_sequences, tf.int64)
+
+  def _convert_int_to_hex_strings(self, segments):
+    def combine_segments(segments, segment_size=4):
+      number = 0
+      for i, segment in enumerate(segments):
+        number += segment * (10 ** (i * segment_size))
+      return number
+
+    def long_integer_to_string(integer):
+      strings = f'{integer:032x}'
+      return tf.compat.as_bytes(
+        strings, encoding='utf-8'
+      )
+
+    output = []
+    segment_size = 4
+    for segment in segments:
+      long_integer = combine_segments(
+          segment.numpy().tolist(), segment_size)
+      output.append(long_integer_to_string(long_integer))
+    return tf.convert_to_tensor(output)
+
+  def _convert_label_to_int(self, labels):
+    output = []
+    for label in labels:
+      output.append(self.string_label_categories[label.numpy()])
+    return tf.convert_to_tensor(output, tf.int64)
+  
+  def _convert_int_to_label(self, labels):
+    values2categories = {value: cat 
+                         for cat, value in self.string_label_categories.items()}
+    output = []
+    for label in labels:
+      output.append(values2categories[label.numpy()])
+    return tf.convert_to_tensor(output, tf.string)
+  
+  def _process_per_batch(self, batch, map_fn, feature):
+    transformed_batch = []
+    for idx, examples in enumerate(batch):
+      processed = map_fn(examples[feature])
+      examples[feature] = processed
+
+      if idx==0: 
+          transformed_batch=tf.data.Dataset.from_tensor_slices(examples)
+          continue
+      transformed_batch.concatenate(
+          tf.data.Dataset.from_tensor_slices(examples))
+    return transformed_batch
+
+  def _apply_map_to_features(self, dataloader: Dataloader, 
+                             map_fn: collections.abc.Callable[...], 
+                             feature: str):
+    """
+      Apply a map function to a TensorFlow DataLoader and return the modified DataLoader.
+
+      Args:
+      - dataloader: The TensorFlow DataLoader to apply the map function to.
+      - map_fn: The mapping function to apply.
+
+      Returns:
+      - dataloader: The modified TensorFlow DataLoader.
+    """
+    batch_size = dataloader.train_splits[0]._batch_size.numpy()
+    dataloader.train_splits = [
+        self._process_per_batch(data, map_fn, feature) for data in dataloader.train_splits
+    ]
+    dataloader.val_splits = [
+        self._process_per_batch(data, map_fn, feature) for data in dataloader.val_splits
+    ]
+    num_splits = len(dataloader.train_splits)
+    train_ds = gather_data_splits(
+        list(range(num_splits)), dataloader.train_splits)
+    val_ds = gather_data_splits(list(range(num_splits)), dataloader.val_splits)
+    dataloader.train_ds = train_ds
+    dataloader.eval_ds['val'] = val_ds
+    for (k, v) in dataloader.eval_ds.items():
+      if k != 'val':
+        dataloader.eval_ds[k] = self._process_per_batch(v, map_fn, feature)
+    dataloader = apply_batch(dataloader, batch_size)
+    return dataloader
+  
 
 def gather_data_splits(
     slice_idx: list[int],

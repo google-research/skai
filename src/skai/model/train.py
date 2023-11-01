@@ -29,13 +29,6 @@ flags.DEFINE_bool('keep_logs', True, 'If True, creates a log file in output '
 flags.DEFINE_bool(
     'is_vertex', False, 'True if the training job will be executed on VertexAI.'
 )
-flags.DEFINE_bool(
-  'distribute',
-  default=False,
-  help=(
-    'Distribute training across multiple accelerator devices'
-  )
-)
 flags.DEFINE_enum(
   'accelerator_type',
   default='cpu',
@@ -201,10 +194,8 @@ def main(_) -> None:
   if FLAGS.accelerator_type == 'tpu':
     # Encode string data components as numerical
     # This is useful when using TPU which does not accept string datatype
-    dataloader = data.apply_map(dataloader, 
-                              data.encode_strings_as_numbers('example_id'))
-    dataloader = data.apply_map(dataloader, 
-                              data.encode_strings_as_numbers('string_label'))
+    dataloader = data.DataEncoder().encode_string_labels(dataloader)
+    dataloader = data.DataEncoder().encode_example_ids(dataloader)
 
   strategy = get_strategy(accelerator_type=FLAGS.accelerator_type)
 

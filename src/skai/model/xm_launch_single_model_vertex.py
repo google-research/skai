@@ -79,13 +79,6 @@ flags.DEFINE_integer(
         'https://github.com/deepmind/xmanager/blob/main/docs/executors.md'
     ),
 )
-flags.DEFINE_bool(
-  'distribute',
-  default=False,
-  help=(
-    'Distribute training across multiple accelerator devices'
-  )
-)
 
 config_flags.DEFINE_config_file('config')
 
@@ -189,7 +182,6 @@ def main(_) -> None:
             args={
                 'config': config_path,
                 'is_vertex': True,
-                'distribute': FLAGS.distribute,
                 'accelerator_type': accelerator_type
             },
         ),
