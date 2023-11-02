@@ -15,12 +15,14 @@
 """Functions for running model inference in beam."""
 
 import csv
+import enum
 import io
 import time
-from typing import Any, Iterable, Iterator, Optional
+from typing import Any, Iterable, Iterator
 
 import apache_beam as beam
 from apache_beam.utils import multi_process_shared
+
 import numpy as np
 import shapely.wkb
 import shapely.wkt
@@ -28,6 +30,15 @@ import shapely.wkt
 from skai import utils
 from skai.model import data
 import tensorflow as tf
+# This import is needed for SentencePiece operations.
+import tensorflow_text  # pylint: disable=unused-import
+
+
+class ModelType(enum.Enum):
+  """Model types."""
+
+  VLM = 'vlm'
+  CLASSIFICATION = 'classification'
 
 
 def set_gpu_memory_growth() -> None:
@@ -38,6 +49,8 @@ def set_gpu_memory_growth() -> None:
         tf.config.experimental.set_memory_growth(gpu, True)
     except RuntimeError as e:
       print(e)
+
+
 set_gpu_memory_growth()
 
 
@@ -80,12 +93,6 @@ def _extract_image_or_blank(
   return np.zeros((image_size, image_size, 3), dtype=np.float32)
 
 
-def _get_model_type(model: tf.keras.Model) -> Optional[str]:
-  if hasattr(model, 'model_type'):
-    return model.model_type.numpy().decode('utf-8')
-  return None
-
-
 class TF2VLMModel:
   """VLM model wrapper for SKAI TF2 models."""
 
@@ -99,16 +106,16 @@ class TF2VLMModel:
     """Predicts probabilities for a batch of images.
 
     Args:
-      batch: dictionary that contains the input images. The batch
-             must has "large_image" and the image pixels must
-             normalised in the range 0 - 1.0.
+      batch: dictionary that contains the input images. The batch must has
+        "large_image" and the image pixels must normalised in the range 0 - 1.0.
+
     Returns:
       a dictionary that contains probabilities of labels for
       each image example.
     """
     # TODO(mohammedelfatihsalah): check the image size requirement of the saved
     # tf model.
-    image_embeddings = self._model.encode_images(batch['large_image']*255)
+    image_embeddings = self._model.encode_images(batch['large_image'] * 255)
     # TODO(mohammedelfatihsalah): take the temperature value from the saved tf
     # model.
     sims = image_embeddings @ tf.transpose(self.labels_embeddings) * 100
@@ -130,8 +137,10 @@ class TF2InferenceModel(InferenceModel):
       image_size: int,
       post_image_only: bool,
       text_labels: list[str],
+      model_type: ModelType,
   ):
     self._model_dir = model_dir
+    self._model_type = model_type
     self._image_size = image_size
     self._post_image_only = post_image_only
     self._text_labels = text_labels
@@ -180,7 +189,7 @@ class TF2InferenceModel(InferenceModel):
     # https://medium.com/google-cloud/cache-reuse-across-dofns-in-beam-a34a926db848
     def load():
       model = tf.saved_model.load(self._model_dir)
-      if _get_model_type(model) == 'vlm':
+      if self._model_type == ModelType.VLM:
         vlm_model = TF2VLMModel(model, self._text_labels)
         _ = vlm_model(self._make_dummy_input())
         return vlm_model
@@ -190,9 +199,9 @@ class TF2InferenceModel(InferenceModel):
         _ = model(self._make_dummy_input())
         return model
 
-    self._model = (
-        multi_process_shared.MultiProcessShared(load, 'share').acquire()
-    )
+    self._model = multi_process_shared.MultiProcessShared(
+        load, 'share'
+    ).acquire()
 
   def predict_scores(self, batch: list[tf.train.Example]) -> np.ndarray:
     model_input = self._extract_image_arrays(batch)
@@ -400,7 +409,9 @@ def run_tf2_inference_with_csv_output(
     post_image_only: bool,
     batch_size: int,
     text_labels: list[str],
-    pipeline_options):
+    model_type: ModelType,
+    pipeline_options,
+):
   """Runs example generation pipeline using TF2 model and outputs to CSV.
 
   Args:
@@ -412,6 +423,7 @@ def run_tf2_inference_with_csv_output(
     batch_size: Batch size.
     text_labels: list of text labels that will be used by the vision langauge
       model.
+    model_type: Indentify the type of the model being used.
     pipeline_options: Dataflow pipeline options.
   """
 
@@ -420,11 +432,12 @@ def run_tf2_inference_with_csv_output(
         pipeline
         | 'read_tfrecords'
         >> beam.io.tfrecordio.ReadFromTFRecord(
-            examples_pattern, coder=beam.coders.ProtoCoder(tf.train.Example))
+            examples_pattern, coder=beam.coders.ProtoCoder(tf.train.Example)
+        )
         | 'reshuffle_input' >> beam.Reshuffle()
     )
     model = TF2InferenceModel(
-        model_dir, image_size, post_image_only, text_labels
+        model_dir, image_size, post_image_only, text_labels, model_type
     )
     scored_examples = run_inference(examples, 'score', batch_size, model)
     examples_to_csv(scored_examples, output_prefix)

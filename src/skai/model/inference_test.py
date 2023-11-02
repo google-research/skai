@@ -192,7 +192,9 @@ class InferenceTest(absltest.TestCase):
   def test_tf2_model_prediction(self):
     model_path = os.path.join(_make_temp_dir(), 'model.keras')
     _create_test_model(model_path, 224)
-    model = inference_lib.TF2InferenceModel(model_path, 224, False, [])
+    model = inference_lib.TF2InferenceModel(
+        model_path, 224, False, [], inference_lib.ModelType.CLASSIFICATION
+    )
     model.prepare_model()
 
     examples = [_create_test_example(224, True) for i in range(3)]
@@ -202,7 +204,9 @@ class InferenceTest(absltest.TestCase):
   def test_tf2_model_prediction_no_small_images(self):
     model_path = os.path.join(_make_temp_dir(), 'model.keras')
     _create_test_model(model_path, 224)
-    model = inference_lib.TF2InferenceModel(model_path, 224, False, [])
+    model = inference_lib.TF2InferenceModel(
+        model_path, 224, False, [], inference_lib.ModelType.CLASSIFICATION
+    )
     model.prepare_model()
 
     examples = [_create_test_example(224, False) for i in range(3)]

@@ -22,12 +22,19 @@ from absl import flags
 from skai import beam_utils
 from skai.model import inference_lib
 
+ModelType = inference_lib.ModelType
 FLAGS = flags.FLAGS
 
 flags.DEFINE_string(
     'examples_pattern', None, 'File pattern for input TFRecords.', required=True
 )
 flags.DEFINE_string('model_dir', None, 'Saved model directory.', required=True)
+flags.DEFINE_enum_class(
+    'model_type',
+    'classification',
+    ModelType,
+    'The type of the loaded model.',
+)
 flags.DEFINE_string('output_path', None, 'Output path.', required=True)
 flags.DEFINE_integer('image_size', 224, 'Expected image width and height.')
 flags.DEFINE_bool('post_images_only', False, 'Model expects only post images')
@@ -78,6 +85,7 @@ def main(_) -> None:
       FLAGS.post_images_only,
       FLAGS.batch_size,
       FLAGS.text_labels,
+      FLAGS.model_type,
       pipeline_options,
   )
 
