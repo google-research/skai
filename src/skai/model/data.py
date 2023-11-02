@@ -216,7 +216,7 @@ class DataEncoder:
     - inputs: A batch of data or dataloader containing encoded example IDs.
 
     Returns:
-    - transformed_batch: The modified batch or dataloader with decoded example IDs.
+    - The modified batch or dataloader with decoded example IDs.
     """
     if isinstance(inputs, Dataloader):
       return self._apply_map_to_features(
@@ -227,6 +227,16 @@ class DataEncoder:
       return self._convert_int_to_hex_strings(inputs)
 
   def decode_string_labels(self, inputs: tf.Tensor | Dataloader):
+    """
+    Decodes string labels by looking up strings from integers in a batch.
+
+    Args:
+    - inputs: A batch of data or dataloader containing encoded string labels.
+
+    Returns:
+    - The modified batch or dataloader with decoded string labels.
+    """
+
     if isinstance(inputs, Dataloader):
       return self._apply_map_to_features(
           inputs,
@@ -236,6 +246,11 @@ class DataEncoder:
       return self._convert_int_to_label(inputs)
     
   def _convert_hex_strings_to_int(self, hex_strings):
+    """Converts hex strings to integer values, typically a very long one.
+    This long integer values do not fit into a tensorflow tensor int datatype.
+    So the long integer is broken into segments using modulo technique and padded 
+    to same size
+    """
     segment_size=4
     def split_long_integer(number):
       segments = []
@@ -253,9 +268,10 @@ class DataEncoder:
       output.append(short_integers)
     padded_sequences = tf.keras.preprocessing.sequence.pad_sequences(
       output, padding='pre')
-    return padded_sequences #tf.constant(padded_sequences, tf.int64))
+    return padded_sequences 
 
   def _convert_int_to_hex_strings(self, segments):
+    """Converts integer segments ie [232,453,31,32] to a long integer value"""
     def combine_segments(segments, segment_size=4):
       number = 0
       for i, segment in enumerate(segments):
@@ -277,9 +293,11 @@ class DataEncoder:
     return tf.convert_to_tensor(output)
 
   def _convert_label_to_int(self, labels):
+    """Lookup integer values from string labels"""
     return self.label_to_int_table.lookup(labels)
   
   def _convert_int_to_label(self, labels):
+    """Lookup string labels from integer keys"""
     return self.int_to_label_table.lookup(labels)
   
   def _process_per_batch(self, batch, map_fn, feature):
