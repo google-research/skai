@@ -165,12 +165,21 @@ def apply_batch(dataloader, batch_size):
 
 class DataEncoder:
   def __init__(self):
-    self.string_label_categories: dict[str, int] = {b'bad_example' :0,
+    string_label_categories: dict[str, int] = {b'bad_example' :0,
                                     b'destroyed'   :1,
                                     b'major_damage':2,
                                     b'minor_damage':3,
                                     b'no_damage'   :4}
-
+    self.label_to_int_table = tf.lookup.StaticHashTable(
+      tf.lookup.KeyValueTensorInitializer(list(string_label_categories.keys()),
+                                          list(string_label_categories.values())),
+                                          default_value=-1 
+      )
+    self.int_to_label_table = tf.lookup.StaticHashTable(
+      tf.lookup.KeyValueTensorInitializer(list(string_label_categories.values()),
+                                          list(string_label_categories.keys())),
+                                          default_value='unknown' 
+      )
   def encode_example_ids(self, dataloader: Dataloader)-> Dataloader:
     """
       Encode example IDs from hexadecimal strings to integers in a TensorFlow DataLoader.
@@ -244,7 +253,7 @@ class DataEncoder:
       output.append(short_integers)
     padded_sequences = tf.keras.preprocessing.sequence.pad_sequences(
       output, padding='pre')
-    return tf.constant(padded_sequences, tf.int64)
+    return padded_sequences #tf.constant(padded_sequences, tf.int64))
 
   def _convert_int_to_hex_strings(self, segments):
     def combine_segments(segments, segment_size=4):
@@ -268,18 +277,10 @@ class DataEncoder:
     return tf.convert_to_tensor(output)
 
   def _convert_label_to_int(self, labels):
-    output = []
-    for label in labels:
-      output.append(self.string_label_categories[label.numpy()])
-    return tf.convert_to_tensor(output, tf.int64)
+    return self.label_to_int_table.lookup(labels)
   
   def _convert_int_to_label(self, labels):
-    values2categories = {value: cat 
-                         for cat, value in self.string_label_categories.items()}
-    output = []
-    for label in labels:
-      output.append(values2categories[label.numpy()])
-    return tf.convert_to_tensor(output, tf.string)
+    return self.int_to_label_table.lookup(labels)
   
   def _process_per_batch(self, batch, map_fn, feature):
     transformed_batch = []
@@ -308,6 +309,7 @@ class DataEncoder:
       - dataloader: The modified TensorFlow DataLoader.
     """
     batch_size = dataloader.train_splits[0]._batch_size.numpy()
+
     dataloader.train_splits = [
         self._process_per_batch(data, map_fn, feature) for data in dataloader.train_splits
     ]

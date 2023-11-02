@@ -103,7 +103,7 @@ def main(_) -> None:
         dataloader.train_ds.filter(
             generate_bias_table_lib.filter_ids_fn(ids_tab)) for
         ids_tab in sampling_policies.convert_ids_to_table(config.ids_dir)]
-
+  print("Ids dir: ", config.ids_dir)
   model_params = models.ModelTrainingParameters(
       model_name=config.model.name,
       train_bias=config.train_bias,
@@ -125,9 +125,13 @@ def main(_) -> None:
   )
   model_params.train_bias = config.train_bias
 
-  job_id = os.path.basename(FLAGS.trial_name)
-  output_dir = os.path.join(config.output_dir, job_id)
-  tf.io.gfile.makedirs(output_dir)
+  if FLAGS.is_vertex:
+    job_id = os.path.basename(FLAGS.trial_name)
+    output_dir = os.path.join(config.output_dir, job_id)
+    tf.io.gfile.makedirs(output_dir)
+  else:
+    #TODO - Choose a diretory name in case vertex ai is not used in running experiments
+    output_dir = config.output_dir
   example_id_to_bias_table = None
 
   if config.train_bias or (config.reweighting.do_reweighting and
