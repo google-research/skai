@@ -580,13 +580,12 @@ def _split_examples(
   latitudes = []
   encoded_coordinates = []
   for example in examples:
-    encoded_coordinate = utils.get_string_feature(
+    encoded_coordinates.append(utils.get_bytes_feature(
         example, 'encoded_coordinates'
-    )
+    )[0].decode())
     longitude, latitude = utils.get_float_feature(example, 'coordinates')
     longitudes.append(longitude)
     latitudes.append(latitude)
-    encoded_coordinates.append(encoded_coordinate)
 
   gpd_df, connection_matrix = get_connection_matrix(
       longitudes, latitudes, encoded_coordinates, connecting_distance_meters

@@ -88,7 +88,7 @@ def get_open_buildings(regions: list[ShapelyGeometry],
     collection: Name of Earth Engine FeatureCollection containing footprints.
     confidence: Confidence threshold for included buildings.
     as_centroids: If true, download centroids instead of full footprints.
-    output_path: Save footprints to this file as a GeoPackage.
+    output_path: Path to save footprints to.
   """
   bounds = ee.FeatureCollection([_shapely_to_ee_feature(r) for r in regions])
   open_buildings = ee.FeatureCollection(collection)

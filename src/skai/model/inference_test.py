@@ -1,3 +1,17 @@
+# Copyright 2023 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Tests for inference_lib."""
 
 import os
@@ -8,6 +22,8 @@ import apache_beam as beam
 from apache_beam.testing import test_pipeline
 from apache_beam.testing.util import assert_that
 import numpy as np
+import shapely.geometry
+import shapely.wkb
 from skai import utils
 from skai.model import inference_lib
 import tensorflow as tf
@@ -48,6 +64,13 @@ def _create_test_example(
     utils.add_bytes_feature('pre_image_png', image_bytes, example)
     utils.add_bytes_feature('post_image_png', image_bytes, example)
   utils.add_bytes_feature('example_id', b'deadbeef', example)
+  utils.add_float_list_feature('coordinates', [0.0, 0.0], example)
+  utils.add_float_list_feature('area_in_meters', [12.0], example)
+  utils.add_bytes_list_feature('plus_code', [b'abcdef'], example)
+  utils.add_bytes_list_feature('encoded_coordinates', [b'beefdead'], example)
+
+  footprint_wkb = shapely.wkb.dumps(shapely.geometry.Point(12, 15))
+  utils.add_bytes_list_feature('footprint_wkb', [footprint_wkb], example)
   return example
 
 
@@ -153,12 +176,12 @@ class InferenceTest(absltest.TestCase):
             len(examples) == 3
         ), f'Expected 3 examples in output, got {len(examples)}'
         for example in examples:
-          coord = utils.get_string_feature(example, 'encoded_coordinates')
+          coord = utils.get_bytes_feature(example, 'encoded_coordinates')[0]
           expected_score = {
               'A': 0.2,
               'B': 0.5,
               'C': 0.75,
-          }[coord]
+          }[coord.decode()]
           score = example.features.feature['score'].float_list.value[0]
           assert np.isclose(
               score, expected_score
@@ -169,7 +192,9 @@ class InferenceTest(absltest.TestCase):
   def test_tf2_model_prediction(self):
     model_path = os.path.join(_make_temp_dir(), 'model.keras')
     _create_test_model(model_path, 224)
-    model = inference_lib.TF2InferenceModel(model_path, 224, False, [])
+    model = inference_lib.TF2InferenceModel(
+        model_path, 224, False, [], inference_lib.ModelType.CLASSIFICATION
+    )
     model.prepare_model()
 
     examples = [_create_test_example(224, True) for i in range(3)]
@@ -179,12 +204,22 @@ class InferenceTest(absltest.TestCase):
   def test_tf2_model_prediction_no_small_images(self):
     model_path = os.path.join(_make_temp_dir(), 'model.keras')
     _create_test_model(model_path, 224)
-    model = inference_lib.TF2InferenceModel(model_path, 224, False, [])
+    model = inference_lib.TF2InferenceModel(
+        model_path, 224, False, [], inference_lib.ModelType.CLASSIFICATION
+    )
     model.prepare_model()
 
     examples = [_create_test_example(224, False) for i in range(3)]
     output_examples = model.predict_scores(examples)
     self.assertEqual(output_examples.shape, (3,))
+
+  def test_csv_output(self):
+    example = _create_test_example(256, False)
+    csv_output = inference_lib._format_example_to_csv_row(example)
+    expected_wkt = 'POINT (12.0000000000000000 15.0000000000000000)'
+    self.assertEqual(
+        csv_output, f'deadbeef,0.0,0.0,,abcdef,12.0,{expected_wkt}\r\n'
+    )
 
 
 if __name__ == '__main__':

@@ -47,37 +47,42 @@ def deserialize_image(serialized_bytes: bytes, image_format: str) -> Image:
   return PIL.Image.open(io.BytesIO(serialized_bytes), formats=[image_format])
 
 
-def add_int64_feature(feature_name: str,
-                      value: int,
-                      example: Example) -> None:
+def add_int64_feature(feature_name: str, value: int, example: Example) -> None:
   """Add int64 feature to tensorflow Example."""
   example.features.feature[feature_name].int64_list.value.append(value)
 
 
-def add_float_feature(feature_name: str,
-                      value: float,
-                      example: Example) -> None:
+def add_int64_list_feature(
+    feature_name: str, value: Iterable[int], example: Example
+) -> None:
+  """Add int64 list feature to tensorflow Example."""
+  example.features.feature[feature_name].int64_list.value.extend(value)
+
+
+def add_float_feature(
+    feature_name: str, value: float, example: Example
+) -> None:
   """Add float feature to tensorflow Example."""
   example.features.feature[feature_name].float_list.value.append(value)
 
 
-def add_float_list_feature(feature_name: str,
-                           value: Iterable[float],
-                           example: Example) -> None:
+def add_float_list_feature(
+    feature_name: str, value: Iterable[float], example: Example
+) -> None:
   """Add float list feature to tensorflow Example."""
   example.features.feature[feature_name].float_list.value.extend(value)
 
 
-def add_bytes_list_feature(feature_name: str,
-                           value: Iterable[bytes],
-                           example: Example) -> None:
+def add_bytes_list_feature(
+    feature_name: str, value: Iterable[bytes], example: Example
+) -> None:
   """Add bytes list feature to tensorflow Example."""
   example.features.feature[feature_name].bytes_list.value.extend(value)
 
 
-def add_bytes_feature(feature_name: str,
-                      value: bytes,
-                      example: Example) -> None:
+def add_bytes_feature(
+    feature_name: str, value: bytes, example: Example
+) -> None:
   """Add bytes feature to tensorflow Example."""
   example.features.feature[feature_name].bytes_list.value.append(value)
 
@@ -92,10 +97,6 @@ def get_float_feature(example: Example, feature_name: str) -> Sequence[float]:
 
 def get_bytes_feature(example: Example, feature_name: str) -> Sequence[bytes]:
   return list(example.features.feature[feature_name].bytes_list.value)
-
-
-def get_string_feature(example: Example, feature_name: str) -> str:
-  return example.features.feature[feature_name].bytes_list.value[0].decode()
 
 
 def reformat_flags(flags_list: List[flags.Flag]) -> List[str]:
