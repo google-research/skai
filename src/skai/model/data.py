@@ -171,40 +171,44 @@ class DataEncoder:
                                     b'minor_damage':3,
                                     b'no_damage'   :4}
     self.label_to_int_table = tf.lookup.StaticHashTable(
-      tf.lookup.KeyValueTensorInitializer(list(string_label_categories.keys()),
-                                          list(string_label_categories.values())),
-                                          default_value=-1 
+      tf.lookup.KeyValueTensorInitializer(
+        list(string_label_categories.keys()),
+        list(string_label_categories.values())),
+        default_value=-1
       )
     self.int_to_label_table = tf.lookup.StaticHashTable(
-      tf.lookup.KeyValueTensorInitializer(list(string_label_categories.values()),
-                                          list(string_label_categories.keys())),
-                                          default_value='unknown' 
+      tf.lookup.KeyValueTensorInitializer(
+        list(string_label_categories.values()),
+        list(string_label_categories.keys())),
+        default_value='unknown'
       )
   def encode_example_ids(self, dataloader: Dataloader)-> Dataloader:
     """
-      Encode example IDs from hexadecimal strings to integers in a
-      TensorFlow DataLoader.
+    Encode example IDs from hexadecimal strings to integers in a
+    TensorFlow DataLoader.
 
-      Description:
-        example_id are hexadecimal strings, eg. b0b947f423a1c77ac948c76f63fa8209.
-        This is encode by taking the int to base 16. This gives a long integer
-        representation, ie 125613911306676688688906949689977127817181202292590253,
-        which cannot be stored by a tensorflow tensor. This long integer can be
-        broken into smaller segments like [2323, 9023, 3403] using a combination of
-        integer division and modulo operations which can be reversed. The segments
-        are (pre-)padded to same size for all examples in a batch and initial size
-        before padding appended to segments. ie [0, 0, 2323, 9023, 3403, 3]
+    Description:
+      example_id are hexadecimal strings, eg. b0b947f423a1c77ac948c76f63fa8209.
+      This is encode by taking the int to base 16. This gives a long integer
+      representation, ie 125613911306676688688906949689977127817181202292590253,
+      which cannot be stored by a tensorflow tensor. This long integer can be
+      broken into smaller segments like [2323, 9023, 3403] using a combination
+      of integer division and modulo operations which can be reversed. The
+      segments are (pre-)padded to same size for all examples in a batch and
+      initial size before padding appended to segments. ie
+      [0, 0, 2323, 9023, 3403, 3]
 
-      Args:
-      - dataloader: The TensorFlow DataLoader containing example IDs to be encoded.
+    Args:
+    - dataloader: The TensorFlow DataLoader containing example IDs to be 
+    encoded.
 
-      Returns:
-      - dataloader: The modified TensorFlow DataLoader with encoded example IDs.
-      """
+    Returns:
+    - dataloader: The modified TensorFlow DataLoader with encoded example IDs.
+    """
     return self._apply_map_to_features(dataloader,
           self._convert_hex_strings_to_int,
           'example_id')
- 
+
   def encode_string_labels(self, dataloader: Dataloader)-> Dataloader:
     """
     Encode string data components to numerical values.
@@ -218,7 +222,7 @@ class DataEncoder:
     return self._apply_map_to_features(dataloader,
           self._convert_label_to_int,
           'string_label')
-  
+
   def decode_example_ids(self, inputs: tf.Tensor | Dataloader):
     """
     Decode example IDs from integers to hexadecimal strings in a batch.
@@ -255,22 +259,22 @@ class DataEncoder:
           'string_label')
     else:
       return self._convert_int_to_label(inputs)
-    
+
   def _convert_hex_strings_to_int(self, hex_strings):
     """Converts hex strings to integer values, typically a very long one.
     This long integer values do not fit into a tensorflow tensor int datatype.
-    So the long integer is broken into segments using modulo technique and padding
-    to same size
+    So the long integer is broken into segments using modulo technique and
+    padding to same size
     """
     segment_size=4
     def split_long_integer(number):
       segments = []
       while number > 0:
-        segment = number % (10 ** segment_size)  # Extract the last `segment_size` digits
+        segment = number % (10 ** segment_size)  #Get last `segment_size` digits
         segments.append(segment)
-        number //= 10 ** segment_size  # Removes the last `segment_size` digits
+        number //= 10 ** segment_size  # Remove last `segment_size` digits
       return segments
-    
+
     output = []
     for hex_string in hex_strings:
       integer = int(hex_string.numpy(), 16)
@@ -279,7 +283,7 @@ class DataEncoder:
       output.append(short_integers)
     padded_sequences = tf.keras.preprocessing.sequence.pad_sequences(
       output, padding='pre')
-    return padded_sequences 
+    return padded_sequences
 
   def _convert_int_to_hex_strings(self, segments):
     """Converts integer segments to a long integer value
@@ -311,29 +315,31 @@ class DataEncoder:
   def _convert_label_to_int(self, string_labels):
     """Lookup integer values from string labels"""
     return self.label_to_int_table.lookup(string_labels)
-  
+
   def _convert_int_to_label(self, int_labels):
     """Lookup string labels from integer keys"""
     return self.int_to_label_table.lookup(int_labels)
-  
+
   def _process_per_batch(self, batch, map_fn, feature):
     """Apply a map function to a batch of data."""
     for idx, examples in enumerate(batch):
       processed = map_fn(examples[feature])
       examples[feature] = processed
 
-      if idx==0: 
+      if idx==0:
         transformed_batch=tf.data.Dataset.from_tensor_slices(examples)
         continue
       transformed_batch.concatenate(
           tf.data.Dataset.from_tensor_slices(examples))
     return transformed_batch
 
-  def _apply_map_to_features(self, dataloader: Dataloader, 
-                             map_fn: collections.abc.Callable[[tf.Tensor], tf.Tensor],
-                             feature: str):
+  def _apply_map_to_features(self,
+      dataloader: Dataloader,
+      map_fn: collections.abc.Callable[[tf.Tensor], tf.Tensor],
+      feature: str):
     """
-      Apply a map function to a TensorFlow DataLoader and return the modified DataLoader.
+      Applies a map function to a TensorFlow DataLoader and returns
+      the modified DataLoader.
 
       Args:
       - dataloader: The TensorFlow DataLoader to apply the map function to.
@@ -345,15 +351,18 @@ class DataEncoder:
     batch_size = dataloader.train_splits[0]._batch_size.numpy()
 
     dataloader.train_splits = [
-        self._process_per_batch(data, map_fn, feature) for data in dataloader.train_splits
+        self._process_per_batch(data, map_fn, feature)
+          for data in dataloader.train_splits
     ]
     dataloader.val_splits = [
-        self._process_per_batch(data, map_fn, feature) for data in dataloader.val_splits
+        self._process_per_batch(data, map_fn, feature)
+          for data in dataloader.val_splits
     ]
     num_splits = len(dataloader.train_splits)
-    train_ds = gather_data_splits(
-        list(range(num_splits)), dataloader.train_splits)
-    val_ds = gather_data_splits(list(range(num_splits)), dataloader.val_splits)
+    train_ds = gather_data_splits(list(range(num_splits)),
+                                  dataloader.train_splits)
+    val_ds = gather_data_splits(list(range(num_splits)),
+                                dataloader.val_splits)
     dataloader.train_ds = train_ds
     dataloader.eval_ds['val'] = val_ds
     for (k, v) in dataloader.eval_ds.items():
@@ -361,7 +370,7 @@ class DataEncoder:
         dataloader.eval_ds[k] = self._process_per_batch(v, map_fn, feature)
     dataloader = apply_batch(dataloader, batch_size)
     return dataloader
-  
+
 
 def gather_data_splits(
     slice_idx: list[int],
