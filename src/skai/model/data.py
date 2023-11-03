@@ -273,8 +273,11 @@ class DataEncoder:
   def _convert_int_to_hex_strings(self, segments):
     """Converts integer segments ie [232,453,31,32] to a long integer value"""
     def combine_segments(segments, segment_size=4):
+      list_size = segments[-1]
+      segments_to_decode = segments[-(list_size+1):-1]
+
       number = 0
-      for i, segment in enumerate(segments):
+      for i, segment in enumerate(segments_to_decode):
         number += segment * (10 ** (i * segment_size))
       return number
 
@@ -292,23 +295,23 @@ class DataEncoder:
       output.append(long_integer_to_string(long_integer))
     return tf.convert_to_tensor(output)
 
-  def _convert_label_to_int(self, labels):
+  def _convert_label_to_int(self, string_labels):
     """Lookup integer values from string labels"""
-    return self.label_to_int_table.lookup(labels)
+    return self.label_to_int_table.lookup(string_labels)
   
-  def _convert_int_to_label(self, labels):
+  def _convert_int_to_label(self, int_labels):
     """Lookup string labels from integer keys"""
-    return self.int_to_label_table.lookup(labels)
+    return self.int_to_label_table.lookup(int_labels)
   
   def _process_per_batch(self, batch, map_fn, feature):
-    transformed_batch = []
+    """Apply a map function to a batch of data."""
     for idx, examples in enumerate(batch):
       processed = map_fn(examples[feature])
       examples[feature] = processed
 
       if idx==0: 
-          transformed_batch=tf.data.Dataset.from_tensor_slices(examples)
-          continue
+        transformed_batch=tf.data.Dataset.from_tensor_slices(examples)
+        continue
       transformed_batch.concatenate(
           tf.data.Dataset.from_tensor_slices(examples))
     return transformed_batch

@@ -174,7 +174,7 @@ class TestDataEncoder(absltest.TestCase):
         **kwargs
     )
     self.dataloader = data.apply_batch(dataloader, 2)
-    
+
   def test_encode_example_ids_returns_dataloader(self):
     # Check if encode_example_id method correctly returns a dataloader
     encoded_dataloader = self.data_encoder.encode_example_ids(self.dataloader)
@@ -226,16 +226,14 @@ class TestDataEncoder(absltest.TestCase):
     for string_label in true_id_list:
       all_example_ids += string_label.tolist()
 
-
-    encoded_dataloader = self.data_encoder.encode_string_labels(self.dataloader)
-    decoded_dataloader = self.data_encoder.decode_string_labels(encoded_dataloader)
+    encoded_dataloader = self.data_encoder.encode_example_ids(self.dataloader)
+    decoded_dataloader = self.data_encoder.decode_example_ids(encoded_dataloader)
 
     all_decoded_ids = []
     dataset_decoded = decoded_dataloader.train_splits[0]
     decoded_id_list = list(dataset_decoded.map(lambda x: x['example_id']).as_numpy_iterator())
     for string_label in decoded_id_list:
       all_decoded_ids += string_label.tolist()
-
     self.assertItemsEqual(all_example_ids[:len(all_decoded_ids)],
                     all_decoded_ids)
 
@@ -246,7 +244,6 @@ class TestDataEncoder(absltest.TestCase):
     for string_label in true_labels_list:
       all_string_labels += string_label.tolist()
 
-
     encoded_dataloader = self.data_encoder.encode_string_labels(self.dataloader)
     decoded_dataloader = self.data_encoder.decode_string_labels(encoded_dataloader)
 
@@ -255,7 +252,6 @@ class TestDataEncoder(absltest.TestCase):
     decoded_labels_list = list(dataset_decoded.map(lambda x: x['string_label']).as_numpy_iterator())
     for string_label in decoded_labels_list:
       all_decoded_labels += string_label.tolist()
-
     self.assertItemsEqual(all_string_labels[:len(all_decoded_labels)],
                     all_decoded_labels)
 
