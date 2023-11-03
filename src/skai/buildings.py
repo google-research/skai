@@ -14,6 +14,7 @@
 
 """Functions for reading building centroids from files."""
 
+import logging
 import os
 import geopandas as gpd
 import pandas as pd
@@ -41,9 +42,11 @@ def _read_buildings_csv(path: str) -> gpd.GeoDataFrame:
   with tf.io.gfile.GFile(path, 'r') as csv_file:
     df = pd.read_csv(csv_file)
   if 'geometry' in df.columns:
+    logging.info('Parsing %d WKT strings. This could take a while.', len(df))
     geometries = gpd.GeoSeries.from_wkt(df['geometry'])
     df.drop(columns=['geometry'], inplace=True)
   elif 'wkt' in df.columns:
+    logging.info('Parsing %d WKT strings. This could take a while.', len(df))
     geometries = gpd.GeoSeries.from_wkt(df['wkt'])
     df.drop(columns=['wkt'], inplace=True)
   elif 'longitude' in df.columns and 'latitude' in df.columns:

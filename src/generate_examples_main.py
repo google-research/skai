@@ -103,6 +103,12 @@ flags.DEFINE_list(
         'where each element has the form "var=value".'
     ),
 )
+flags.DEFINE_bool(
+    'output_metadata_file',
+    False,
+    'Enable true to generate a file of example metadata, or disable to skip'
+    ' this step.',
+)
 
 # Building discovery flags.
 flags.DEFINE_enum(
@@ -260,7 +266,8 @@ def main(args):
       config.worker_service_account,
       config.max_dataflow_workers,
       FLAGS.wait_for_dataflow,
-      config.cloud_detector_model_path
+      config.cloud_detector_model_path,
+      config.output_metadata_file
   )
 
 
