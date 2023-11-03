@@ -182,7 +182,18 @@ class DataEncoder:
       )
   def encode_example_ids(self, dataloader: Dataloader)-> Dataloader:
     """
-      Encode example IDs from hexadecimal strings to integers in a TensorFlow DataLoader.
+      Encode example IDs from hexadecimal strings to integers in a
+      TensorFlow DataLoader.
+
+      Description:
+        example_id are hexadecimal strings, eg. b0b947f423a1c77ac948c76f63fa8209.
+        This is encode by taking the int to base 16. This gives a long integer
+        representation, ie 125613911306676688688906949689977127817181202292590253,
+        which cannot be stored by a tensorflow tensor. This long integer can be
+        broken into smaller segments like [2323, 9023, 3403] using a combination of
+        integer division and modulo operations which can be reversed. The segments
+        are (pre-)padded to same size for all examples in a batch and initial size
+        before padding appended to segments. ie [0, 0, 2323, 9023, 3403, 3]
 
       Args:
       - dataloader: The TensorFlow DataLoader containing example IDs to be encoded.
@@ -197,7 +208,7 @@ class DataEncoder:
   def encode_string_labels(self, dataloader: Dataloader)-> Dataloader:
     """
     Encode string data components to numerical values.
-
+    HashTable used stores the unique labels and an integer value for lookup
     Args:
      dataloader: The dataloader.
 
@@ -248,7 +259,7 @@ class DataEncoder:
   def _convert_hex_strings_to_int(self, hex_strings):
     """Converts hex strings to integer values, typically a very long one.
     This long integer values do not fit into a tensorflow tensor int datatype.
-    So the long integer is broken into segments using modulo technique and padded 
+    So the long integer is broken into segments using modulo technique and padding
     to same size
     """
     segment_size=4
@@ -257,7 +268,7 @@ class DataEncoder:
       while number > 0:
         segment = number % (10 ** segment_size)  # Extract the last `segment_size` digits
         segments.append(segment)
-        number //= 10 ** segment_size  # Remove the last `segment_size` digits
+        number //= 10 ** segment_size  # Removes the last `segment_size` digits
       return segments
     
     output = []
@@ -271,7 +282,9 @@ class DataEncoder:
     return padded_sequences 
 
   def _convert_int_to_hex_strings(self, segments):
-    """Converts integer segments ie [232,453,31,32] to a long integer value"""
+    """Converts integer segments to a long integer value
+    that can be decoded to retrieve its hex string representation
+    """
     def combine_segments(segments, segment_size=4):
       list_size = segments[-1]
       segments_to_decode = segments[-(list_size+1):-1]
