@@ -970,12 +970,14 @@ class ExampleType(typing.NamedTuple):
 
 @beam.typehints.with_output_types(ExampleType)
 def _get_example_metadata(example: tf.train.Example) -> ExampleType:
-  example_id = utils.get_string_feature(example, 'example_id')
-  encoded_coordinates = utils.get_string_feature(example, 'encoded_coordinates')
+  example_id = utils.get_bytes_feature(example, 'example_id')[0].decode()
+  encoded_coordinates = utils.get_bytes_feature(example, 'encoded_coordinates')[
+      0
+  ].decode()
   longitude, latitude = utils.get_float_feature(example, 'coordinates')
-  post_image_id = utils.get_string_feature(example, 'post_image_id')
-  pre_image_id = utils.get_string_feature(example, 'pre_image_id')
-  plus_code = utils.get_string_feature(example, 'plus_code')
+  post_image_id = utils.get_bytes_feature(example, 'post_image_id')[0].decode()
+  pre_image_id = utils.get_bytes_feature(example, 'pre_image_id')[0].decode()
+  plus_code = utils.get_bytes_feature(example, 'plus_code')[0].decode()
 
   return dict({
       'example_id': example_id,
