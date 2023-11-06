@@ -27,6 +27,7 @@ from apache_beam.testing import test_pipeline
 import apache_beam.testing.util as test_util
 import geopandas as gpd
 import numpy as np
+import pandas as pd
 from skai import buildings
 from skai import generate_examples
 import tensorflow as tf
@@ -532,26 +533,27 @@ class GenerateExamplesTest(parameterized.TestCase):
     )
 
     tfrecords = os.listdir(os.path.join(output_dir, 'examples', 'unlabeled'))
-    f_handle = open(
-        file=os.path.join(output_dir, 'examples', 'metadata_examples.csv'),
-        mode='r',
+    df_metadata_contents = pd.read_csv(
+        os.path.join(output_dir, 'examples', 'metadata_examples.csv')
     )
-    metadata_contents = []
-    for line in f_handle:
-      metadata_contents.append(line.rstrip())
 
-    self.assertSameElements(tfrecords, ['unlabeled-00000-of-00001.tfrecord'])
-    self.assertSameElements(
-        metadata_contents,
-        [
-            'example_id,encoded_coordinates,longitude,latitude,post_image_id,'
-            + 'pre_image_id,plus_code',
-            '4022748eade841cb039230af0e1d4c86,'
-            + 'A17B32432A1085C1,178.48292541503906,-16.632892608642578,'
-            + '/tmp/skai/src/skai/test_data/blank.tif,'
-            + '/tmp/skai/src/skai/test_data/blank.tif,5VMW9F8M+R5V8F4',
-        ],
+    # No assert for example_id as each example_id depends on the image path
+    # which varies with platforms where this test is run
+    self.assertEqual(
+        df_metadata_contents.encoded_coordinates[0], 'A17B32432A1085C1'
     )
+    self.assertAlmostEqual(
+        df_metadata_contents.latitude[0], -16.632892608642578
+    )
+    self.assertAlmostEqual(
+        df_metadata_contents.longitude[0], 178.48292541503906
+    )
+    self.assertEqual(df_metadata_contents.pre_image_id[0], self.test_image_path)
+    self.assertEqual(
+        df_metadata_contents.post_image_id[0], self.test_image_path
+    )
+    self.assertEqual(df_metadata_contents.plus_code[0], '5VMW9F8M+R5V8F4')
+    self.assertSameElements(tfrecords, ['unlabeled-00000-of-00001.tfrecord'])
 
   def testConfigLoadedCorrectlyFromJsonFile(self):
     config = generate_examples.ExamplesGenerationConfig.init_from_json_path(
