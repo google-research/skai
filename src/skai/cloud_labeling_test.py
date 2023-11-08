@@ -15,6 +15,8 @@
 """Tests for cloud_labeling."""
 
 import os
+import pathlib
+import random
 import tempfile
 from typing import List
 
@@ -23,10 +25,12 @@ from absl.testing import parameterized
 import geopandas as gpd
 import numpy as np
 import pandas as pd
-import PIL.Image
+import PIL
 import shapely
 from skai import cloud_labeling
+from skai import utils
 import tensorflow as tf
+
 
 Example = tf.train.Example
 
@@ -159,8 +163,8 @@ class CloudLabelingTest(parameterized.TestCase):
       _, unlabeled_examples_path = tempfile.mkstemp(
           dir=absltest.TEST_TMPDIR.value
       )
-      # a is connected to d
-      # c is connected to b
+      # a is connected to d within 78 metres buffer
+      # c is connected to b within 78 metres buffer
       # e
       test_fraction = 0.4
       possible_test_ids = [['b', 'c'], ['c', 'b'], ['a', 'd'], ['d', 'a']]
@@ -318,6 +322,177 @@ class GetConnectionMatrixTest(tf.test.TestCase):
 
     self.assertNDArrayNear(connection_matrix, correct_connection_matrix, 1e-15)
     self.assertSameElements(gpd_df, correct_gdf)
+
+
+class CreateLabelingImagesTestUsingBufferedSampling(tf.test.TestCase):
+  """Tests for create_labeling_images using buffered sampling."""
+
+  def testSamplingWithBufferRadiusAndMetaDataExamplesFile(self):
+    """Tests buffered sampling when metadata_examples.csv is PRESENT."""
+    max_num_images = 2
+    current_dir = pathlib.Path(__file__).parent
+    test_image_path = str(current_dir / 'test_data/blank.tif')
+    # Create 4 unlabeled examples.
+    with tempfile.TemporaryDirectory() as examples_dir:
+      os.mkdir(os.path.join(examples_dir, 'examples'))
+      os.mkdir(os.path.join(examples_dir, 'examples', 'unlabeled'))
+      os.mkdir(
+          os.path.join(
+              examples_dir,
+              'examples',
+              f'label_images_{max_num_images}',
+          )
+      )
+
+      examples_pattern = os.path.join(
+          examples_dir, 'examples', 'unlabeled', '*'
+      )
+      metadata_examples_path = os.path.join(
+          examples_dir, 'examples', 'metadata_examples.csv'
+      )
+      output_dir = os.path.join(
+          examples_dir, 'examples', f'label_images_{max_num_images}'
+      )
+
+      # a is connected to d within 78 metres
+      # c is connected to b within 78 metres
+      # e is not connected to any of the other points within 78 metres
+      possible_example_id_combination = [
+          ['a', 'b'],
+          ['a', 'c'],
+          ['c', 'd'],
+          ['d', 'b'],
+          ['e', 'a'],
+          ['e', 'b'],
+          ['e', 'c'],
+          ['e', 'd'],
+      ]
+
+      # [image_path_x, image_path_y]
+      possible_image_paths_from_create_labeling_task = [
+          [f'{output_dir}/{id1}.png', f'{output_dir}/{id2}.png']
+          for id1, id2 in possible_example_id_combination
+      ]
+
+      # [image_path_y, image_path_x]
+      possible_image_paths_from_create_labeling_task.extend([
+          [f'{output_dir}/{id2}.png', f'{output_dir}/{id1}.png']
+          for id1, id2 in possible_example_id_combination
+      ])
+      df_metadata = pd.DataFrame(
+          data=[
+              ['a', 92.850449, 20.148951],
+              ['b', 92.889694, 20.157515],
+              ['c', 92.889740, 20.157454],
+              ['d', 92.850479, 20.148664],
+              ['e', 92.898537, 20.160021],
+          ],
+          columns=['example_id', 'longitude', 'latitude'],
+      )
+      df_metadata = df_metadata.sample(frac=1)
+      df_metadata.to_csv(metadata_examples_path, index=False)
+      with tf.io.TFRecordWriter(
+          f'{examples_dir}/examples/unlabeled/unlabeled_large.tfrecord'
+      ) as writer:
+        example_id_lon_lat = [
+            ('a', [92.850449, 20.148951]),
+            ('b', [92.889694, 20.157515]),
+            ('c', [92.889740, 20.157454]),
+            ('d', [92.850479, 20.148664]),
+            ('e', [92.898537, 20.160021]),
+        ]
+        random.shuffle(example_id_lon_lat)
+        for _, (example_id, (lon, lat)) in enumerate(example_id_lon_lat):
+          example = Example()
+          utils.add_bytes_feature(
+              feature_name='example_id',
+              value=example_id.encode(),
+              example=example,
+          )
+          image = tf.io.encode_png(
+              np.array(PIL.Image.open(test_image_path))
+          ).numpy()
+          utils.add_bytes_feature(
+              feature_name='pre_image_png_large', value=image, example=example
+          )
+          utils.add_bytes_feature(
+              feature_name='post_image_png_large', value=image, example=example
+          )
+          utils.add_float_list_feature(
+              feature_name='coordinates', value=[lon, lat], example=example
+          )
+
+          writer.write(example.SerializeToString())
+
+      eval_num_images, eval_import_file_paths = (
+          cloud_labeling.create_labeling_images(
+              examples_pattern=examples_pattern,
+              max_images=max_num_images,
+              allowed_example_ids_path=None,
+              excluded_import_file_patterns=None,
+              output_dir=output_dir,
+              use_multiprocessing=False,
+              buffered_sampling_radius=78.0,
+          )
+      )
+
+      eval_image_paths = pd.read_csv(
+          eval_import_file_paths, header=None, names=['image_path']
+      )
+    self.assertLen(eval_image_paths, 2)
+    self.assertEqual(eval_num_images, max_num_images)
+    self.assertIn(
+        list(eval_image_paths.image_path),
+        possible_image_paths_from_create_labeling_task,
+    )
+
+  def testSamplingWithBufferRadiusAndMetaDataExamplesFileN50(self):
+    """50 random tests of buffered sampling when metadata_examples.csv is PRESENT.
+    """
+    for _ in range(50):
+      self.testSamplingWithBufferRadiusAndMetaDataExamplesFile()
+
+  def testSamplingWithBufferRadiusAndMissingMetaDataExamplesFile(self):
+    """Tests buffered sampling when metadata_examples.csv is MISSING."""
+    with tempfile.TemporaryDirectory() as examples_dir:
+      os.mkdir(os.path.join(examples_dir, 'examples'))
+      os.mkdir(os.path.join(examples_dir, 'examples', 'unlabeled'))
+      os.mkdir(
+          os.path.join(
+              examples_dir,
+              'examples',
+              'label_images',
+          )
+      )
+      examples_pattern = os.path.join(
+          examples_dir, 'examples', 'unlabeled', '*'
+      )
+      output_dir = os.path.join(examples_dir, 'examples', 'label_images')
+      with tf.io.TFRecordWriter(
+          f'{examples_dir}/examples/unlabeled/unlabeled_large.tfrecord'
+      ) as writer:
+        example_ids = ['a', 'b', 'c', 'd', 'e']
+        for example_id in example_ids:
+          example = Example()
+          utils.add_bytes_feature(
+              feature_name='example_id',
+              value=example_id.encode(),
+              example=example,
+          )
+          writer.write(example.SerializeToString())
+
+      with self.assertRaises(SystemExit):
+        _, _ = (
+            cloud_labeling.create_labeling_images(
+                examples_pattern=examples_pattern,
+                max_images=2,
+                allowed_example_ids_path=None,
+                excluded_import_file_patterns=None,
+                output_dir=output_dir,
+                use_multiprocessing=False,
+                buffered_sampling_radius=78.0,
+            )
+        )
 
 
 if __name__ == '__main__':
