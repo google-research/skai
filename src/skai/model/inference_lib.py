@@ -200,7 +200,7 @@ class TF2InferenceModel(InferenceModel):
         return model
 
     self._model = multi_process_shared.MultiProcessShared(
-        load, 'share'
+        load, self._model_dir
     ).acquire()
 
   def predict_scores(self, batch: list[tf.train.Example]) -> np.ndarray:
