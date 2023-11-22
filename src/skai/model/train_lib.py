@@ -87,8 +87,22 @@ class TwoHeadedOutputModel(tf.keras.Model):
     })
     return config
 
-  def call(self, inputs):  # pytype: disable=signature-mismatch  # overriding-parameter-count-checks
-    return self.model(inputs)
+  def call(self, inputs, training=True):  # pytype: disable=signature-mismatch  # overriding-parameter-count-checks
+
+    def _call_without_softmax(inputs):
+      return self.model(inputs)
+
+    def _call_with_softmax(inputs):
+      outputs = self.model(inputs)
+      out_main = tf.nn.softmax(outputs['main'], axis=-1)
+      out_bias = tf.nn.softmax(outputs['bias'], axis=-1)
+      return {'main': out_main, 'bias': out_bias}
+
+    return tf.cond(
+        tf.constant(training, dtype=tf.bool),
+        lambda: _call_without_softmax(inputs),
+        lambda: _call_with_softmax(inputs),
+    )
 
   def update_id_to_bias_table(self, table):
     self.id_to_bias_table = table

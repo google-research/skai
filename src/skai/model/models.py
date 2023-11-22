@@ -46,21 +46,6 @@ def get_model(name: str):
   return MODEL_REGISTRY[name]
 
 
-class SoftmaxHead(tf.keras.models.Model):
-  """Add Softmax Head to a model."""
-
-  def __init__(self, model, **kwargs):
-    super().__init__(**kwargs)
-    self.model = model
-    self.softmax = tf.keras.layers.Softmax()
-
-  def __call__(self, inputs, **kwargs):
-    logits = self.model(inputs, **kwargs)
-    softmax_main = self.softmax(logits['main'])
-    softmax_bias = self.softmax(logits['bias'])
-    return {'main': softmax_main, 'bias': softmax_bias}
-
-
 @dataclasses.dataclass
 class ModelTrainingParameters:
   """Dataclass for training parameters."""
@@ -139,10 +124,6 @@ class ResNet50v1(tf.keras.Model):
         name='bias',
         kernel_regularizer=regularizer)
 
-  def save(self, *args, **kwargs):
-    new_model = SoftmaxHead(self)
-    new_model.save(*args, **kwargs)
-
   def get_config(self):
     config = super(ResNet50v1, self).get_config()
     config.update({'model_params': self.model_params.asdict(),
@@ -214,10 +195,6 @@ class ResNet50v2(tf.keras.Model):
         name='bias',
         kernel_regularizer=regularizer)
 
-  def save(self, *args, **kwargs):
-    new_model = SoftmaxHead(self)
-    new_model.save(*args, **kwargs)
-
   def get_config(self):
     config = super(ResNet50v2, self).get_config()
     config.update({'model_params': self.model_params.asdict(),
@@ -287,10 +264,6 @@ class TwoTower(tf.keras.Model):
         trainable=model_params.train_bias,
         name='bias',
     )
-
-  def save(self, *args, **kwargs):
-    new_model = SoftmaxHead(self)
-    new_model.save(*args, **kwargs)
 
   def get_config(self):
     config = super(TwoTower, self).get_config()

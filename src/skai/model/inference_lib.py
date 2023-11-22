@@ -102,12 +102,13 @@ class TF2VLMModel:
         tf.convert_to_tensor(text_labels)
     )
 
-  def __call__(self, batch: dict[str, Any]) -> dict[str, tf.Tensor]:
+  def __call__(self, batch: dict[str, Any], **kwargs) -> dict[str, tf.Tensor]:
     """Predicts probabilities for a batch of images.
 
     Args:
       batch: dictionary that contains the input images. The batch must has
         "large_image" and the image pixels must normalised in the range 0 - 1.0.
+      **kwargs: Other keyword arguments.
 
     Returns:
       a dictionary that contains probabilities of labels for
@@ -205,7 +206,7 @@ class TF2InferenceModel(InferenceModel):
 
   def predict_scores(self, batch: list[tf.train.Example]) -> np.ndarray:
     model_input = self._extract_image_arrays(batch)
-    outputs = self._model(model_input)
+    outputs = self._model(model_input, training=False)
     return outputs['main'][:, 1]
 
   def _extract_image_arrays(
