@@ -14,13 +14,13 @@
 
 """Functions for running model inference in beam."""
 
-import csv
 import enum
-import io
 import time
-from typing import Any, Iterable, Iterator
+from typing import Any, Iterable, Iterator, NamedTuple
 
 import apache_beam as beam
+import apache_beam.dataframe.convert
+import apache_beam.dataframe.io
 from apache_beam.utils import multi_process_shared
 
 import numpy as np
@@ -39,6 +39,17 @@ class ModelType(enum.Enum):
 
   VLM = 'vlm'
   CLASSIFICATION = 'classification'
+
+
+class InferenceRow(NamedTuple):
+  """A row in the inference output CSV."""
+  example_id: str | None
+  longitude: float | None
+  latitude: float | None
+  score: float | None
+  plus_code: str | None
+  area: float | None
+  wkt: str | None
 
 
 def set_gpu_memory_growth() -> None:
@@ -340,21 +351,14 @@ def _key_example_by_encoded_coordinates(
   )
 
 
-def _create_csv_row(row_values):
-  buffer = io.StringIO()
-  writer = csv.writer(buffer)
-  writer.writerow(row_values)
-  return buffer.getvalue()
-
-
-def _format_example_to_csv_row(example: tf.train.Example) -> str:
-  """Convert an example into text CSV format.
+def _example_to_row(example: tf.train.Example) -> InferenceRow:
+  """Convert an example into an inference row.
 
   Args:
     example: Input example.
 
   Returns:
-    CSV text string.
+    Inference row.
   """
   example_id = utils.get_bytes_feature(example, 'example_id')[0].decode()
   longitude, latitude = utils.get_float_feature(example, 'coordinates')
@@ -375,15 +379,15 @@ def _format_example_to_csv_row(example: tf.train.Example) -> str:
     footprint_wkt = shapely.wkt.dumps(shapely.wkb.loads(footprint_wkb))
   except IndexError:
     footprint_wkt = None
-  return _create_csv_row([
-      example_id,
-      longitude,
-      latitude,
-      score,
-      plus_code,
-      area,
-      footprint_wkt,
-  ])
+  return InferenceRow(
+      example_id=example_id,
+      longitude=longitude,
+      latitude=latitude,
+      score=score,
+      plus_code=plus_code,
+      area=area,
+      wkt=footprint_wkt,
+  )
 
 
 def examples_to_csv(examples: beam.PCollection, output_prefix: str) -> None:
@@ -393,13 +397,13 @@ def examples_to_csv(examples: beam.PCollection, output_prefix: str) -> None:
     examples: PCollection of Tensorflow Examples.
     output_prefix: Prefix of output path.
   """
-  _ = (
+  rows = (
       examples
       | 'reshuffle_for_output' >> beam.Reshuffle()
-      | 'examples_to_csv_lines' >> beam.Map(_format_example_to_csv_row)
-      | 'write_csv'
-      >> beam.io.textio.WriteToText(output_prefix, file_name_suffix='.csv')
+      | 'examples_to_rows' >> beam.Map(_example_to_row)
   )
+  df = apache_beam.dataframe.convert.to_dataframe(rows)
+  apache_beam.dataframe.io.to_csv(df, output_prefix, index=False)
 
 
 def run_tf2_inference_with_csv_output(

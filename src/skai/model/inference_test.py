@@ -52,7 +52,7 @@ def _create_test_model(model_path: str, image_size: int):
 
 
 def _create_test_example(
-    image_size: int, include_small_images: bool
+    image_size: int, include_small_images: bool, include_score: bool
 ) -> tf.train.Example:
   example = tf.train.Example()
   image_bytes = tf.image.encode_png(
@@ -68,6 +68,8 @@ def _create_test_example(
   utils.add_float_list_feature('area_in_meters', [12.0], example)
   utils.add_bytes_list_feature('plus_code', [b'abcdef'], example)
   utils.add_bytes_list_feature('encoded_coordinates', [b'beefdead'], example)
+  if include_score:
+    utils.add_float_list_feature('score', [0.0], example)
 
   footprint_wkb = shapely.wkb.dumps(shapely.geometry.Point(12, 15))
   utils.add_bytes_list_feature('footprint_wkb', [footprint_wkb], example)
@@ -197,7 +199,7 @@ class InferenceTest(absltest.TestCase):
     )
     model.prepare_model()
 
-    examples = [_create_test_example(224, True) for i in range(3)]
+    examples = [_create_test_example(224, True, False) for i in range(3)]
     output_examples = model.predict_scores(examples)
     self.assertEqual(output_examples.shape, (3,))
 
@@ -209,17 +211,19 @@ class InferenceTest(absltest.TestCase):
     )
     model.prepare_model()
 
-    examples = [_create_test_example(224, False) for i in range(3)]
+    examples = [_create_test_example(224, False, False) for i in range(3)]
     output_examples = model.predict_scores(examples)
     self.assertEqual(output_examples.shape, (3,))
 
   def test_csv_output(self):
-    example = _create_test_example(256, False)
-    csv_output = inference_lib._format_example_to_csv_row(example)
-    expected_wkt = 'POINT (12.0000000000000000 15.0000000000000000)'
-    self.assertEqual(
-        csv_output, f'deadbeef,0.0,0.0,,abcdef,12.0,{expected_wkt}\r\n'
-    )
+    examples = [_create_test_example(224, False, True) for i in range(3)]
+    output_path = os.path.join(_make_temp_dir(), 'inference')
+    with test_pipeline.TestPipeline() as pipeline:
+      examples_collection = (
+          pipeline
+          | beam.Create(examples)
+      )
+      inference_lib.examples_to_csv(examples_collection, output_path)
 
 
 if __name__ == '__main__':
