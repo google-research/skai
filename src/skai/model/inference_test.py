@@ -22,6 +22,7 @@ import apache_beam as beam
 from apache_beam.testing import test_pipeline
 from apache_beam.testing.util import assert_that
 import numpy as np
+import pandas as pd
 import shapely.geometry
 import shapely.wkb
 from skai import utils
@@ -216,14 +217,30 @@ class InferenceTest(absltest.TestCase):
     self.assertEqual(output_examples.shape, (3,))
 
   def test_csv_output(self):
-    examples = [_create_test_example(224, False, True) for i in range(3)]
-    output_path = os.path.join(_make_temp_dir(), 'inference')
+    examples = [_create_test_example(224, False, True) for i in range(7)]
+    output_prefix = os.path.join(_make_temp_dir(), 'inference')
     with test_pipeline.TestPipeline() as pipeline:
       examples_collection = (
           pipeline
           | beam.Create(examples)
       )
-      inference_lib.examples_to_csv(examples_collection, output_path)
+      inference_lib.examples_to_csv(examples_collection, output_prefix)
+    output_path = f'{output_prefix}-00000-of-00001'
+    self.assertTrue(os.path.exists(output_path))
+    df = pd.read_csv(output_path)
+    self.assertSameElements(
+        df.columns,
+        [
+            'example_id',
+            'longitude',
+            'latitude',
+            'score',
+            'plus_code',
+            'area',
+            'wkt',
+        ],
+    )
+    self.assertLen(df, 7)
 
 
 if __name__ == '__main__':
