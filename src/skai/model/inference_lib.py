@@ -44,12 +44,16 @@ class ModelType(enum.Enum):
 class InferenceRow(NamedTuple):
   """A row in the inference output CSV."""
   example_id: str | None
+  building_id: str | None
   longitude: float | None
   latitude: float | None
   score: float | None
   plus_code: str | None
-  area: float | None
-  wkt: str | None
+  area_in_meters: float | None
+  footprint_wkt: str | None
+  damaged: bool | None
+  damaged_high_precision: bool | None
+  damaged_high_recall: bool | None
 
 
 def set_gpu_memory_growth() -> None:
@@ -351,21 +355,32 @@ def _key_example_by_encoded_coordinates(
   )
 
 
-def _example_to_row(example: tf.train.Example) -> InferenceRow:
+def _example_to_row(
+    example: tf.train.Example,
+    threshold: float,
+    high_precision_threshold: float,
+    high_recall_threshold: float,
+) -> InferenceRow:
   """Convert an example into an inference row.
 
   Args:
     example: Input example.
+    threshold: Damaged score threshold.
+    high_precision_threshold: Damaged score threshold for high precision.
+    high_recall_threshold: Damaged score threshold for high recall.
 
   Returns:
     Inference row.
   """
   example_id = utils.get_bytes_feature(example, 'example_id')[0].decode()
+  building_id = utils.get_bytes_feature(example, 'encoded_coordinates')[
+      0
+  ].decode()
   longitude, latitude = utils.get_float_feature(example, 'coordinates')
   try:
     score = utils.get_float_feature(example, 'score')[0]
-  except IndexError:
-    score = None
+  except IndexError as e:
+    raise KeyError('score not found.') from e
   try:
     plus_code = utils.get_bytes_feature(example, 'plus_code')[0].decode()
   except IndexError:
@@ -379,28 +394,48 @@ def _example_to_row(example: tf.train.Example) -> InferenceRow:
     footprint_wkt = shapely.wkt.dumps(shapely.wkb.loads(footprint_wkb))
   except IndexError:
     footprint_wkt = None
+
   return InferenceRow(
       example_id=example_id,
+      building_id=building_id,
       longitude=longitude,
       latitude=latitude,
       score=score,
       plus_code=plus_code,
-      area=area,
-      wkt=footprint_wkt,
+      area_in_meters=area,
+      footprint_wkt=footprint_wkt,
+      damaged=(score >= threshold),
+      damaged_high_precision=(score >= high_precision_threshold),
+      damaged_high_recall=(score >= high_recall_threshold),
   )
 
 
-def examples_to_csv(examples: beam.PCollection, output_prefix: str) -> None:
+def examples_to_csv(
+    examples: beam.PCollection,
+    threshold: float,
+    high_precision_threshold: float,
+    high_recall_threshold: float,
+    output_prefix: str,
+) -> None:
   """Converts TF Examples to CSV lines and writes out to file.
 
   Args:
     examples: PCollection of Tensorflow Examples.
+    threshold: Damaged score threshold.
+    high_precision_threshold: Damaged score threshold for high precision.
+    high_recall_threshold: Damaged score threshold for high recall.
     output_prefix: Prefix of output path.
   """
   rows = (
       examples
       | 'reshuffle_for_output' >> beam.Reshuffle()
-      | 'examples_to_rows' >> beam.Map(_example_to_row)
+      | 'examples_to_rows'
+      >> beam.Map(
+          _example_to_row,
+          threshold=threshold,
+          high_precision_threshold=high_precision_threshold,
+          high_recall_threshold=high_recall_threshold,
+      )
   )
   df = apache_beam.dataframe.convert.to_dataframe(rows)
   apache_beam.dataframe.io.to_csv(df, output_prefix, index=False)
@@ -415,6 +450,9 @@ def run_tf2_inference_with_csv_output(
     batch_size: int,
     text_labels: list[str],
     model_type: ModelType,
+    threshold: float,
+    high_precision_threshold: float,
+    high_recall_threshold: float,
     pipeline_options,
 ):
   """Runs example generation pipeline using TF2 model and outputs to CSV.
@@ -429,6 +467,9 @@ def run_tf2_inference_with_csv_output(
     text_labels: list of text labels that will be used by the vision langauge
       model.
     model_type: Indentify the type of the model being used.
+    threshold: Damaged score threshold.
+    high_precision_threshold: Damaged score threshold for high precision.
+    high_recall_threshold: Damaged score threshold for high recall.
     pipeline_options: Dataflow pipeline options.
   """
 
@@ -445,4 +486,10 @@ def run_tf2_inference_with_csv_output(
         model_dir, image_size, post_image_only, text_labels, model_type
     )
     scored_examples = run_inference(examples, 'score', batch_size, model)
-    examples_to_csv(scored_examples, output_prefix)
+    examples_to_csv(
+        scored_examples,
+        threshold,
+        high_precision_threshold,
+        high_recall_threshold,
+        output_prefix,
+    )

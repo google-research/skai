@@ -53,7 +53,10 @@ def _create_test_model(model_path: str, image_size: int):
 
 
 def _create_test_example(
-    image_size: int, include_small_images: bool, include_score: bool
+    image_size: int,
+    include_small_images: bool,
+    include_score: bool,
+    score: float = 0.0,
 ) -> tf.train.Example:
   example = tf.train.Example()
   image_bytes = tf.image.encode_png(
@@ -70,7 +73,7 @@ def _create_test_example(
   utils.add_bytes_list_feature('plus_code', [b'abcdef'], example)
   utils.add_bytes_list_feature('encoded_coordinates', [b'beefdead'], example)
   if include_score:
-    utils.add_float_list_feature('score', [0.0], example)
+    utils.add_float_list_feature('score', [score], example)
 
   footprint_wkb = shapely.wkb.dumps(shapely.geometry.Point(12, 15))
   utils.add_bytes_list_feature('footprint_wkb', [footprint_wkb], example)
@@ -216,6 +219,19 @@ class InferenceTest(absltest.TestCase):
     output_examples = model.predict_scores(examples)
     self.assertEqual(output_examples.shape, (3,))
 
+  def test_example_to_row(self):
+    example = _create_test_example(224, False, True, 0.7)
+    row = inference_lib._example_to_row(example, 0.5, 0.75, 0.25)
+    self.assertTrue(row.damaged)
+    self.assertFalse(row.damaged_high_precision)
+    self.assertTrue(row.damaged_high_recall)
+
+    low_score_example = _create_test_example(224, False, True, 0.1)
+    row = inference_lib._example_to_row(low_score_example, 0.5, 0.75, 0.25)
+    self.assertFalse(row.damaged)
+    self.assertFalse(row.damaged_high_precision)
+    self.assertFalse(row.damaged_high_recall)
+
   def test_csv_output(self):
     examples = [_create_test_example(224, False, True) for i in range(7)]
     output_prefix = os.path.join(_make_temp_dir(), 'inference')
@@ -224,7 +240,9 @@ class InferenceTest(absltest.TestCase):
           pipeline
           | beam.Create(examples)
       )
-      inference_lib.examples_to_csv(examples_collection, output_prefix)
+      inference_lib.examples_to_csv(
+          examples_collection, 0.5, 0.5, 0.5, output_prefix
+      )
     output_path = f'{output_prefix}-00000-of-00001'
     self.assertTrue(os.path.exists(output_path))
     df = pd.read_csv(output_path)
@@ -232,12 +250,16 @@ class InferenceTest(absltest.TestCase):
         df.columns,
         [
             'example_id',
+            'building_id',
             'longitude',
             'latitude',
             'score',
             'plus_code',
-            'area',
-            'wkt',
+            'area_in_meters',
+            'footprint_wkt',
+            'damaged',
+            'damaged_high_precision',
+            'damaged_high_recall',
         ],
     )
     self.assertLen(df, 7)
