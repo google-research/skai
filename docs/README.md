@@ -29,4 +29,6 @@ Please see detailed instructions [here](assessment_instructions.md).
 
 ## Acknowledgments
 
-This software was developed in collaboration with the United Nations World Food Programme (WFP) Innovation Accelerator. The WFP Innovation Accelerator identifies, supports and scales high potential solutions to hunger worldwide. The Innovation Accelerator supports WFP innovators and external start-ups and companies through financial support, access to a network of experts and a global field reach.
+This software was developed in collaboration with the United Nations World Food Programme (WFP) Innovation Accelerator and InstaDeep. The WFP Innovation Accelerator identifies, supports and scales high potential solutions to hunger worldwide. The Innovation Accelerator supports WFP innovators and external start-ups and companies through financial support, access to a network of experts and a global field reach.
+
+![Alt text](image.png)
