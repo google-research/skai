@@ -355,7 +355,7 @@ def _format_example_to_csv_row(example: tf.train.Example) -> str:
   Returns:
     CSV text string.
   """
-  example_id = utils.get_bytes_feature(example, 'example_id')[0].decode()
+  example_id = utils.get_int64_feature(example, 'example_id')[0]
   longitude, latitude = utils.get_float_feature(example, 'coordinates')
   try:
     score = utils.get_float_feature(example, 'score')[0]

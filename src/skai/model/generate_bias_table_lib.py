@@ -60,14 +60,14 @@ def load_existing_bias_table(
     signal: Optional[str] = BIAS_LABEL_KEY) -> tf.lookup.StaticHashTable:
   """Loads bias table from file."""
   df = pd.read_csv(path_to_table)
-  key_tensor = np.array([eval(x).decode('UTF-8') for    #  pylint:disable=eval-used
+  key_tensor = np.array([eval(x) for    #  pylint:disable=eval-used
                          x in df[EXAMPLE_ID_KEY].to_list()])
   init = tf.lookup.KeyValueTensorInitializer(
       keys=tf.convert_to_tensor(
-          key_tensor, dtype=tf.string),
+          key_tensor, dtype=tf.int64),
       values=tf.convert_to_tensor(
           df[signal].to_numpy(), dtype=tf.int64),
-      key_dtype=tf.string,
+      key_dtype=tf.int64,
       value_dtype=tf.int64)
   return tf.lookup.StaticHashTable(init, default_value=0)
 
@@ -319,9 +319,9 @@ def get_example_id_to_bias_label_table(
     df.to_csv(csv_name, index=False)
 
   init = tf.lookup.KeyValueTensorInitializer(
-      keys=tf.convert_to_tensor(example_ids_all, dtype=tf.string),
+      keys=tf.convert_to_tensor(example_ids_all, dtype=tf.int64),
       values=tf.convert_to_tensor(bias_labels_all, dtype=tf.int64),
-      key_dtype=tf.string,
+      key_dtype=tf.int64,
       value_dtype=tf.int64)
   return tf.lookup.StaticHashTable(init, default_value=0)
 
@@ -454,14 +454,14 @@ def get_example_id_to_tracin_value_table(
 def load_existing_tracin_table(path_to_table: str):
   """Loads tracin table from file."""
   df = pd.read_csv(path_to_table)
-  key_tensor = np.array([eval(x).decode('UTF-8') for    #  pylint:disable=eval-used
+  key_tensor = np.array([eval(x) for    #  pylint:disable=eval-used
                          x in df[EXAMPLE_ID_KEY].to_list()])
   init = tf.lookup.KeyValueTensorInitializer(
       keys=tf.convert_to_tensor(
-          key_tensor, dtype=tf.string),
+          key_tensor, dtype=tf.int64),
       values=tf.convert_to_tensor(
           df[TRACIN_SCORE_KEY].to_numpy(), dtype=tf.int64),
-      key_dtype=tf.string,
+      key_dtype=tf.int64,
       value_dtype=tf.int64)
   return tf.lookup.StaticHashTable(init, default_value=0)
 

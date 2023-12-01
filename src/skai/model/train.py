@@ -18,9 +18,9 @@ r"""Binary to run training on a single model once.
 # pylint: enable=line-too-long
 """
 
+import datetime
 import logging as native_logging
 import os
-import datetime
 from absl import app
 from absl import flags
 from absl import logging
@@ -212,13 +212,8 @@ def main(_) -> None:
   # Apply batching (must apply batching only after filtering)
   dataloader = data.apply_batch(dataloader, config.data.batch_size)
 
-  if FLAGS.accelerator_type == 'tpu':
-    # Encode string data components as numerical
-    # This is useful when using TPU which does not accept string datatype
-    dataloader = data.DataEncoder().encode_string_labels(dataloader)
-    dataloader = data.DataEncoder().encode_example_ids(dataloader)
-
-  strategy = get_strategy(accelerator_type=FLAGS.accelerator_type)
+  strategy = get_strategy(
+    accelerator_type=FLAGS.accelerator_type)
 
   _ = train_lib.train_and_evaluate(
       train_as_ensemble=config.train_stage_2_as_ensemble,

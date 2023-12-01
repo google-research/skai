@@ -661,10 +661,9 @@ class SkaiDataset(tfds.core.GeneratorBasedBuilder):
         description='Skai',
         features=tfds.features.FeaturesDict({
             'input_feature': input_type,
-            'example_id': tfds.features.Text(),
+            'example_id': tfds.features.Tensor(shape=(), dtype=tf.int64),
             'coordinates': tfds.features.Tensor(shape=(2,), dtype=tf.float32),
             'label': tfds.features.Tensor(shape=(), dtype=tf.int64),
-            'string_label': tfds.features.Text(),
             'subgroup_label': tfds.features.Tensor(shape=(), dtype=tf.int64),
         }),
     )
@@ -692,7 +691,7 @@ class SkaiDataset(tfds.core.GeneratorBasedBuilder):
         {
             'coordinates': tf.io.FixedLenFeature([2], dtype=tf.float32),
             'encoded_coordinates': tf.io.FixedLenFeature([], dtype=tf.string),
-            'example_id': tf.io.FixedLenFeature([], dtype=tf.string),
+            'int64_id': tf.io.FixedLenFeature([], dtype=tf.int64),
             'pre_image_png_large': tf.io.FixedLenFeature([], dtype=tf.string),
             'pre_image_png': tf.io.FixedLenFeature([], dtype=tf.string),
             'post_image_png_large': tf.io.FixedLenFeature(
@@ -700,9 +699,6 @@ class SkaiDataset(tfds.core.GeneratorBasedBuilder):
             ),
             'post_image_png': tf.io.FixedLenFeature([], dtype=tf.string),
             'label': tf.io.FixedLenFeature([], dtype=tf.float32),
-            'string_label': tf.io.FixedLenFeature(
-                [], dtype=tf.string, default_value=''
-            ),
         },
     )
 
@@ -733,10 +729,9 @@ class SkaiDataset(tfds.core.GeneratorBasedBuilder):
     if self.builder_config.load_small_images:
       features['input_feature']['small_image'] = small_image_concat
     features['label'] = tf.cast(example['label'], tf.int64)
-    features['example_id'] = example['example_id']
+    features['example_id'] = example['int64_id']
     features['subgroup_label'] = features['label']
     features['coordinates'] = example['coordinates']
-    features['string_label'] = example['string_label']
     return features
 
   def _generate_examples(self, pattern: str):
