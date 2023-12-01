@@ -4,7 +4,6 @@ earthengine-api
 geopandas
 google_apitools
 google-cloud-aiplatform>=1.35.0
-google-cloud-bigquery-storage
 ml-collections
 numpy
 opencv-python

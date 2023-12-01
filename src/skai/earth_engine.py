@@ -16,6 +16,7 @@
 
 import json
 import shutil
+import time
 import urllib.request
 
 from absl import logging
@@ -42,6 +43,20 @@ def _get_open_building_feature_centroid(feature: ee.Feature) -> ee.Feature:
       None, {'longitude': centroid.get(0), 'latitude': centroid.get(1)})
 
 
+def _wait_for_task(task):
+  task.start()
+  while True:
+    state = task.status()['state']
+    if state == 'FAILED':
+      error_message = task.status()['error_message']
+      raise RuntimeError(f'EE task failed with message "{error_message}"')
+    elif state not in ['UNSUBMITTED', 'READY', 'RUNNING']:
+      return
+    else:
+      print(f'Task state: {state}')
+      time.sleep(5)
+
+
 def _download_feature_collection(
     collection: ee.FeatureCollection, properties: list[str],
     output_path: str) -> None:
@@ -52,11 +67,24 @@ def _download_feature_collection(
     properties: List of properties to download.
     output_path: Path of GeoDataFrame feather output.
   """
-  url = collection.getDownloadURL('csv', properties)
-  with urllib.request.urlopen(url) as url_file, tf.io.gfile.GFile(
-      output_path, 'wb') as output:
-    shutil.copyfileobj(url_file, output)
-  with tf.io.gfile.GFile(output_path, 'r') as f:
+  temp_path = output_path + '.temp.csv'
+  if temp_path.startswith('gs://'):
+    bucket, _, file_name_prefix = temp_path[5:].partition('/')
+    task = ee.batch.Export.table.toCloudStorage(
+        collection=collection,
+        fileNamePrefix=file_name_prefix[:-4],
+        bucket=bucket,
+        fileFormat='CSV',
+        selectors=properties,
+    )
+    _wait_for_task(task)
+  else:
+    url = collection.getDownloadURL('csv', properties)
+    with urllib.request.urlopen(url) as url_file, tf.io.gfile.GFile(
+        temp_path, 'wb') as output:
+      shutil.copyfileobj(url_file, output)
+
+  with tf.io.gfile.GFile(temp_path, 'r') as f:
     try:
       df = pd.read_csv(f)
     except pd.errors.EmptyDataError:

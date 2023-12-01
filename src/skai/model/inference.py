@@ -58,6 +58,15 @@ flags.DEFINE_integer('accelerator_count', 1, 'Number of accelerators to use.')
 flags.DEFINE_list(
     'text_labels', ['intact buildings', 'damaged buildings'], 'Text labels.'
 )
+flags.DEFINE_float('threshold', 0.5, 'Damaged score threshold.')
+flags.DEFINE_float(
+    'high_precision_threshold',
+    0.5,
+    'Damaged score threshold for high precision.',
+)
+flags.DEFINE_float(
+    'high_recall_threshold', 0.5, 'Damaged score threshold for high recall.'
+)
 
 
 def main(_) -> None:
@@ -86,6 +95,9 @@ def main(_) -> None:
       FLAGS.batch_size,
       FLAGS.text_labels,
       FLAGS.model_type,
+      FLAGS.threshold,
+      FLAGS.high_precision_threshold,
+      FLAGS.high_recall_threshold,
       pipeline_options,
   )
 

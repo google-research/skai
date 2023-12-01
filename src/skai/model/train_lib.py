@@ -87,8 +87,22 @@ class TwoHeadedOutputModel(tf.keras.Model):
     })
     return config
 
-  def call(self, inputs):  # pytype: disable=signature-mismatch  # overriding-parameter-count-checks
-    return self.model(inputs)
+  def call(self, inputs, training=True):  # pytype: disable=signature-mismatch  # overriding-parameter-count-checks
+
+    def _call_without_softmax(inputs):
+      return self.model(inputs)
+
+    def _call_with_softmax(inputs):
+      outputs = self.model(inputs)
+      out_main = tf.nn.softmax(outputs['main'], axis=-1)
+      out_bias = tf.nn.softmax(outputs['bias'], axis=-1)
+      return {'main': out_main, 'bias': out_bias}
+
+    return tf.cond(
+        tf.constant(training, dtype=tf.bool),
+        lambda: _call_without_softmax(inputs),
+        lambda: _call_with_softmax(inputs),
+    )
 
   def update_id_to_bias_table(self, table):
     self.id_to_bias_table = table
@@ -440,7 +454,7 @@ def create_callbacks(
     checkpoint_callback = tf.keras.callbacks.ModelCheckpoint(
         filepath=os.path.join(
             os.path.join(output_dir, 'checkpoints'),
-            'epoch-{epoch:02d}-val_auc-{val_main_auc:.2f}.ckpt'),
+            'epoch-{epoch:02d}-val_auc-{val_main_auc:.4f}.ckpt'),
         monitor='val_main_auc',
         mode='max',
         save_weights_only=True,
@@ -450,7 +464,7 @@ def create_callbacks(
     model_dir = os.path.join(output_dir, 'model')
     model_callback = tf.keras.callbacks.ModelCheckpoint(
         filepath=os.path.join(
-            model_dir, 'aucpr-{val_main_aucpr_1_vs_rest:.2f}'
+            model_dir, 'epoch-{epoch:02d}-aucpr-{val_main_aucpr_1_vs_rest:.4f}'
         ),
         monitor='val_main_aucpr_1_vs_rest',
         mode='max',

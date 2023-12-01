@@ -140,13 +140,99 @@ def create_labeling_image(
   return combined
 
 
+def get_diffuse_subset(
+    points: gpd.GeoDataFrame, buffer_meters: float
+) -> gpd.GeoDataFrame:
+  """Returns an arbitrary subset of points that are far away from each other.
+
+    Points are kept or dropped based on the row order in the dataframe, so it's
+    important for the input to already be randomly shuffled.
+
+  Args:
+    points: Points to drop neighbors from.
+    buffer_meters: Buffer size in meters.
+
+  Returns:
+    Points with neighbors dropped.
+  """
+  buffer_df = gpd.GeoDataFrame(geometry=points.buffer(buffer_meters))
+  joined = points.sjoin(buffer_df, how='left')
+  indexes_to_keep = set()
+  indexes_to_drop = set()
+  for index, row in joined.iterrows():
+    if index in indexes_to_drop:
+      continue
+    indexes_to_keep.add(index)
+    if row.index_right != index:
+      indexes_to_drop.add(row.index_right)
+  assert len(indexes_to_keep) + len(indexes_to_drop) == len(points)
+  assert indexes_to_keep.isdisjoint(indexes_to_drop)
+  return points.loc[list(indexes_to_keep)]
+
+
+def merge_dropping_neighbors(
+    points: gpd.GeoDataFrame, new_points: gpd.GeoDataFrame, buffer_meters: float
+) -> gpd.GeoDataFrame:
+  """Merges new_points into points, dropping neighbors if necessary.
+
+  Args:
+    points: Points to merge into.
+    new_points: New points to merge into points.
+    buffer_meters: Buffer size in meters.
+
+  Returns:
+    Merged points.
+  """
+  buffer_df = gpd.GeoDataFrame(geometry=points.buffer(buffer_meters))
+  joined = new_points.sjoin(buffer_df, how='inner')
+  indexes_to_drop = list(set(joined.index))
+  return pd.concat([points, new_points.drop(indexes_to_drop)])
+
+
+def sample_with_buffer(
+    points: gpd.GeoDataFrame,
+    num_points: int,
+    buffer_meters: float,
+    starting_sample: Optional[gpd.GeoDataFrame] = None,
+) -> gpd.GeoDataFrame:
+  """Samples num_points from points, dropping neighbors if necessary.
+
+  Args:
+    points: Points to sample from.
+    num_points: Number of points to sample.
+    buffer_meters: Buffer size in meters.
+    starting_sample: Points to start sampling from.
+
+  Returns:
+    GeoDataFrame containing sampled points.
+  """
+  unsampled = points.copy()
+  if starting_sample is None:
+    s = unsampled.sample(num_points)
+    unsampled.drop(s.index, inplace=True)
+    sample = get_diffuse_subset(s, buffer_meters)
+    target_size = num_points
+  else:
+    target_size = len(starting_sample) + num_points
+    sample = starting_sample.copy()
+  while not unsampled.is_empty.all() and len(sample) < target_size:
+    num_needed = target_size - len(sample)
+    s = unsampled.sample(min(num_needed, len(unsampled)))
+    unsampled.drop(s.index, inplace=True)
+    s = get_diffuse_subset(s, buffer_meters)
+    sample = merge_dropping_neighbors(sample, s, buffer_meters)
+  return sample
+
+
 def create_labeling_images(
     examples_pattern: str,
     max_images: int,
     allowed_example_ids_path: str,
     excluded_import_file_patterns: List[str],
     output_dir: str,
-    use_multiprocessing: bool) -> Tuple[int, Optional[str]]:
+    use_multiprocessing: bool,
+    buffered_sampling_radius: float,
+) -> Tuple[int, Optional[str]]:
   """Creates PNGs used for labeling from TFRecords.
 
   Also writes an import file in CSV format that is used to upload the images
@@ -163,14 +249,18 @@ def create_labeling_images(
     output_dir: Output directory.
     use_multiprocessing: If true, create multiple processes to create labeling
       images.
+    buffered_sampling_radius: The minimum distance between two examples for the
+      two examples to be in the labeling task.
 
   Returns:
     Tuple of number of images written and file path for the import file.
   """
   example_files = tf.io.gfile.glob(examples_pattern)
+  print(examples_pattern)
   if not example_files:
     raise ValueError(
-        f'Example pattern {examples_pattern} did not match any files.')
+        f'Example pattern {examples_pattern} did not match any files.'
+    )
 
   excluded_example_ids = set()
   if excluded_import_file_patterns:
@@ -185,6 +275,44 @@ def create_labeling_images(
     with tf.io.gfile.GFile(allowed_example_ids_path, 'r') as f:
       allowed_example_ids = set(line.strip() for line in f)
     logging.info('Allowing %d example ids', len(allowed_example_ids))
+  else:
+    df_metadata = None
+    metadata_path = str(
+        os.path.join(
+            '/'.join(examples_pattern.split('/')[:-2]),
+            'metadata_examples.csv',
+        )
+    )
+    try:
+      df_metadata = pd.read_csv(metadata_path)
+    except FileNotFoundError as error:
+      raise SystemExit(
+          f'\nFileNotFoundError: {metadata_path} was not found\nUse'
+          ' examples_to_csv module to generate metadata_examples.csv and/or'
+          ' put metadata_examples.csv in the appropriate directory that is'
+          ' PATH_DIR/examples/'
+      ) from error
+
+    logging.info(
+        'Randomly searching for buffered samples with buffer radius %.2f'
+        ' metres...',
+        buffered_sampling_radius,
+    )
+    points = gpd.GeoSeries(
+        gpd.points_from_xy(df_metadata['longitude'], df_metadata['latitude'])
+    ).set_crs(4326)
+    centroid = points.unary_union.centroid
+    utm_points = points.to_crs(utils.convert_wgs_to_utm(centroid.x, centroid.y))
+    gpd_df = gpd.GeoDataFrame(df_metadata, geometry=utm_points)
+    df_buffered_samples = sample_with_buffer(
+        gpd_df, max_images, buffered_sampling_radius
+    )
+    allowed_example_ids = set(df_buffered_samples['example_id'].unique())
+    logging.info(
+        'Allowing %d example ids with buffer radius: %.2f metres',
+        len(allowed_example_ids),
+        buffered_sampling_radius,
+    )
 
   if use_multiprocessing:
     image_paths_queue = multiprocessing.Manager().Queue(maxsize=max_images)

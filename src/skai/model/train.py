@@ -148,6 +148,7 @@ def main(_) -> None:
     start_time = datetime.datetime.now()
     timestamp = start_time.strftime('%Y-%m-%d-%H%M%S')
     output_dir = f'{config.output_dir}_{timestamp}'
+
   tf.io.gfile.makedirs(output_dir)
   example_id_to_bias_table = None
 
