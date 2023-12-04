@@ -181,9 +181,9 @@ class TrainLibTest(parameterized.TestCase):
         reweighting_signal=0.0,
     )
     keys_tensor = tf.constant(
-        [1, 2, 3]
+        [1, 2, 3], dtype=tf.int64
     )
-    vals_tensor = tf.constant([0, 1, 2])
+    vals_tensor = tf.constant([0, 1, 2], dtype=tf.int64)
     self.example_id_to_bias_table = tf.lookup.StaticHashTable(
         tf.lookup.KeyValueTensorInitializer(keys_tensor, vals_tensor),
         default_value=-1,
