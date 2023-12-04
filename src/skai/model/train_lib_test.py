@@ -99,15 +99,15 @@ def _create_test_data():
       examples_dir, 'unlabeled_examples.tfrecord')
 
   _write_tfrecord([
-      _make_example('1st', 1, 0, 0, 'A0', 0, 'no_damage', 64, 256, 0, 255),
+      _make_example('1st', 0, 0, 0, 'A0', 0, 'no_damage', 64, 256, 0, 255),
   ], labeled_train_path)
 
   _write_tfrecord([
-      _make_example('2nd', 2, 1, 0, 'B0', 0, 'no_damage', 64, 256, 0, 255),
+      _make_example('2nd', 1, 1, 0, 'B0', 0, 'no_damage', 64, 256, 0, 255),
   ], labeled_test_path)
 
   _write_tfrecord([
-      _make_example('3rd', 3, 2, 0, 'C0', -1, 'bad_example', 64, 256, 0, 255),
+      _make_example('3rd', 2, 2, 0, 'C0', -1, 'bad_example', 64, 256, 0, 255),
   ], unlabeled_path)
 
   return labeled_train_path, labeled_test_path, unlabeled_path
