@@ -30,6 +30,7 @@ Please see detailed instructions [here](assessment_instructions.md).
 ## Acknowledgments
 
 This software was developed in collaboration with the United Nations World Food Programme (WFP) Innovation Accelerator and [InstaDeep](https://www.instadeep.com/)'s AI for Social Good (AI4SG) team.
+
 The WFP Innovation Accelerator identifies, supports and scales high potential solutions to hunger worldwide. The Innovation Accelerator supports WFP innovators and external start-ups and companies through financial support, access to a network of experts and a global field reach.
 InstaDeep's AI for Social Good (AI4SG) team utilizes the company's expertise in AI research and engineering to create technologies aimed at improving human welfare and enhancing global well-being.
-![](https://drive.google.com/file/d/1UaizEHM4V-PSSKphoIFvTnSa7e1dOt1Z/view?usp=sharing)
+![collaborators logos](https://drive.google.com/file/d/1UaizEHM4V-PSSKphoIFvTnSa7e1dOt1Z/view?usp=sharing)
