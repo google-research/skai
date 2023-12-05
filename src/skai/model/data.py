@@ -631,7 +631,6 @@ class SkaiDataset(tfds.core.GeneratorBasedBuilder):
     else:
       self.subgroup_proportions = None
     self.include_train_sample = include_train_sample
-    self.encoding_map = {}
 
   def _info(self):
     # TODO(jlee24): Change label and subgroup_label to
@@ -734,18 +733,6 @@ class SkaiDataset(tfds.core.GeneratorBasedBuilder):
     features['subgroup_label'] = features['label']
     features['coordinates'] = example['coordinates']
     return features
-
-  def encode_string_to_number(self, input_string):
-    hash_value = hash(input_string)
-    encoded_value = abs(hash_value)
-    self.encoding_map[encoded_value] = input_string
-    return encoded_value
-
-  def decode_number_to_string(self, encoded_value):
-    if encoded_value in self.encoding_map:
-        return self.encoding_map[encoded_value]
-    else:
-        return None
 
   def _generate_examples(self, pattern: str):
     if not pattern:

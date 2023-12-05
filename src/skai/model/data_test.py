@@ -92,20 +92,20 @@ def _create_test_data():
       examples_dir, 'unlabeled_examples.tfrecord')
 
   _write_tfrecord([
-      _make_example('1st', 1, 0, 0, 'A0', 0, 'no_damage', 64, 256),
-      _make_example('2nd', 2, 0, 1, 'A1', 0, 'no_damage', 64, 256),
-      _make_example('3rd', 3, 0, 2, 'A2', 1, 'major_damage', 64, 256),
+      _make_example('1st', 0, 0, 0, 'A0', 0, 'no_damage', 64, 256),
+      _make_example('2nd', 1, 0, 1, 'A1', 0, 'no_damage', 64, 256),
+      _make_example('3rd', 2, 0, 2, 'A2', 1, 'major_damage', 64, 256),
   ], labeled_train_path)
 
   _write_tfrecord([
-      _make_example('4th', 4, 1, 0, 'B0', 0, 'no_damage', 64, 256),
+      _make_example('4th', 3, 1, 0, 'B0', 0, 'no_damage', 64, 256),
   ], labeled_test_path)
 
   _write_tfrecord([
-      _make_example('5th', 5, 2, 0, 'C0', -1, 'bad_example', 64, 256),
-      _make_example('6th', 6, 2, 1, 'C1', -1, 'bad_example', 64, 256),
-      _make_example('7th', 7, 2, 2, 'C2', -1, 'bad_example', 64, 256),
-      _make_example('8th', 8, 2, 3, 'C3', -1, 'bad_example', 64, 256),
+      _make_example('5th', 4, 2, 0, 'C0', -1, 'bad_example', 64, 256),
+      _make_example('6th', 5, 2, 1, 'C1', -1, 'bad_example', 64, 256),
+      _make_example('7th', 6, 2, 2, 'C2', -1, 'bad_example', 64, 256),
+      _make_example('8th', 7, 2, 3, 'C3', -1, 'bad_example', 64, 256),
   ], unlabeled_path)
 
   return labeled_train_path, labeled_test_path, unlabeled_path

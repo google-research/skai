@@ -156,8 +156,6 @@ class TwoHeadedOutputModel(tf.keras.Model):
                              self.reweighting_signal == 'bias'):
         if self.id_to_bias_table is None:
           raise ValueError('id_to_bias_table must not be None.')
-        print("Printing y_true_bias: ", example_ids)
-        print("Printing y_true_bias: ", self.id_to_bias_table.lookup(example_ids))
         y_true_bias = self.id_to_bias_table.lookup(example_ids)
         y_true['bias'] = tf.one_hot(y_true_bias, depth=2)
 
