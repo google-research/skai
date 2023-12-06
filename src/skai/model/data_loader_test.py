@@ -95,7 +95,7 @@ def _create_test_data():
   ], labeled_train_path)
 
   _write_tfrecord([
-      _make_example(3, 1, 0, 'B0', 0,64, 256, 0, 255),
+      _make_example(3, 1, 0, 'B0', 0, 64, 256, 0, 255),
   ], labeled_test_path)
 
   _write_tfrecord([
