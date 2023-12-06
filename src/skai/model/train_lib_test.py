@@ -39,22 +39,17 @@ def _make_serialized_image(size: int, pixel_value: int) -> bytes:
 
 
 def _make_example(
-    example_id: str,
     int64_id: int,
     longitude: float,
     latitude: float,
     encoded_coordinates: str,
     label: float,
-    string_label: float,
     patch_size: int,
     large_patch_size: int,
     before_pixel_value: int,
     after_pixel_value: int,
 ) -> tf.train.Example:
   example = tf.train.Example()
-  example.features.feature['example_id'].bytes_list.value.append(
-      example_id.encode()
-  )
   example.features.feature['coordinates'].float_list.value.extend(
       (longitude, latitude)
   )
@@ -65,9 +60,6 @@ def _make_example(
       encoded_coordinates.encode()
   )
   example.features.feature['label'].float_list.value.append(label)
-  example.features.feature['string_label'].bytes_list.value.append(
-      string_label.encode()
-  )
   example.features.feature['pre_image_png'].bytes_list.value.append(
       _make_serialized_image(patch_size, before_pixel_value)
   )
@@ -99,15 +91,15 @@ def _create_test_data():
       examples_dir, 'unlabeled_examples.tfrecord')
 
   _write_tfrecord([
-      _make_example('1st', 0, 0, 0, 'A0', 0, 'no_damage', 64, 256, 0, 255),
+      _make_example(0, 0, 0, 'A0', 0, 64, 256, 0, 255),
   ], labeled_train_path)
 
   _write_tfrecord([
-      _make_example('2nd', 1, 1, 0, 'B0', 0, 'no_damage', 64, 256, 0, 255),
+      _make_example(1, 1, 0, 'B0', 0, 64, 256, 0, 255),
   ], labeled_test_path)
 
   _write_tfrecord([
-      _make_example('3rd', 2, 2, 0, 'C0', -1, 'bad_example', 64, 256, 0, 255),
+      _make_example(2, 2, 0, 'C0', -1, 64, 256, 0, 255),
   ], unlabeled_path)
 
   return labeled_train_path, labeled_test_path, unlabeled_path
