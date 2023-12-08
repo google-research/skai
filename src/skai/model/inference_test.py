@@ -140,7 +140,6 @@ class InferenceTest(absltest.TestCase):
         ), f'Expected 10 examples in output, got {len(examples)}'
         for example in examples:
           example_id = utils.get_int64_feature(example, 'int64_id')[0]
-          
           expected_score = id_to_score[example_id]
           score = example.features.feature['score'].float_list.value[0]
           assert np.isclose(
