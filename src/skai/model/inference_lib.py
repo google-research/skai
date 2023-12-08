@@ -31,7 +31,7 @@ from skai import utils
 from skai.model import data
 import tensorflow as tf
 # This import is needed for SentencePiece operations.
-# import tensorflow_text  # pylint: disable=unused-import
+import tensorflow_text  # pylint: disable=unused-import
 
 
 class ModelType(enum.Enum):

@@ -139,7 +139,6 @@ class InferenceTest(absltest.TestCase):
             len(examples) == 10
         ), f'Expected 10 examples in output, got {len(examples)}'
         for example in examples:
-          print("Example ids: ", utils.get_int64_feature(example, 'int64_id'))
           example_id = utils.get_int64_feature(example, 'int64_id')[0]
           
           expected_score = id_to_score[example_id]
