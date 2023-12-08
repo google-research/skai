@@ -67,7 +67,7 @@ def _create_test_example(
   if include_small_images:
     utils.add_bytes_feature('pre_image_png', image_bytes, example)
     utils.add_bytes_feature('post_image_png', image_bytes, example)
-  utils.add_bytes_feature('example_id', b'deadbeef', example)
+  utils.add_int64_feature('int64_id', 0, example)
   utils.add_float_list_feature('coordinates', [0.0, 0.0], example)
   utils.add_float_list_feature('area_in_meters', [12.0], example)
   utils.add_bytes_list_feature('plus_code', [b'abcdef'], example)
