@@ -43,7 +43,7 @@ class ModelType(enum.Enum):
 
 class InferenceRow(NamedTuple):
   """A row in the inference output CSV."""
-  example_id: str | None
+  example_id: int | None
   building_id: str | None
   longitude: float | None
   latitude: float | None
