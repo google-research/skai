@@ -372,7 +372,7 @@ def _example_to_row(
   Returns:
     Inference row.
   """
-  example_id = utils.get_int64_feature(example, 'example_id')
+  example_id = utils.get_int64_feature(example, 'int64_id')[0]
   building_id = utils.get_bytes_feature(example, 'encoded_coordinates')[
       0
   ].decode()
