@@ -568,6 +568,7 @@ def train_ensemble(
     early_stopping: Boolean for early stopping during training.
     example_id_to_bias_table: Hash table mapping example ID to bias label.
     is_vertex: Set to true if training on VertexAI.
+    
   Returns:
     List of trained models and, optionally, predictions.
   """
