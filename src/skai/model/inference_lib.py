@@ -493,4 +493,3 @@ def run_tf2_inference_with_csv_output(
         high_recall_threshold,
         output_prefix,
     )
-    
