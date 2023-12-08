@@ -67,7 +67,7 @@ def _create_test_example(
   if include_small_images:
     utils.add_bytes_feature('pre_image_png', image_bytes, example)
     utils.add_bytes_feature('post_image_png', image_bytes, example)
-  utils.add_int64_feature('example_id', 0, example)
+  utils.add_int64_feature('int64_id', 0, example)
   utils.add_float_list_feature('coordinates', [0.0, 0.0], example)
   utils.add_float_list_feature('area_in_meters', [12.0], example)
   utils.add_bytes_list_feature('plus_code', [b'abcdef'], example)
@@ -139,7 +139,9 @@ class InferenceTest(absltest.TestCase):
             len(examples) == 10
         ), f'Expected 10 examples in output, got {len(examples)}'
         for example in examples:
+          print("Example ids: ", utils.get_int64_feature(example, 'int64_id'))
           example_id = utils.get_int64_feature(example, 'int64_id')[0]
+          
           expected_score = id_to_score[example_id]
           score = example.features.feature['score'].float_list.value[0]
           assert np.isclose(
