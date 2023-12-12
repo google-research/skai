@@ -29,6 +29,7 @@ from ml_collections import config_flags
 import pandas as pd
 from skai.model import data
 from skai.model import generate_bias_table_lib
+###COPYBARA_PLACEHOLDER_01
 from skai.model import models
 from skai.model import sampling_policies
 from skai.model import train_lib
@@ -51,6 +52,18 @@ flags.DEFINE_string(
     'Name of the job trial that measurements should be submitted to. Format:'
     ' projects/{project}/locations/{location}/studies/{study}/trials/{trial}',
 )
+
+
+def get_model_dir(root_dir: str) -> str:
+  if FLAGS.is_vertex:
+    basename = FLAGS.trial_name.split('/')[-1]
+  else:
+    # TODO(skai) - Maybe change directory name in case vertex ai is not used in
+    # running experiments
+    start_time = datetime.datetime.now()
+    timestamp = start_time.strftime('%Y-%m-%d-%H%M%S')
+    basename = timestamp
+  return os.path.join(root_dir, basename)
 
 
 def main(_) -> None:
@@ -132,13 +145,8 @@ def main(_) -> None:
       reweighting_signal=config.reweighting.signal
   )
   model_params.train_bias = config.train_bias
-  output_dir = config.output_dir
-  if FLAGS.is_vertex:
-    # TODO: go/skai-instadeep - Create output_dir specific to job.
-    start_time = datetime.datetime.now()
-    timestamp = start_time.strftime('%Y-%m-%d-%H%M%S')
-    output_dir = f'{output_dir}_{timestamp}'
 
+  output_dir = get_model_dir(config.output_dir)
   tf.io.gfile.makedirs(output_dir)
   example_id_to_bias_table = None
 
