@@ -142,13 +142,14 @@ def main(_) -> None:
 
   if FLAGS.is_vertex:
     job_id = os.path.basename(FLAGS.trial_name)
-    output_dir = os.path.join(config.output_dir, job_id)
+    basename = job_id
   else:
     #TODO - Maybe change diretory name in case
     # vertex ai is not used in running experiments
     start_time = datetime.datetime.now()
     timestamp = start_time.strftime('%Y-%m-%d-%H%M%S')
-    output_dir = f'{config.output_dir}_{timestamp}'
+    basename = timestamp
+  output_dir = os.path.join(config.output_dir, basename)
 
   tf.io.gfile.makedirs(output_dir)
   example_id_to_bias_table = None
