@@ -87,7 +87,7 @@ class InferenceModel(object):
     raise NotImplementedError()
 
 
-def _extract_image_or_blank(
+def extract_image_or_blank(
     example: tf.train.Example, feature: str, image_size: int
 ) -> np.ndarray:
   """Extracts an image from a TF Example.
@@ -188,12 +188,12 @@ class TF2InferenceModel(InferenceModel):
     Returns:
       Numpy array representing the concatenated images.
     """
-    post_image = _extract_image_or_blank(
+    post_image = extract_image_or_blank(
         example, post_image_feature, self._image_size
     )
     if self._post_image_only:
       return post_image
-    pre_image = _extract_image_or_blank(
+    pre_image = extract_image_or_blank(
         example, pre_image_feature, self._image_size
     )
     return np.concatenate([pre_image, post_image], axis=2)
@@ -355,7 +355,7 @@ def _key_example_by_encoded_coordinates(
   )
 
 
-def _example_to_row(
+def example_to_row(
     example: tf.train.Example,
     threshold: float,
     high_precision_threshold: float,
@@ -372,7 +372,12 @@ def _example_to_row(
   Returns:
     Inference row.
   """
-  example_id = utils.get_int64_feature(example, 'int64_id')[0]
+
+  try:
+    example_id = utils.get_int64_feature(example, 'int64_id')[0]
+  except IndexError:
+    example_id = utils.get_bytes_feature(example, 'example_id')[0].decode()
+
   building_id = utils.get_bytes_feature(example, 'encoded_coordinates')[
       0
   ].decode()
@@ -431,7 +436,7 @@ def examples_to_csv(
       | 'reshuffle_for_output' >> beam.Reshuffle()
       | 'examples_to_rows'
       >> beam.Map(
-          _example_to_row,
+          example_to_row,
           threshold=threshold,
           high_precision_threshold=high_precision_threshold,
           high_recall_threshold=high_recall_threshold,
