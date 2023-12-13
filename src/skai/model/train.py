@@ -64,12 +64,12 @@ flags.DEFINE_string(
 def get_model_dir(root_dir: str) -> str:
   if FLAGS.is_vertex:
     basename = FLAGS.trial_name.split('/')[-1]
-  else:
-    # TODO(skai) - Maybe change directory name in case vertex ai is not used in
-    # running experiments
-    start_time = datetime.datetime.now()
-    timestamp = start_time.strftime('%Y-%m-%d-%H%M%S')
-    basename = timestamp
+  # else:
+  #   # TODO(skai) - Maybe change directory name in case vertex ai is not used in
+  #   # running experiments
+  #   start_time = datetime.datetime.now()
+  #   timestamp = start_time.strftime('%Y-%m-%d-%H%M%S')
+  #   basename = timestamp
   return os.path.join(root_dir, basename)
 
 
