@@ -534,6 +534,7 @@ def run_train(
         example_id_to_bias_table=example_id_to_bias_table
     )
 
+
   two_head_model.fit(
       train_ds,
       validation_data=val_ds,
