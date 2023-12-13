@@ -221,13 +221,13 @@ class InferenceTest(absltest.TestCase):
 
   def test_example_to_row(self):
     example = _create_test_example(224, False, True, 0.7)
-    row = inference_lib._example_to_row(example, 0.5, 0.75, 0.25)
+    row = inference_lib.example_to_row(example, 0.5, 0.75, 0.25)
     self.assertTrue(row.damaged)
     self.assertFalse(row.damaged_high_precision)
     self.assertTrue(row.damaged_high_recall)
 
     low_score_example = _create_test_example(224, False, True, 0.1)
-    row = inference_lib._example_to_row(low_score_example, 0.5, 0.75, 0.25)
+    row = inference_lib.example_to_row(low_score_example, 0.5, 0.75, 0.25)
     self.assertFalse(row.damaged)
     self.assertFalse(row.damaged_high_precision)
     self.assertFalse(row.damaged_high_recall)
