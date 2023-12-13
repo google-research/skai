@@ -509,8 +509,9 @@ def run_train(
     val_ds: tf.data.Dataset,
     model_params: models.ModelTrainingParameters,
     experiment_name: str,
+    strategy: tf.distribute.Strategy,
     callbacks: Optional[List[tf.keras.callbacks.Callback]] = None,
-    example_id_to_bias_table: Optional[tf.lookup.StaticHashTable] = None
+    example_id_to_bias_table: Optional[tf.lookup.StaticHashTable] = None,
 ) -> tf.keras.Model:
   """Initializes and trains model on given training and validation data.
 
@@ -519,17 +520,20 @@ def run_train(
     val_ds: Evaluation dataset.
     model_params: Dataclass object containing model and training parameters.
     experiment_name: String to describe model being trained.
+    strategy: Strategy for distributed training.
     callbacks: Keras Callbacks, like saving checkpoints or early stopping.
     example_id_to_bias_table: Hash table mapping example ID to bias label.
 
   Returns:
     Trained model.
   """
-  two_head_model = init_model(
-      model_params=model_params,
-      experiment_name=experiment_name,
-      example_id_to_bias_table=example_id_to_bias_table
-  )
+  with strategy.scope():
+    two_head_model = init_model(
+        model_params=model_params,
+        experiment_name=experiment_name,
+        example_id_to_bias_table=example_id_to_bias_table
+    )
+
 
   two_head_model.fit(
       train_ds,
@@ -545,10 +549,11 @@ def train_ensemble(
     num_splits: int,
     ood_ratio: float,
     output_dir: str,
+    strategy: tf.distribute.Strategy,
     save_model_checkpoints: bool = True,
     early_stopping: bool = True,
     example_id_to_bias_table: Optional[tf.lookup.StaticHashTable] = None,
-    is_vertex: bool = False,
+    is_vertex: bool = False
 ) -> List[tf.keras.Model]:
   """Trains an ensemble of models, locally. See xm_launch.py for parallelized.
 
@@ -559,11 +564,12 @@ def train_ensemble(
     ood_ratio: Float for the ratio of slices that will be considered
       out-of-distribution.
     output_dir: String for directory path where checkpoints will be saved.
+    strategy: Strategy for distributed training.
     save_model_checkpoints: Boolean for saving checkpoints during training.
     early_stopping: Boolean for early stopping during training.
     example_id_to_bias_table: Hash table mapping example ID to bias label.
     is_vertex: Set to true if training on VertexAI.
-
+    
   Returns:
     List of trained models and, optionally, predictions.
   """
@@ -587,7 +593,8 @@ def train_ensemble(
         model_params=model_params,
         experiment_name=combo_name,
         callbacks=combo_callbacks,
-        example_id_to_bias_table=example_id_to_bias_table)
+        example_id_to_bias_table=example_id_to_bias_table,
+        strategy=strategy)
     ensemble.append(combo_model)
   return ensemble
 
@@ -932,10 +939,11 @@ def train_and_evaluate(
     save_model_checkpoints: bool,
     save_best_model: bool,
     early_stopping: bool,
+    strategy: tf.distribute.Strategy,
     ensemble_dir: Optional[str] = '',
     example_id_to_bias_table: Optional[tf.lookup.StaticHashTable] = None,
     vizier_trial_name: str | None = None,
-    is_vertex: bool = False
+    is_vertex: bool = False,
 ):
   """Performs the operations of training, optionally ensembling, and evaluation.
 
@@ -988,7 +996,8 @@ def train_and_evaluate(
         model_params=model_params,
         experiment_name=experiment_name,
         callbacks=callbacks,
-        example_id_to_bias_table=example_id_to_bias_table)
+        example_id_to_bias_table=example_id_to_bias_table,
+        strategy=strategy)
     evaluate_model(two_head_model, output_dir, dataloader.eval_ds,
                    save_model_checkpoints, save_best_model)
     return two_head_model

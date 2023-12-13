@@ -29,10 +29,12 @@ from ml_collections import config_flags
 import pandas as pd
 from skai.model import data
 from skai.model import generate_bias_table_lib
+###COPYBARA_PLACEHOLDER_01
 from skai.model import models
 from skai.model import sampling_policies
 from skai.model import train_lib
 from skai.model.configs import base_config
+from skai.model.train_strategy import get_strategy
 import tensorflow as tf
 
 
@@ -43,6 +45,12 @@ flags.DEFINE_bool('keep_logs', True, 'If True, creates a log file in output '
 flags.DEFINE_bool(
     'is_vertex', False, 'True if the training job will be executed on VertexAI.'
 )
+flags.DEFINE_enum(
+  'accelerator_type',
+  default='cpu',
+  help='Accelerator to use for computations',
+  enum_values=['cpu', 'gpu', 'tpu']
+  )
 flags.DEFINE_string('ensemble_dir', '', 'If specified, loads the models at '
                     'this directory to consider the ensemble.')
 flags.DEFINE_string(
@@ -51,6 +59,18 @@ flags.DEFINE_string(
     'Name of the job trial that measurements should be submitted to. Format:'
     ' projects/{project}/locations/{location}/studies/{study}/trials/{trial}',
 )
+
+
+def get_model_dir(root_dir: str) -> str:
+  if FLAGS.is_vertex:
+    basename = FLAGS.trial_name.split('/')[-1]
+  else:
+    # TODO(skai) - Maybe change directory name in case vertex ai is not used in
+    # running experiments
+    start_time = datetime.datetime.now()
+    timestamp = start_time.strftime('%Y-%m-%d-%H%M%S')
+    basename = timestamp
+  return os.path.join(root_dir, basename)
 
 
 def main(_) -> None:
@@ -132,13 +152,8 @@ def main(_) -> None:
       reweighting_signal=config.reweighting.signal
   )
   model_params.train_bias = config.train_bias
-  output_dir = config.output_dir
-  if FLAGS.is_vertex:
-    # TODO: go/skai-instadeep - Create output_dir specific to job.
-    start_time = datetime.datetime.now()
-    timestamp = start_time.strftime('%Y-%m-%d-%H%M%S')
-    output_dir = f'{output_dir}_{timestamp}'
 
+  output_dir = get_model_dir(config.output_dir)
   tf.io.gfile.makedirs(output_dir)
   example_id_to_bias_table = None
 
@@ -203,6 +218,9 @@ def main(_) -> None:
   # Apply batching (must apply batching only after filtering)
   dataloader = data.apply_batch(dataloader, config.data.batch_size)
 
+  strategy = get_strategy(
+    accelerator_type=FLAGS.accelerator_type)
+
   _ = train_lib.train_and_evaluate(
       train_as_ensemble=config.train_stage_2_as_ensemble,
       dataloader=dataloader,
@@ -218,8 +236,10 @@ def main(_) -> None:
       example_id_to_bias_table=example_id_to_bias_table,
       vizier_trial_name=FLAGS.trial_name,
       is_vertex=FLAGS.is_vertex,
+      strategy=strategy
   )
 
 
 if __name__ == '__main__':
   app.run(main)
+  
