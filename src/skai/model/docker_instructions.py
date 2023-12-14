@@ -23,10 +23,15 @@ TPU_BASE_IMAGE = 'ubuntu:22.04'
 
 
 def tpuvm_docker_instructions() -> list[str]:
-  """Returns a list of docker instructions necessary to use TensorFlow on TPUs."""
-  tf_wheel_name = 'tensorflow-2.14.0-cp310-cp310-manylinux_2_17_x86_64.manylinux2014_x86_64.whl'
-  tf_wheel_url= 'https://storage.googleapis.com/cloud-tpu-tpuvm-artifacts/tensorflow/tf-2.14.0/' + tf_wheel_name
-  tpu_shared_object_url = 'https://storage.googleapis.com/cloud-tpu-tpuvm-artifacts/libtpu/1.8.0/libtpu.so'
+  """Returns a list of docker instructions necessary 
+  to use TensorFlow on TPUs.
+  """
+  tf_wheel_name = 'tensorflow-2.14.0-cp310-cp310-manylinux_2_17_x86_64.' \
+                'manylinux2014_x86_64.whl'
+  tf_wheel_url = 'https://storage.googleapis.com/cloud-tpu-tpuvm-artifacts/' \
+                'tensorflow/tf-2.14.0/' + tf_wheel_name
+  tpu_shared_object_url = 'https://storage.googleapis.com/' \
+                'cloud-tpu-tpuvm-artifacts/libtpu/1.8.0/libtpu.so'
   return [
       f'RUN wget {tpu_shared_object_url} -O /lib/libtpu.so',
       'RUN chmod 700 /lib/libtpu.so',
@@ -56,7 +61,8 @@ def get_docker_instructions(accelerator: str) -> tuple[str, list[str]]:
     # https://cloud.google.com/deep-learning-containers/docs/choosing-container
     base_image = GPU_BASE_IMAGE
     docker_instructions = [
-        'RUN apt-get update && apt-get install -y libcairo2-dev libjpeg-dev libgif-dev'
+        'RUN apt-get update && apt-get install -y '\
+            'libcairo2-dev libjpeg-dev libgif-dev'
     ]
 
   else:

@@ -167,7 +167,7 @@ def main(_) -> None:
         if FLAGS.accelerator_count != 8:
           raise ValueError(
               f'The accelerator {FLAGS.accelerator} only support 8 devices.'
-            )
+          )
         accelerator_type = 'tpu'
       else:
         accelerator_type = 'gpu'

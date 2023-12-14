@@ -7,10 +7,10 @@ import tensorflow as tf
 
 
 _Strategy = Union[
-  tf.distribute.Strategy,
-  tf.distribute.MirroredStrategy,
-  tf.distribute.TPUStrategy
-    ]
+    tf.distribute.Strategy,
+    tf.distribute.MirroredStrategy,
+    tf.distribute.TPUStrategy
+]
 
 
 def get_tpu_resolver(tpu: str|None = 'local'):
@@ -27,7 +27,7 @@ def get_tpu_resolver(tpu: str|None = 'local'):
   return resolver
 
 
-def get_strategy(accelerator_type: str)->_Strategy:
+def get_strategy(accelerator_type: str) -> _Strategy:
   """Gets distributed training strategy for accelerator type.
   Args:
     accelerator_type: The accelerator type which is one of cpu, gpu and tpu.
