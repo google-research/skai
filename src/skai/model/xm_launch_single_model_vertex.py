@@ -172,9 +172,9 @@ def main(_) -> None:
       else:
         accelerator_type = 'gpu'
       resources_args = {
-        FLAGS.accelerator: FLAGS.accelerator_count,
-        'RAM': FLAGS.ram * xm.GiB,
-        'CPU': FLAGS.cpu * xm.vCPU,
+          FLAGS.accelerator: FLAGS.accelerator_count,
+          'RAM': FLAGS.ram * xm.GiB,
+          'CPU': FLAGS.cpu * xm.vCPU,
       }
     else:
       resources_args = {'RAM': FLAGS.ram * xm.GiB, 'CPU': FLAGS.cpu * xm.vCPU}

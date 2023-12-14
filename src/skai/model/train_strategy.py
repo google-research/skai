@@ -13,10 +13,15 @@ _Strategy = Union[
     ]
 
 
-def get_tpu_resolver():
+def get_tpu_resolver(tpu='local'):
   """Create cluster resolver for Cloud TPUs
+  Args:
+    tpu: TPU to use - name, worker address or 'local'
+  
+  Returns:
+    TPUClusterResolver for Cloud TPUs
   """
-  resolver = tf.distribute.cluster_resolver.TPUClusterResolver(tpu='local')
+  resolver = tf.distribute.cluster_resolver.TPUClusterResolver(tpu=tpu)
   tf.config.experimental_connect_to_cluster(resolver)
   tf.tpu.experimental.initialize_tpu_system(resolver)
   return resolver

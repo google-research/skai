@@ -552,7 +552,7 @@ def train_ensemble(
     save_model_checkpoints: bool = True,
     early_stopping: bool = True,
     example_id_to_bias_table: Optional[tf.lookup.StaticHashTable] = None,
-    is_vertex: bool = False
+    is_vertex: bool = False,
 ) -> List[tf.keras.Model]:
   """Trains an ensemble of models, locally. See xm_launch.py for parallelized.
 
@@ -568,7 +568,7 @@ def train_ensemble(
     early_stopping: Boolean for early stopping during training.
     example_id_to_bias_table: Hash table mapping example ID to bias label.
     is_vertex: Set to true if training on VertexAI.
-    
+
   Returns:
     List of trained models and, optionally, predictions.
   """
@@ -958,6 +958,7 @@ def train_and_evaluate(
     save_model_checkpoints: Boolean for saving checkpoints during training.
     save_best_model: Boolean for saving best model during training.
     early_stopping: Boolean for early stopping during training.
+    strategy: Strategy to run on CPUs, GPUs or TPUs.
     ensemble_dir: Optional string for a directory that stores trained model
       checkpoints. If specified, will load the models from directory.
     example_id_to_bias_table: Lookup table mapping example ID to bias label.
