@@ -47,24 +47,24 @@ xmanager launch src/skai/model/xm_launch_single_model_vertex.py -- \
 FLAGS = flags.FLAGS
 flags.DEFINE_string('project_path', '.', 'Path to project')
 flags.DEFINE_string(
-  'experiment_name',
-  '',
-  'Label for XManager experiment to make it easier to find.',
+    'experiment_name',
+    '',
+    'Label for XManager experiment to make it easier to find.',
 )
 flags.DEFINE_bool(
-  'use_vizier', False, 'Finds the best hyperparameters using Vizier.'
+    'use_vizier', False, 'Finds the best hyperparameters using Vizier.'
 )
 flags.DEFINE_bool(
-  'train_as_ensemble',
-  False,
-  'Trains an ensemble of single '
-  'models, as we would for Stage 1 in Introspective Self-Play.',
+    'train_as_ensemble',
+    False,
+    'Trains an ensemble of single '
+    'models, as we would for Stage 1 in Introspective Self-Play.',
 )
 flags.DEFINE_bool('eval_only', False, 'Only runs evaluation, no training.')
 flags.DEFINE_integer(
-  'ram',
-  32,
-  'Fixed amount of RAM for the work unit in GB',
+    'ram',
+    32,
+    'Fixed amount of RAM for the work unit in GB',
 )
 flags.DEFINE_integer(
     'cpu',
@@ -93,7 +93,6 @@ flags.DEFINE_integer(
         'https://github.com/deepmind/xmanager/blob/main/docs/executors.md'
     ),
 )
-
 config_flags.DEFINE_config_file('config')
 
 
@@ -163,17 +162,15 @@ def main(_) -> None:
         ]),
         use_deep_module=True,
     )
-
     if FLAGS.accelerator is not None:
       if FLAGS.accelerator in ['TPU_V3', 'TPU_V2']:
         if FLAGS.accelerator_count != 8:
-            raise ValueError(
+          raise ValueError(
                 f'The accelerator {FLAGS.accelerator} only support 8 devices.'
             )
         accelerator_type = 'tpu'
       else:
         accelerator_type = 'gpu'
-    
       resources_args = {
         FLAGS.accelerator: FLAGS.accelerator_count,
         'RAM': FLAGS.ram * xm.GiB,
