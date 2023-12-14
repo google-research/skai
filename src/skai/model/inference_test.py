@@ -14,6 +14,7 @@
 
 """Tests for inference_lib."""
 
+import glob
 import os
 import tempfile
 
@@ -110,6 +111,41 @@ class TestModel(inference_lib.InferenceModel):
 
 
 class InferenceTest(absltest.TestCase):
+
+  def test_csv_output(self):
+    examples = [_create_test_example(224, False, True) for i in range(7)]
+    output_path = os.path.join(_make_temp_dir(), 'inference.csv')
+    temp_prefix = f'{output_path}.tmp/output'
+    with test_pipeline.TestPipeline() as pipeline:
+      examples_collection = (
+          pipeline
+          | beam.Create(examples)
+      )
+      inference_lib.examples_to_csv(
+          examples_collection, 0.5, 0.5, 0.5, temp_prefix
+      )
+    self.assertNotEmpty(glob.glob(f'{temp_prefix}*'))
+    inference_lib.postprocess(temp_prefix, output_path)
+    self.assertTrue(os.path.exists(output_path))
+    self.assertEmpty(glob.glob(f'{temp_prefix}*'))
+    df = pd.read_csv(output_path)
+    self.assertSameElements(
+        df.columns,
+        [
+            'example_id',
+            'building_id',
+            'longitude',
+            'latitude',
+            'score',
+            'plus_code',
+            'area_in_meters',
+            'footprint_wkt',
+            'damaged',
+            'damaged_high_precision',
+            'damaged_high_recall',
+        ],
+    )
+    self.assertLen(df, 7)
 
   def test_run_inference(self):
     with test_pipeline.TestPipeline() as pipeline:
@@ -231,38 +267,6 @@ class InferenceTest(absltest.TestCase):
     self.assertFalse(row.damaged)
     self.assertFalse(row.damaged_high_precision)
     self.assertFalse(row.damaged_high_recall)
-
-  def test_csv_output(self):
-    examples = [_create_test_example(224, False, True) for i in range(7)]
-    output_prefix = os.path.join(_make_temp_dir(), 'inference')
-    with test_pipeline.TestPipeline() as pipeline:
-      examples_collection = (
-          pipeline
-          | beam.Create(examples)
-      )
-      inference_lib.examples_to_csv(
-          examples_collection, 0.5, 0.5, 0.5, output_prefix
-      )
-    output_path = f'{output_prefix}-00000-of-00001'
-    self.assertTrue(os.path.exists(output_path))
-    df = pd.read_csv(output_path)
-    self.assertSameElements(
-        df.columns,
-        [
-            'example_id',
-            'building_id',
-            'longitude',
-            'latitude',
-            'score',
-            'plus_code',
-            'area_in_meters',
-            'footprint_wkt',
-            'damaged',
-            'damaged_high_precision',
-            'damaged_high_recall',
-        ],
-    )
-    self.assertLen(df, 7)
 
 
 if __name__ == '__main__':

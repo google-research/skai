@@ -15,6 +15,7 @@
 """Functions for running model inference in beam."""
 
 import enum
+import os
 import time
 from typing import Any, Iterable, Iterator, NamedTuple
 
@@ -23,7 +24,10 @@ import apache_beam.dataframe.convert
 import apache_beam.dataframe.io
 from apache_beam.utils import multi_process_shared
 
+import fiona
+import geopandas as gpd
 import numpy as np
+import pandas as pd
 import shapely.wkb
 import shapely.wkt
 
@@ -425,7 +429,7 @@ def examples_to_csv(
     threshold: Damaged score threshold.
     high_precision_threshold: Damaged score threshold for high precision.
     high_recall_threshold: Damaged score threshold for high recall.
-    output_prefix: Prefix of output path.
+    output_prefix: CSV output prefix.
   """
   rows = (
       examples
@@ -442,10 +446,46 @@ def examples_to_csv(
   apache_beam.dataframe.io.to_csv(df, output_prefix, index=False)
 
 
+def postprocess(temp_prefix: str, output_path: str) -> None:
+  """Postprocess Dataflow output.
+
+  - Combines individual CSV shards into a single CSV.
+  - Creates a GeoPackage file.
+
+  Args:
+    temp_prefix: Prefix used in naming temporary shards.
+    output_path: CSV output path.
+
+  """
+  shards = []
+  temp_files = tf.io.gfile.glob(f'{temp_prefix}*')
+  for path in temp_files:
+    with tf.io.gfile.GFile(path, 'r') as f:
+      shards.append(pd.read_csv(f))
+  df = pd.concat(shards, ignore_index=True)
+  with tf.io.gfile.GFile(output_path, 'w') as f:
+    df.to_csv(f, index=False)
+
+  if 'GPKG' in fiona.supported_drivers:
+    # Output GeoPackage if available.
+    geometries = [shapely.wkt.loads(wkt) for wkt in df['footprint_wkt']]
+    gdf = gpd.GeoDataFrame(
+        df.drop(columns=['footprint_wkt']), geometry=geometries
+    )
+    output_dir, output_file = os.path.split(output_path)
+    gpkg_path = os.path.join(output_dir, f'{output_file}.gpkg')
+    with tf.io.gfile.GFile(gpkg_path, 'wb') as f:
+      gdf.to_file(f, driver='GPKG')
+
+  # Delete all temp files.
+  for path in temp_files:
+    tf.io.gfile.remove(path)
+
+
 def run_tf2_inference_with_csv_output(
     examples_pattern: str,
     model_dir: str,
-    output_prefix: str,
+    output_path: str,
     image_size: int,
     post_image_only: bool,
     batch_size: int,
@@ -461,7 +501,7 @@ def run_tf2_inference_with_csv_output(
   Args:
     examples_pattern: Pattern for input TFRecords.
     model_dir: Model directory.
-    output_prefix: Prefix of CSV output path.
+    output_path: CSV output path.
     image_size: Image width and height.
     post_image_only: Model expects only post-disaster images.
     batch_size: Batch size.
@@ -474,6 +514,7 @@ def run_tf2_inference_with_csv_output(
     pipeline_options: Dataflow pipeline options.
   """
 
+  tempfile_prefix = f'{output_path}.tmp/output'
   with beam.Pipeline(options=pipeline_options) as pipeline:
     examples = (
         pipeline
@@ -492,5 +533,7 @@ def run_tf2_inference_with_csv_output(
         threshold,
         high_precision_threshold,
         high_recall_threshold,
-        output_prefix,
+        tempfile_prefix,
     )
+
+  postprocess(tempfile_prefix, output_path)
