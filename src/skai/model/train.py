@@ -218,8 +218,7 @@ def main(_) -> None:
   # Apply batching (must apply batching only after filtering)
   dataloader = data.apply_batch(dataloader, config.data.batch_size)
 
-  strategy = get_strategy(
-    accelerator_type=FLAGS.accelerator_type)
+  strategy = get_strategy(accelerator_type=FLAGS.accelerator_type)
 
   _ = train_lib.train_and_evaluate(
       train_as_ensemble=config.train_stage_2_as_ensemble,

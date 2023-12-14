@@ -23,9 +23,11 @@ TPU_BASE_IMAGE = 'ubuntu:22.04'
 
 
 def tpuvm_docker_instructions() -> list[str]:
-  """Returns a list of docker instructions necessary 
-  to use TensorFlow on TPUs.
-  """
+  """Returns a list of docker commands necessary to use TensorFlow on TPUs.
+
+  Returns:
+    Docker container build commands.
+   """
   tf_wheel_name = (
       'tensorflow-2.14.0-cp310-cp310-manylinux_2_17_x86_64.' +
       'manylinux2014_x86_64.whl'
