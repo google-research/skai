@@ -79,7 +79,7 @@ def get_docker_instructions(accelerator: str) -> tuple[str, list[str]]:
         'RUN apt-get update && apt-get install -y python3-pip wget',
     ]
   docker_instructions += [
-      'RUN apt-get install -y libgl1-mesa-glx libsm6 libxext6 libxrender-dev '
+      'RUN apt-get install -y libgl1-mesa-glx libsm6 libxext6 libxrender-dev ' +
       'libglib2.0-0 python-is-python3'
   ]
   docker_instructions += [
