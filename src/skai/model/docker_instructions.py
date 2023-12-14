@@ -67,8 +67,8 @@ def get_docker_instructions(accelerator: str) -> tuple[str, list[str]]:
     # https://cloud.google.com/deep-learning-containers/docs/choosing-container
     base_image = GPU_BASE_IMAGE
     docker_instructions = [
-        'RUN apt-get update && apt-get install -y '\
-            'libcairo2-dev libjpeg-dev libgif-dev'
+        'RUN apt-get update && apt-get install -y ' +
+        'libcairo2-dev libjpeg-dev libgif-dev'
     ]
 
   else:
