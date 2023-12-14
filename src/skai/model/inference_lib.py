@@ -373,11 +373,7 @@ def example_to_row(
     Inference row.
   """
 
-  try:
-    example_id = utils.get_int64_feature(example, 'int64_id')[0]
-  except IndexError:
-    example_id = utils.get_bytes_feature(example, 'example_id')[0].decode()
-
+  example_id = utils.get_int64_feature(example, 'int64_id')[0]
   building_id = utils.get_bytes_feature(example, 'encoded_coordinates')[
       0
   ].decode()
