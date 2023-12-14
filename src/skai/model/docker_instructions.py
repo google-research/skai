@@ -26,12 +26,18 @@ def tpuvm_docker_instructions() -> list[str]:
   """Returns a list of docker instructions necessary 
   to use TensorFlow on TPUs.
   """
-  tf_wheel_name = 'tensorflow-2.14.0-cp310-cp310-manylinux_2_17_x86_64.' \
-                'manylinux2014_x86_64.whl'
-  tf_wheel_url = 'https://storage.googleapis.com/cloud-tpu-tpuvm-artifacts/' \
-                'tensorflow/tf-2.14.0/' + tf_wheel_name
-  tpu_shared_object_url = 'https://storage.googleapis.com/' \
-                'cloud-tpu-tpuvm-artifacts/libtpu/1.8.0/libtpu.so'
+  tf_wheel_name = (
+      'tensorflow-2.14.0-cp310-cp310-manylinux_2_17_x86_64.' +
+      'manylinux2014_x86_64.whl'
+  )
+  tf_wheel_url = (
+      'https://storage.googleapis.com/cloud-tpu-tpuvm-artifacts/' +
+      'tensorflow/tf-2.14.0/' + tf_wheel_name
+  )
+  tpu_shared_object_url = (
+      'https://storage.googleapis.com/' +
+      'cloud-tpu-tpuvm-artifacts/libtpu/1.8.0/libtpu.so'
+  )
   return [
       f'RUN wget {tpu_shared_object_url} -O /lib/libtpu.so',
       'RUN chmod 700 /lib/libtpu.so',
