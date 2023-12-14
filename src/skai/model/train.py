@@ -46,11 +46,11 @@ flags.DEFINE_bool(
     'is_vertex', False, 'True if the training job will be executed on VertexAI.'
 )
 flags.DEFINE_enum(
-  'accelerator_type',
-  default='cpu',
-  help='Accelerator to use for computations',
-  enum_values=['cpu', 'gpu', 'tpu']
-  )
+    'accelerator_type',
+    default='cpu',
+    help='Accelerator to use for computations',
+    enum_values=['cpu', 'gpu', 'tpu']
+    )
 flags.DEFINE_string('ensemble_dir', '', 'If specified, loads the models at '
                     'this directory to consider the ensemble.')
 flags.DEFINE_string(
