@@ -14,12 +14,12 @@ _Strategy = Union[
 
 
 def get_tpu_resolver(tpu='local'):
-  """Create cluster resolver for Cloud TPUs
+  """Create cluster resolver for Cloud TPUs.
   Args:
-    tpu: TPU to use - name, worker address or 'local'
+    tpu: TPU to use - name, worker address or 'local'.
   
   Returns:
-    TPUClusterResolver for Cloud TPUs
+    TPUClusterResolver for Cloud TPUs.
   """
   resolver = tf.distribute.cluster_resolver.TPUClusterResolver(tpu=tpu)
   tf.config.experimental_connect_to_cluster(resolver)
@@ -28,14 +28,14 @@ def get_tpu_resolver(tpu='local'):
 
 
 def get_strategy(accelerator_type: str)->_Strategy:
-  """Gets distributed training strategy for accelerator type
+  """Gets distributed training strategy for accelerator type.
   Args:
-    accelerator_type: The accelerator type which is one of cpu, gpu or tpu
+    accelerator_type: The accelerator type which is one of cpu, gpu and tpu.
   
   Returns:
-    MirrorStrategy if accelerator_type is gpu,
-        TPUStrategy if accelerator_type is tpu,
-        else default Strategy
+    MirrorStrategy for gpu accelerator,
+        TPUStrategy for tpu,
+        and default Strategy for cpu.
   """
   if accelerator_type == 'gpu':
     return tf.distribute.MirroredStrategy()
