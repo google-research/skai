@@ -563,7 +563,7 @@ def train_ensemble(
     ood_ratio: Float for the ratio of slices that will be considered
       out-of-distribution.
     output_dir: String for directory path where checkpoints will be saved.
-    strategy: Strategy for distributed training.
+    strategy: Strategy to run on CPUs, GPUs or TPUs.
     save_model_checkpoints: Boolean for saving checkpoints during training.
     early_stopping: Boolean for early stopping during training.
     example_id_to_bias_table: Hash table mapping example ID to bias label.
