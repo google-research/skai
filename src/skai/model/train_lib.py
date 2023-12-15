@@ -910,12 +910,14 @@ def run_ensemble(
     ood_ratio: Float for the ratio of slices that will be considered
       out-of-distribution.
     output_dir: String for directory path where checkpoints will be saved.
+    strategy: Strategy for distributed training.
     save_model_checkpoints: Boolean for saving checkpoints during training.
     early_stopping: Boolean for early stopping during training.
     ensemble_dir: Optional string for a directory that stores trained model
       checkpoints. If specified, will load the models from directory.
     example_id_to_bias_table: Hash table mapping example ID to bias label.
-
+    is_vertex: Set to true if training on VertexAI.
+    
   Returns:
     List of trained models and, optionally, predictions.
   """
