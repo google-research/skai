@@ -30,8 +30,8 @@ from skai.model import generate_bias_table_lib
 from skai.model import models
 from skai.model import sampling_policies
 from skai.model import train_lib
-from skai.model.train_strategy import get_strategy
 from skai.model.configs import base_config
+from skai.model.train_strategy import get_strategy
 import tensorflow as tf
 
 
