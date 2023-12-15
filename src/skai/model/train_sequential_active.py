@@ -57,6 +57,7 @@ flags.DEFINE_string(
     ' projects/{project}/locations/{location}/studies/{study}/trials/{trial}',
 )
 
+
 def main(_) -> None:
   config = FLAGS.config
   base_config.check_flags(config)

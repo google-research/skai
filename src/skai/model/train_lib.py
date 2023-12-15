@@ -917,7 +917,7 @@ def run_ensemble(
       checkpoints. If specified, will load the models from directory.
     example_id_to_bias_table: Hash table mapping example ID to bias label.
     is_vertex: Set to true if training on VertexAI.
-    
+
   Returns:
     List of trained models and, optionally, predictions.
   """
@@ -925,9 +925,16 @@ def run_ensemble(
   if ensemble_dir:
     ensemble = load_trained_models(ensemble_dir, model_params)
   else:
-    ensemble = train_ensemble(dataloader, model_params, num_splits, ood_ratio,
-                              output_dir, strategy, save_model_checkpoints,
-                              early_stopping, example_id_to_bias_table, is_vertex)
+    ensemble = train_ensemble(dataloader,
+                              model_params,
+                              num_splits,
+                              ood_ratio,
+                              output_dir,
+                              strategy,
+                              save_model_checkpoints,
+                              early_stopping,
+                              example_id_to_bias_table,
+                              is_vertex)
   if dataloader.eval_ds and example_id_to_bias_table:
     eval_ensemble(dataloader, ensemble, example_id_to_bias_table)
 
