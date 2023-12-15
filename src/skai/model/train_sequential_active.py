@@ -30,6 +30,7 @@ from skai.model import generate_bias_table_lib
 from skai.model import models
 from skai.model import sampling_policies
 from skai.model import train_lib
+from skai.model.train_strategy import get_strategy
 from skai.model.configs import base_config
 import tensorflow as tf
 
@@ -38,9 +39,23 @@ FLAGS = flags.FLAGS
 config_flags.DEFINE_config_file('config')
 flags.DEFINE_bool('keep_logs', True, 'If True, creates a log file in output '
                   'directory. If False, only logs to console.')
+flags.DEFINE_bool(
+    'is_vertex', False, 'True if the training job will be executed on VertexAI.'
+)
+flags.DEFINE_enum(
+    'accelerator_type',
+    default='cpu',
+    help='Accelerator to use for computations',
+    enum_values=['cpu', 'gpu', 'tpu']
+    )
 flags.DEFINE_string('ensemble_dir', '', 'If specified, loads the models at '
                     'this directory to consider the ensemble.')
-
+flags.DEFINE_string(
+    'trial_name',
+    None,
+    'Name of the job trial that measurements should be submitted to. Format:'
+    ' projects/{project}/locations/{location}/studies/{study}/trials/{trial}',
+)
 
 def main(_) -> None:
   config = FLAGS.config
@@ -63,6 +78,7 @@ def main(_) -> None:
   else:
     num_rounds = config.num_rounds
 
+  strategy = get_strategy(accelerator_type=FLAGS.accelerator_type)
   # If called with config.round_idx < 0, then go through all rounds else
   #   only go through config.round_idx-th round
   round_ids = range(num_rounds)
@@ -125,6 +141,7 @@ def main(_) -> None:
             num_splits=config.data.num_splits,
             ood_ratio=config.data.ood_ratio,
             output_dir=combos_dir,
+            strategy=strategy,
             save_model_checkpoints=config.training.save_model_checkpoints,
             early_stopping=config.training.early_stopping)
         trained_models = train_lib.load_trained_models(
@@ -167,7 +184,11 @@ def main(_) -> None:
         save_best_model=config.training.save_best_model,
         early_stopping=config.training.early_stopping,
         ensemble_dir=FLAGS.ensemble_dir,
-        example_id_to_bias_table=example_id_to_bias_table)
+        example_id_to_bias_table=example_id_to_bias_table,
+        vizier_trial_name=FLAGS.trial_name,
+        is_vertex=FLAGS.is_vertex,
+        strategy=strategy,
+    )
 
     # Get all ids used for training
     ids_train = data.get_ids_from_dataset(dataloader.train_ds)

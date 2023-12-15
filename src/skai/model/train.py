@@ -235,7 +235,7 @@ def main(_) -> None:
       example_id_to_bias_table=example_id_to_bias_table,
       vizier_trial_name=FLAGS.trial_name,
       is_vertex=FLAGS.is_vertex,
-      strategy=strategy
+      strategy=strategy,
   )
 
 
