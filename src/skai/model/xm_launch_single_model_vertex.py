@@ -66,7 +66,6 @@ flags.DEFINE_integer(
     32,
     'Fixed amount of RAM for the work unit in GB',
 )
-
 flags.DEFINE_integer(
     'cpu',
     4,
@@ -85,7 +84,6 @@ flags.DEFINE_enum(
     help='Accelerator to use for faster computations.',
     enum_values=['P100', 'V100', 'P4', 'T4', 'A100', 'TPU_V2', 'TPU_V3']
 )
-
 flags.DEFINE_integer(
     'accelerator_count',
     1,
@@ -165,13 +163,14 @@ def main(_) -> None:
         use_deep_module=True,
     )
     if FLAGS.accelerator is not None:
-      if (
-          FLAGS.accelerator in ['TPU_V3', 'TPU_V2']
-          and FLAGS.accelerator_count != 8
-      ):
-        raise ValueError(
-            f'The accelerator {FLAGS.accelerator} only support 8 devices.'
-        )
+      if FLAGS.accelerator in ['TPU_V3', 'TPU_V2']:
+        if FLAGS.accelerator_count != 8:
+          raise ValueError(
+              f'The accelerator {FLAGS.accelerator} only support 8 devices.'
+          )
+        accelerator_type = 'tpu'
+      else:
+        accelerator_type = 'gpu'
       resources_args = {
           FLAGS.accelerator: FLAGS.accelerator_count,
           'RAM': FLAGS.ram * xm.GiB,
@@ -179,6 +178,8 @@ def main(_) -> None:
       }
     else:
       resources_args = {'RAM': FLAGS.ram * xm.GiB, 'CPU': FLAGS.cpu * xm.vCPU}
+      accelerator_type = 'cpu'
+
     executor = xm_local.Vertex(
         requirements=xm.JobRequirements(
             service_tier=xm.ServiceTier.PROD, **resources_args
@@ -191,7 +192,8 @@ def main(_) -> None:
             executor_spec=xm_local.Vertex.Spec(),
             args={
                 'config': config_path,
-                'is_vertex': 'vertex' in str(executor.Spec()).lower()
+                'is_vertex': True,
+                'accelerator_type': accelerator_type
             },
         ),
     ])
