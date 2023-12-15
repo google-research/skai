@@ -891,10 +891,13 @@ def run_ensemble(
     num_splits: int,
     ood_ratio: float,
     output_dir: str,
+    strategy: tf.distribute.Strategy,
     save_model_checkpoints: bool = True,
     early_stopping: bool = True,
     ensemble_dir: Optional[str] = '',
-    example_id_to_bias_table: Optional[tf.lookup.StaticHashTable] = None
+    example_id_to_bias_table: Optional[tf.lookup.StaticHashTable] = None,
+    vizier_trial_name: str | None = None,
+    is_vertex: bool = False,
 ) -> List[tf.keras.Model]:
   """Trains an ensemble of models and optionally gets their average predictions.
 
@@ -919,8 +922,8 @@ def run_ensemble(
     ensemble = load_trained_models(ensemble_dir, model_params)
   else:
     ensemble = train_ensemble(dataloader, model_params, num_splits, ood_ratio,
-                              output_dir, save_model_checkpoints,
-                              early_stopping, example_id_to_bias_table)
+                              output_dir, strategy, save_model_checkpoints,
+                              early_stopping, example_id_to_bias_table, is_vertex)
   if dataloader.eval_ds and example_id_to_bias_table:
     eval_ensemble(dataloader, ensemble, example_id_to_bias_table)
 
@@ -978,7 +981,8 @@ def train_and_evaluate(
         save_model_checkpoints=save_model_checkpoints,
         early_stopping=early_stopping,
         ensemble_dir=ensemble_dir,
-        example_id_to_bias_table=example_id_to_bias_table)
+        example_id_to_bias_table=example_id_to_bias_table,
+        strategy=strategy)
   else:
     callbacks = create_callbacks(
         output_dir,
