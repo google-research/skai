@@ -925,16 +925,18 @@ def run_ensemble(
   if ensemble_dir:
     ensemble = load_trained_models(ensemble_dir, model_params)
   else:
-    ensemble = train_ensemble(dataloader,
-                              model_params,
-                              num_splits,
-                              ood_ratio,
-                              output_dir,
-                              strategy,
-                              save_model_checkpoints,
-                              early_stopping,
-                              example_id_to_bias_table,
-                              is_vertex)
+    ensemble = train_ensemble(
+        dataloader,
+        model_params,
+        num_splits,
+        ood_ratio,
+        output_dir,
+        strategy,
+        save_model_checkpoints,
+        early_stopping,
+        example_id_to_bias_table,
+        is_vertex
+    )
   if dataloader.eval_ds and example_id_to_bias_table:
     eval_ensemble(dataloader, ensemble, example_id_to_bias_table)
 
