@@ -78,6 +78,7 @@ def main(_) -> None:
   else:
     num_rounds = config.num_rounds
 
+  strategy = get_strategy(accelerator_type=FLAGS.accelerator_type)
   # If called with config.round_idx < 0, then go through all rounds else
   #   only go through config.round_idx-th round
   round_ids = range(num_rounds)
@@ -140,6 +141,7 @@ def main(_) -> None:
             num_splits=config.data.num_splits,
             ood_ratio=config.data.ood_ratio,
             output_dir=combos_dir,
+            strategy=strategy,
             save_model_checkpoints=config.training.save_model_checkpoints,
             early_stopping=config.training.early_stopping)
         trained_models = train_lib.load_trained_models(
@@ -170,8 +172,6 @@ def main(_) -> None:
       dataloader.train_ds = train_ds
       dataloader.eval_ds['val'] = val_ds
 
-    strategy = get_strategy(accelerator_type=FLAGS.accelerator_type)
-
     trained_stagetwo_models = train_lib.train_and_evaluate(
         train_as_ensemble=config.train_stage_2_as_ensemble,
         dataloader=dataloader,
@@ -188,7 +188,7 @@ def main(_) -> None:
         vizier_trial_name=FLAGS.trial_name,
         is_vertex=FLAGS.is_vertex,
         strategy=strategy,
-        )
+    )
 
     # Get all ids used for training
     ids_train = data.get_ids_from_dataset(dataloader.train_ds)

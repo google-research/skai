@@ -584,8 +584,11 @@ def train_ensemble(
     combo_train = data.gather_data_splits(combo, dataloader.train_splits)
     combo_val = data.gather_data_splits(combo, dataloader.val_splits)
     combo_ckpt_dir = os.path.join(output_dir, combo_name, 'checkpoints')
-    combo_callbacks = create_callbacks(combo_ckpt_dir, save_model_checkpoints,
-                                       early_stopping, is_vertex)
+    combo_callbacks = create_callbacks(
+        combo_ckpt_dir,
+        save_model_checkpoints,
+        early_stopping=early_stopping,
+        is_vertex=is_vertex)
     combo_model = run_train(
         combo_train,
         combo_val,
@@ -896,7 +899,6 @@ def run_ensemble(
     early_stopping: bool = True,
     ensemble_dir: Optional[str] = '',
     example_id_to_bias_table: Optional[tf.lookup.StaticHashTable] = None,
-    vizier_trial_name: str | None = None,
     is_vertex: bool = False,
 ) -> List[tf.keras.Model]:
   """Trains an ensemble of models and optionally gets their average predictions.
