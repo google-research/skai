@@ -75,6 +75,8 @@ def convert_buildings_file(
   """
   if path.lower().endswith('.csv'):
     buildings_gdf = _read_buildings_csv(path)
+  elif path.lower().endswith('.parquet'):
+    buildings_gdf = read_buildings_file(path)
   else:
     with tf.io.gfile.GFile(path, 'rb') as f:
       buildings_gdf = gpd.read_file(f).to_crs(epsg=4326)
