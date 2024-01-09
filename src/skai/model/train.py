@@ -59,6 +59,10 @@ flags.DEFINE_string(
     'Name of the job trial that measurements should be submitted to. Format:'
     ' projects/{project}/locations/{location}/studies/{study}/trials/{trial}',
 )
+# The 'tpu' flag will be set by the `build_tpu_jobs` in the launch script.
+_TPU = flags.DEFINE_string(
+    'tpu', '', 'The BNS address of the first TPU worker.'
+)
 
 
 def get_model_dir(root_dir: str) -> str:
@@ -76,13 +80,14 @@ def get_model_dir(root_dir: str) -> str:
 def main(_) -> None:
   config = FLAGS.config
   base_config.check_flags(config)
+  strategy = get_strategy(
+      accelerator_type=FLAGS.accelerator_type, tpu_bns=_TPU.value
+  )
 
   if FLAGS.keep_logs and not config.training.log_to_xm:
     if not tf.io.gfile.exists(config.output_dir):
       tf.io.gfile.makedirs(config.output_dir)
-    stream = tf.io.gfile.GFile(
-        os.path.join(config.output_dir, 'log'), mode='w'
-    )
+    stream = tf.io.gfile.GFile(os.path.join(config.output_dir, 'log'), mode='w')
     stream_handler = native_logging.StreamHandler(stream)
     logging.get_absl_logger().addHandler(stream_handler)
 
@@ -217,8 +222,6 @@ def main(_) -> None:
     df.to_csv(os.path.join(output_dir, table_name + '.csv'), index=False)
   # Apply batching (must apply batching only after filtering)
   dataloader = data.apply_batch(dataloader, config.data.batch_size)
-
-  strategy = get_strategy(accelerator_type=FLAGS.accelerator_type)
 
   _ = train_lib.train_and_evaluate(
       train_as_ensemble=config.train_stage_2_as_ensemble,

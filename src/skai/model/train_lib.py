@@ -128,7 +128,10 @@ class TwoHeadedOutputModel(tf.keras.Model):
         accs.append(m.result())
         subgroup_label = m.name.split('_')[1]
         weighted_accs.append(
-            m.result() * float(self.subgroup_sizes[subgroup_label]) / total_size
+            m.result()
+            * float(self.subgroup_sizes[subgroup_label])
+            / total_size
+            / tf.distribute.get_strategy().num_replicas_in_sync
         )
     self.avg_acc.reset_state()
     self.avg_acc.update_state(accs)
@@ -186,8 +189,11 @@ class TwoHeadedOutputModel(tf.keras.Model):
             below_threshold_example_multiplex)
 
       total_loss = self.compiled_loss(
-          y_true, y_pred, sample_weight=sample_weight)
-      total_loss += sum(self.losses)  # Regularization loss.
+          y_true,
+          y_pred,
+          sample_weight=sample_weight,
+          regularization_losses=self.losses
+      )
 
     gradients = tape.gradient(total_loss, self.model.trainable_variables)
     self.optimizer.apply_gradients(

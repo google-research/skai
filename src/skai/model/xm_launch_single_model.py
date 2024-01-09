@@ -71,6 +71,20 @@ flags.DEFINE_list(
     'List of number of epochs for training duration to try in a '
     'hyperparameter sweep.',
 )
+_ACCELERATOR = flags.DEFINE_string(
+    'accelerator', 'tpu', 'Accelerator type for main job: tpu or gpu.'
+)
+_TPU_TOPOLOGY = flags.DEFINE_string('tpu_topology', '1x1', 'TPU topology.')
+_TPU_PLATFORM = flags.DEFINE_string(
+    'tpu_platform',
+    'dragonfish',
+    'TPU platform, such as dragonfish, dragondonut, jellyfish, jellydonut,'
+    ' pufferfish, and puffylite.',
+)
+_NUM_GPUS = flags.DEFINE_integer('num_gpus', 8, 'Number of gpus.')
+_GPU_TYPES = flags.DEFINE_string(
+    'gpu_types', 'v100', 'GPU type (only for GPU worker).'
+)
 config_flags.DEFINE_config_file('config')
 
 
@@ -93,12 +107,7 @@ def _product(
 
 def main(_) -> None:
   config = FLAGS.config
-  config_path = config_flags.get_config_filename(FLAGS['config'])
-  config_filename = config_path.split('/')[-1]
-  config_resource = xm_abc.Fileset(
-      # Dict from a path in google3 to a path in the package.
-      files={os.path.join('//', config_path): config_filename}
-  )
+
   if not FLAGS.optimizer_types:
     FLAGS.optimizer_types.append(config.optimizer.type)
   if not FLAGS.lr_tune_values:
@@ -114,31 +123,13 @@ def main(_) -> None:
       ),
       attribution_urls=['rh/efforts/1910'],
   ) as experiment:
-    executor = xm_abc.Borg(
-        requirements=xm.JobRequirements(
-            location='li',
-            service_tier=xm.ServiceTier.PROD,
-            cpu=16,
-            ram=64 * xm.GiB,
-            tmp_ram_fs=64 * xm.GiB,
-            v100=2,
-        ),
-        autopilot_params=xm_abc.executors.AutopilotParams(fixed_ram=False),
-    )
-    [train_executable] = experiment.package([
-        xm.bazel_binary(
-            label='//third_party/py/skai/model:train',
-            dependencies=[config_resource],
-            bazel_args=xm_abc.bazel_args.gpu(),
-            executor_spec=xm_abc.Borg.Spec(),
-            args={
-                'config': config_resource.get_path(
-                    config_filename, xm_abc.Borg.Spec()
-                ),
-                'is_vertex': 'vertex' in str(executor.Spec()).lower(),
-            },
-        ),
-    ])
+    if _ACCELERATOR.value == 'gpu':
+      builder = _mirrored_strategy_builder(experiment)
+    elif _ACCELERATOR.value == 'tpu':
+      builder = _tpu_strategy_builder(experiment)
+    else:
+      raise EnvironmentError(
+          f'Unsupported accelerator type: {_ACCELERATOR.value}')
     job_args = {
         'config.output_dir': config.output_dir,
         'config.train_bias': config.train_bias,
@@ -173,11 +164,19 @@ def main(_) -> None:
       job_args['config.training.save_model_checkpoints'] = False
       job_args['config.training.save_best_model'] = True
       study_factory = vizier_abc.NewStudy(get_study_config())
-      job = xm.Job(train_executable, args=job_args, executor=executor)
+      async def gen_work_unit(work_unit: xm.WorkUnit, **hparams):
+        job_args.update(**hparams)
+        job = builder.create_job_group(work_unit, job_args)
+        work_unit.add(job)
       experiment.add(
           vizier_abc.vizier_controller(
-              job, study_factory, num_parallel_work_units=10
-          )
+              gen_work_unit,
+              study_factory,
+              num_parallel_work_units=10,
+              adhoc_import_modules=[
+                  'google3.learning.deepmind.xmanager2.contrib.xm_sync'
+              ],
+          ),
       )
     else:
       async def run_train(
@@ -225,9 +224,8 @@ def main(_) -> None:
               job_args['config.data.included_splits_idx'] = combo_tuple
               train_ensemble_operations.append(
                   await experiment.add(
-                      xm.Job(
-                          train_executable, args=job_args, executor=executor
-                      ),
+                      builder.gen_job_group(),
+                      job_args,
                       identity=f'two_head_train_{combo_name}',
                   )
               )
@@ -235,9 +233,7 @@ def main(_) -> None:
                 *(op.wait_until_complete() for op in train_ensemble_operations)
             )
           else:
-            experiment.add(
-                xm.Job(train_executable, args=job_args, executor=executor)
-            )
+            experiment.add(builder.gen_job_group(), job_args)
 
       experiment.add(
           run_train(
