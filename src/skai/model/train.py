@@ -80,12 +80,8 @@ def get_model_dir(root_dir: str) -> str:
 def main(_) -> None:
   config = FLAGS.config
   base_config.check_flags(config)
-  if FLAGS.is_vertex:
-    tpu_bns = _TPU.value or 'local'
-  else:
-    tpu_bns = _TPU.value
   strategy = get_strategy(
-      accelerator_type=FLAGS.accelerator_type, tpu_bns=tpu_bns
+      accelerator_type=FLAGS.accelerator_type, tpu_bns=_TPU.value
   )
 
   if FLAGS.keep_logs and not config.training.log_to_xm:
