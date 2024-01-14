@@ -13,7 +13,7 @@ _Strategy = Union[
 ]
 
 
-def get_tpu_resolver(tpu: str):
+def get_tpu_resolver(tpu: str|None = 'local'):
   """Create cluster resolver for Cloud TPUs.
 
   Args:
@@ -29,7 +29,7 @@ def get_tpu_resolver(tpu: str):
 
 
 def get_strategy(
-    accelerator_type: str, tpu_bns: str
+    accelerator_type: str, tpu_bns: str|None = 'local'
 ) -> _Strategy:
   """Gets distributed training strategy for accelerator type.
 
