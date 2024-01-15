@@ -81,7 +81,7 @@ class ExamplesGenerationConfig:
   cloud_project: Optional[str] = None
   cloud_region: Optional[str] = None
   use_dataflow: bool = False
-  output_metadata_file: bool = False
+  output_metadata_file: bool = True
   worker_service_account: Optional[str] = None
   max_dataflow_workers: int = 20
   example_patch_size: int = 64
