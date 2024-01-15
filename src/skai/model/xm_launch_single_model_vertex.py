@@ -93,9 +93,6 @@ flags.DEFINE_integer(
         'https://github.com/deepmind/xmanager/blob/main/docs/executors.md'
     ),
 )
-flags.DEFINE_string(
-    'tpu', 'local', 'The BNS address of the first TPU worker (if using TPU).'
-)
 config_flags.DEFINE_config_file('config')
 
 
@@ -197,7 +194,7 @@ def main(_) -> None:
                 'config': config_path,
                 'is_vertex': True,
                 'accelerator_type': accelerator_type,
-                'tpu': FLAGS.tpu
+                'tpu': 'local'
             },
         ),
     ])
