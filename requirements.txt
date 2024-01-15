@@ -17,7 +17,7 @@ rio-cogeo
 rtree
 shapely>=2
 scikit-learn
-tensorflow
+tensorflow==2.14.0
 tensorflow-datasets
 tensorflow_probability
 tqdm
