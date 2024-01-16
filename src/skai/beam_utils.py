@@ -146,8 +146,6 @@ def get_pipeline_options(
   if not use_dataflow:
     return PipelineOptions.from_dictionary({
         'runner': 'DirectRunner',
-        'direct_num_workers': 10,
-        'direct_running_mode': 'multi_processing',
     })
 
   if not project or not region:
