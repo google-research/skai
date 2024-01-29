@@ -137,6 +137,8 @@ def main(_) -> None:
             generate_bias_table_lib.filter_ids_fn(ids_tab)) for
         ids_tab in sampling_policies.convert_ids_to_table(config.ids_dir)]
 
+  global_batch_size = config.data.batch_size * strategy.num_replicas_in_sync
+
   model_params = models.ModelTrainingParameters(
       model_name=config.model.name,
       train_bias=config.train_bias,
@@ -149,7 +151,7 @@ def main(_) -> None:
       l2_regularization_factor=config.model.l2_regularization_factor,
       optimizer=config.optimizer.type,
       learning_rate=config.optimizer.learning_rate,
-      batch_size=config.data.batch_size,
+      batch_size=global_batch_size,
       load_pretrained_weights=config.model.load_pretrained_weights,
       use_pytorch_style_resnet=config.model.use_pytorch_style_resnet,
       do_reweighting=config.reweighting.do_reweighting,
@@ -221,7 +223,7 @@ def main(_) -> None:
     df = pd.DataFrame(dict_values)
     df.to_csv(os.path.join(output_dir, table_name + '.csv'), index=False)
   # Apply batching (must apply batching only after filtering)
-  dataloader = data.apply_batch(dataloader, config.data.batch_size)
+  dataloader = data.apply_batch(dataloader, global_batch_size)
 
   _ = train_lib.train_and_evaluate(
       train_as_ensemble=config.train_stage_2_as_ensemble,
