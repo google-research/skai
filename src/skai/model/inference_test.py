@@ -22,6 +22,8 @@ from absl.testing import absltest
 import apache_beam as beam
 from apache_beam.testing import test_pipeline
 from apache_beam.testing.util import assert_that
+import fiona
+import geopandas as gp
 import numpy as np
 import pandas as pd
 import shapely.geometry
@@ -334,6 +336,110 @@ class InferenceTest(absltest.TestCase):
     self.assertFalse(row.damaged)
     self.assertFalse(row.damaged_high_precision)
     self.assertFalse(row.damaged_high_recall)
+
+  def test_postprocess(self):
+    output_path = os.path.join(_make_temp_dir(), 'file_to_postprocess.csv')
+    output_dictionary = {
+        'shard_1_output': pd.DataFrame.from_dict(
+            data={
+                'example_id': [1, 2],
+                'building_id': ['a', 'b'],
+                'longitude': [3.0, 4.0],
+                'latitude': [5.0, 6.0],
+                'score': [0.001, 0.002],
+                'plus_code': ['aa', 'bb'],
+                'area_in_meters': [np.nan, np.nan],
+                'footprint_wkt': [np.nan, np.nan],
+                'damaged': [False, True],
+                'damaged_high_precision': [False, True],
+                'damaged_high_recall': [False, True],
+            }
+        ),
+        'shard_2_output': pd.DataFrame.from_dict({
+            'example_id': [3, 4],
+            'building_id': ['c', 'd'],
+            'longitude': [7.0, 8.0],
+            'latitude': [9.0, 10.0],
+            'score': [0.003, 0.004],
+            'plus_code': ['cc', 'dd'],
+            'area_in_meters': [20.0, np.nan],
+            'footprint_wkt': [
+                shapely.geometry.Polygon(
+                    ((0, 0), (0, 0), (0, 0), (0, 0), (0, 0))
+                ),
+                np.nan,
+            ],
+            'damaged': [False, True],
+            'damaged_high_precision': [False, True],
+            'damaged_high_recall': [False, True],
+        }),
+        'shard_3_output': pd.DataFrame.from_dict({
+            'example_id': [5, 6],
+            'building_id': ['e', 'f'],
+            'longitude': [11.0, 12.0],
+            'latitude': [13.0, 14.0],
+            'score': [0.05, 0.06],
+            'plus_code': ['ee', 'ff'],
+            'area_in_meters': [20.0, 30.0],
+            'footprint_wkt': [
+                shapely.geometry.Polygon(
+                    ((0, 0), (10, 0), (10, 10), (0, 10), (0, 0))
+                ),
+                shapely.geometry.Polygon(
+                    ((-81, 35), (-81, 33), (-80, 33), (-80, 35), (-81, 35))
+                ),
+            ],
+            'damaged': [False, True],
+            'damaged_high_precision': [False, True],
+            'damaged_high_recall': [False, True],
+        }),
+    }
+    temp_prefix = f'{output_path}.tmp'
+    for shard, shard_output in output_dictionary.items():
+      shard_output.to_csv(f'{temp_prefix}_{shard}.csv', index=False)
+
+    self.assertNotEmpty(glob.glob(f'{temp_prefix}*'))
+    inference_lib.postprocess(temp_prefix, output_path, 'score')
+    self.assertTrue(os.path.exists(output_path))
+    self.assertEmpty(glob.glob(f'{temp_prefix}*'))
+    df = pd.read_csv(output_path)
+    self.assertSameElements(
+        df.columns,
+        [
+            'example_id',
+            'building_id',
+            'longitude',
+            'latitude',
+            'score',
+            'plus_code',
+            'area_in_meters',
+            'footprint_wkt',
+            'damaged',
+            'damaged_high_precision',
+            'damaged_high_recall',
+        ],
+    )
+    self.assertLen(df, 6)
+
+    if 'GPKG' in fiona.supported_drivers:
+      gdf = gp.read_file(f'{output_path}.gpkg')
+      self.assertSameElements(
+          gdf.columns,
+          [
+              'example_id',
+              'building_id',
+              'longitude',
+              'latitude',
+              'score',
+              'plus_code',
+              'area_in_meters',
+              'damaged',
+              'damaged_high_precision',
+              'damaged_high_recall',
+              'geometry'
+          ],
+      )
+      self.assertLen(gdf, 6)
 
 
 if __name__ == '__main__':

@@ -15,6 +15,7 @@
 """Functions for running model inference in beam."""
 
 import enum
+import math
 import os
 import time
 from typing import Any, Iterable, Iterator, NamedTuple
@@ -23,14 +24,12 @@ import apache_beam as beam
 import apache_beam.dataframe.convert
 import apache_beam.dataframe.io
 from apache_beam.utils import multi_process_shared
-
 import fiona
 import geopandas as gpd
 import numpy as np
 import pandas as pd
 import shapely.wkb
 import shapely.wkt
-
 from skai import utils
 from skai.model import data
 import tensorflow as tf
@@ -548,7 +547,14 @@ def postprocess(
 
   if 'GPKG' in fiona.supported_drivers:
     # Output GeoPackage if available.
-    geometries = [shapely.wkt.loads(wkt) for wkt in df['footprint_wkt']]
+    geometries = []
+    for wkt, lon, lat in zip(
+        df['footprint_wkt'], df['longitude'], df['latitude']
+    ):
+      if not isinstance(wkt, str) and math.isnan(wkt):
+        geometries.append(shapely.geometry.Point(lon, lat))
+      else:
+        geometries.append(shapely.wkt.loads(wkt))
     gdf = gpd.GeoDataFrame(
         df.drop(columns=['footprint_wkt']), geometry=geometries
     )
