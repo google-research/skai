@@ -53,11 +53,35 @@ def _create_test_model(model_path: str, image_size: int):
   tf.saved_model.save(model, model_path)
 
 
+def _create_embedding_test_model(model_path: str, image_size: int):
+  small_input = tf.keras.layers.Input(
+      shape=(image_size, image_size, 6), name='small_image'
+  )
+  large_input = tf.keras.layers.Input(
+      shape=(image_size, image_size, 6), name='large_image'
+  )
+  merge = tf.keras.layers.Concatenate(axis=3)([small_input, large_input])
+  flat = tf.keras.layers.Flatten()(merge)
+  main_out = tf.keras.layers.Dense(64, name='main')(flat)
+  model = tf.keras.models.Model(
+      inputs={'small_image': small_input, 'large_image': large_input},
+      outputs={'main': tf.transpose(
+          tf.convert_to_tensor([main_out, main_out]), perm=[1, 0, 2]
+      )}
+    )
+  tf.saved_model.save(model, model_path)
+
+
+def _create_example_id_embedding(example_id: int) -> tuple[int, np.ndarray]:
+  return example_id, np.array([example_id] * 64)
+
+
 def _create_test_example(
     image_size: int,
     include_small_images: bool,
     include_score: bool,
     score: float = 0.0,
+    include_embedding=False,
 ) -> tf.train.Example:
   example = tf.train.Example()
   image_bytes = tf.image.encode_png(
@@ -75,6 +99,9 @@ def _create_test_example(
   utils.add_bytes_list_feature('encoded_coordinates', [b'beefdead'], example)
   if include_score:
     utils.add_float_list_feature('score', [score], example)
+  if include_embedding:
+    embedding = [0] * 64
+    utils.add_float_list_feature('embedding', embedding, example)
 
   footprint_wkb = shapely.wkb.dumps(shapely.geometry.Point(12, 15))
   utils.add_bytes_list_feature('footprint_wkb', [footprint_wkb], example)
@@ -110,6 +137,20 @@ class TestModel(inference_lib.InferenceModel):
     )
 
 
+class TestEmbeddingGeneration(absltest.TestCase):
+  def test_embedding_generation(self):
+    model_path = os.path.join(_make_temp_dir(), '_model.keras')
+    _create_embedding_test_model(model_path, 288)
+    model_ = inference_lib.TF2InferenceModel(
+        model_path, 288, False, [], inference_lib.ModelType.CLASSIFICATION
+    )
+    model_.prepare_model()
+
+    examples = [_create_test_example(288, False, False) for _ in range(3)]
+    output_examples = model_.predict_scores(examples)
+    self.assertEqual(output_examples.shape, (3, 64))
+
+
 class InferenceTest(absltest.TestCase):
 
   def test_csv_output(self):
@@ -125,7 +166,7 @@ class InferenceTest(absltest.TestCase):
           examples_collection, 0.5, 0.5, 0.5, temp_prefix
       )
     self.assertNotEmpty(glob.glob(f'{temp_prefix}*'))
-    inference_lib.postprocess(temp_prefix, output_path)
+    inference_lib.postprocess(temp_prefix, output_path, 'score')
     self.assertTrue(os.path.exists(output_path))
     self.assertEmpty(glob.glob(f'{temp_prefix}*'))
     df = pd.read_csv(output_path)
@@ -146,6 +187,32 @@ class InferenceTest(absltest.TestCase):
         ],
     )
     self.assertLen(df, 7)
+
+  def test_example_embedding_csv_output(self):
+    example_ids_embeddings = [
+        _create_example_id_embedding(i) for i in range(25)
+    ]
+    output_path = os.path.join(_make_temp_dir(), 'embedding.csv')
+    temp_prefix = f'{output_path}.tmp/output'
+    with test_pipeline.TestPipeline() as pipeline:
+      example_ids_embeddings_collection = pipeline | beam.Create(
+          example_ids_embeddings
+      )
+      inference_lib.embeddings_examples_to_csv(
+          example_ids_embeddings_collection, temp_prefix
+      )
+    self.assertNotEmpty(glob.glob(f'{temp_prefix}*'))
+    inference_lib.postprocess(temp_prefix, output_path, 'embedding')
+    self.assertTrue(os.path.exists(output_path))
+    self.assertEmpty(glob.glob(f'{temp_prefix}*'))
+    df = pd.read_csv(output_path)
+    expected_columns = ['example_id']
+    expected_columns.extend([f'embedding_{i}' for i in range(64)])
+    self.assertSameElements(
+        df.columns,
+        expected_columns,
+    )
+    self.assertLen(df, 25)
 
   def test_run_inference(self):
     with test_pipeline.TestPipeline() as pipeline:
@@ -239,7 +306,7 @@ class InferenceTest(absltest.TestCase):
     )
     model.prepare_model()
 
-    examples = [_create_test_example(224, True, False) for i in range(3)]
+    examples = [_create_test_example(224, True, False) for _ in range(3)]
     output_examples = model.predict_scores(examples)
     self.assertEqual(output_examples.shape, (3,))
 
@@ -251,7 +318,7 @@ class InferenceTest(absltest.TestCase):
     )
     model.prepare_model()
 
-    examples = [_create_test_example(224, False, False) for i in range(3)]
+    examples = [_create_test_example(224, False, False) for _ in range(3)]
     output_examples = model.predict_scores(examples)
     self.assertEqual(output_examples.shape, (3,))
 

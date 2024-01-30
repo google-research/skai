@@ -281,7 +281,11 @@ class ModelInference(beam.DoFn):
     for example, score in zip(batch, scores):
       output_example = tf.train.Example()
       output_example.CopyFrom(example)
-      utils.add_float_feature(self._score_feature, score, output_example)
+      if self._score_feature == 'score':
+        utils.add_float_feature(self._score_feature, score, output_example)
+      elif self._score_feature == 'embedding':
+        utils.add_float_list_feature('embedding', score, output_example)
+
       yield output_example
 
     self._examples_processed.inc(len(batch))
@@ -291,17 +295,33 @@ class ModelInference(beam.DoFn):
 def _merge_examples(
     keyed_examples: tuple[str, Iterable[tf.train.Example]]
 ) -> tf.train.Example:
+  """Merges examples sharing the same coordinates.
+
+  Args:
+    keyed_examples: Tuple of encoded coordinates and examples.
+
+  Returns:
+    Example with merged scores or embeddings.
+  """
   examples = list(keyed_examples[1])
-  scores = [utils.get_float_feature(e, 'score')[0] for e in examples]
   output_example = tf.train.Example()
   output_example.CopyFrom(examples[0])
-  output_example.features.feature['score'].float_list.value[:] = [
-      np.mean(scores)
-  ]
+  try:  # scores
+    scores = [utils.get_float_feature(e, 'score')[0] for e in examples]
+    output_example.features.feature['score'].float_list.value[:] = [
+        np.mean(scores)
+    ]
+  except IndexError:  # embeddings
+    scores = [utils.get_float_feature(e, 'embedding') for e in examples]
+    output_example.features.feature['embedding'].float_list.value.extend(
+        np.mean(np.array(scores), axis=0)
+    )
   return output_example
 
 
-def _dedup_scored_examples(examples: beam.PCollection) -> beam.PCollection:
+def _dedup_scored_examples(
+    examples: beam.PCollection
+) -> beam.PCollection:
   """Deduplications examples by merging those sharing the same coordinates.
 
   Args:
@@ -317,6 +337,27 @@ def _dedup_scored_examples(examples: beam.PCollection) -> beam.PCollection:
       | 'group_by_coords' >> beam.GroupByKey()
       | 'merge_examples' >> beam.Map(_merge_examples)
   )
+
+
+def _example_id_embeddings(examples: beam.PCollection) -> beam.PCollection:
+  return (
+      examples
+      | 'example_id_embeddings' >> beam.Map(_get_example_ids_and_embeddings)
+  )
+
+
+def _get_example_ids_and_embeddings(
+    example: tf.train.Example
+) -> tuple[int, np.ndarray]:
+  try:
+    example_id = utils.get_int64_feature(example, 'int64_id')[0]
+  except IndexError as e:
+    raise IndexError('No example_id was found.') from e
+  try:
+    embeddings = np.array(utils.get_float_feature(example, 'embedding'))
+  except IndexError as e:
+    raise IndexError('No embedding was found.') from e
+  return example_id, embeddings
 
 
 def run_inference(
@@ -344,6 +385,8 @@ def run_inference(
       )
       | 'inference' >> beam.ParDo(ModelInference(score_feature, model))
   )
+  if score_feature == 'embedding':
+    return _example_id_embeddings(scored_examples)
   return _dedup_scored_examples(scored_examples)
 
 
@@ -385,7 +428,7 @@ def example_to_row(
   try:
     score = utils.get_float_feature(example, 'score')[0]
   except IndexError as e:
-    raise KeyError('score not found.') from e
+    raise KeyError('No score was found.') from e
   try:
     plus_code = utils.get_bytes_feature(example, 'plus_code')[0].decode()
   except IndexError:
@@ -411,7 +454,7 @@ def example_to_row(
       footprint_wkt=footprint_wkt,
       damaged=(score >= threshold),
       damaged_high_precision=(score >= high_precision_threshold),
-      damaged_high_recall=(score >= high_recall_threshold),
+      damaged_high_recall=(score >= high_recall_threshold)
   )
 
 
@@ -446,7 +489,36 @@ def examples_to_csv(
   apache_beam.dataframe.io.to_csv(df, output_prefix, index=False)
 
 
-def postprocess(temp_prefix: str, output_path: str) -> None:
+def embeddings_to_row(example_id_embeddings: tuple[int, np.ndarray]):
+  example_id, embeddings = example_id_embeddings
+  embeddings_str = ', '.join(f'{val:.16f}' for val in embeddings)
+  return f'{str(example_id)}, {embeddings_str}'
+
+
+def embeddings_examples_to_csv(
+    embeddings: beam.PCollection, output_prefix: str
+) -> None:
+  """Converts embeddings to CSV lines and writes out to file.
+
+  Args:
+    embeddings: PCollection of embeddings.
+    output_prefix: CSV output prefix.
+  """
+  embedding_len = 64
+  cols = ['example_id']
+  cols.extend([f'embedding_{i}' for i in range(embedding_len)])
+  _ = (
+      embeddings
+      | 'reshuffle_for_output' >> beam.Reshuffle()
+      | 'embeddings_to_row' >> beam.Map(embeddings_to_row)
+      | 'write_to_file'
+      >> beam.io.textio.WriteToText(output_prefix, header=','.join(cols))
+  )
+
+
+def postprocess(
+    temp_prefix: str, output_path: str, inference_feature: str
+) -> None:
   """Postprocess Dataflow output.
 
   - Combines individual CSV shards into a single CSV.
@@ -455,7 +527,8 @@ def postprocess(temp_prefix: str, output_path: str) -> None:
   Args:
     temp_prefix: Prefix used in naming temporary shards.
     output_path: CSV output path.
-
+    inference_feature: Describe the possible outputs of an inference process,
+      including 'embeddings' or 'score'.
   """
   shards = []
   temp_files = tf.io.gfile.glob(f'{temp_prefix}*')
@@ -465,6 +538,13 @@ def postprocess(temp_prefix: str, output_path: str) -> None:
   df = pd.concat(shards, ignore_index=True)
   with tf.io.gfile.GFile(output_path, 'w') as f:
     df.to_csv(f, index=False)
+
+  # Delete all temp files.
+  for path in temp_files:
+    tf.io.gfile.remove(path)
+
+  if inference_feature == 'embedding':
+    return
 
   if 'GPKG' in fiona.supported_drivers:
     # Output GeoPackage if available.
@@ -476,10 +556,6 @@ def postprocess(temp_prefix: str, output_path: str) -> None:
     gpkg_path = os.path.join(output_dir, f'{output_file}.gpkg')
     with tf.io.gfile.GFile(gpkg_path, 'wb') as f:
       gdf.to_file(f, driver='GPKG')
-
-  # Delete all temp files.
-  for path in temp_files:
-    tf.io.gfile.remove(path)
 
 
 def run_tf2_inference_with_csv_output(
@@ -494,6 +570,7 @@ def run_tf2_inference_with_csv_output(
     threshold: float,
     high_precision_threshold: float,
     high_recall_threshold: float,
+    generate_embeddings: bool,
     pipeline_options,
 ):
   """Runs example generation pipeline using TF2 model and outputs to CSV.
@@ -511,6 +588,7 @@ def run_tf2_inference_with_csv_output(
     threshold: Damaged score threshold.
     high_precision_threshold: Damaged score threshold for high precision.
     high_recall_threshold: Damaged score threshold for high recall.
+    generate_embeddings: Generate embeddings.
     pipeline_options: Dataflow pipeline options.
   """
 
@@ -527,13 +605,19 @@ def run_tf2_inference_with_csv_output(
     model = TF2InferenceModel(
         model_dir, image_size, post_image_only, text_labels, model_type
     )
-    scored_examples = run_inference(examples, 'score', batch_size, model)
-    examples_to_csv(
-        scored_examples,
-        threshold,
-        high_precision_threshold,
-        high_recall_threshold,
-        tempfile_prefix,
+    inference_feature = 'embedding' if generate_embeddings else 'score'
+    scored_examples = run_inference(
+        examples, inference_feature, batch_size, model
     )
+    if generate_embeddings:
+      embeddings_examples_to_csv(scored_examples, tempfile_prefix)
+    else:
+      examples_to_csv(
+          scored_examples,
+          threshold,
+          high_precision_threshold,
+          high_recall_threshold,
+          tempfile_prefix,
+      )
 
-  postprocess(tempfile_prefix, output_path)
+  postprocess(tempfile_prefix, output_path, inference_feature)
