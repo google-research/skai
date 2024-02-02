@@ -60,7 +60,9 @@ def read_single_tfrecord(path: str) -> pd.DataFrame:
         'encoded_coordinates',
         'string_label',
     ]:
-      properties[string_prop] = utils.get_string_feature(example, string_prop)
+      properties[string_prop] = utils.get_bytes_feature(example, string_prop)[
+          0
+      ].decode()
     example_properties.append(properties)
   return pd.DataFrame(example_properties)
 
