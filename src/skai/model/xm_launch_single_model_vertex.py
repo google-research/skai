@@ -16,6 +16,7 @@ r"""XM Launcher."""
 
 import os
 
+import asyncio
 from absl import app
 from absl import flags
 from docker_instructions import get_docker_instructions
@@ -23,6 +24,7 @@ from google.cloud import aiplatform_v1beta1 as aip
 from ml_collections import config_flags
 from xmanager import xm
 from xmanager import xm_local
+from xmanager.cloud import vertex
 from xmanager.vizier import vizier_cloud
 
 
@@ -233,19 +235,42 @@ def main(_) -> None:
 
     if FLAGS.cloud_location is None:
       raise ValueError('Google Cloud location is either None or invalid.')
-    vizier_cloud.VizierExploration(
-        experiment=experiment,
-        job=xm.Job(
-            executable=train_executable, executor=executor, args=job_args
-        ),
-        study_factory=vizier_cloud.NewStudy(
-            study_config=get_study_config(),
-            location=FLAGS.cloud_location
-        ),
 
-        num_trials_total=100,
-        num_parallel_trial_runs=3,
-    ).launch()
+    if FLAGS.use_vizier:
+      vizier_cloud.VizierExploration(
+          experiment=experiment,
+          job=xm.Job(
+              executable=train_executable, executor=executor, args=job_args
+          ),
+          study_factory=vizier_cloud.NewStudy(
+              study_config=get_study_config(),
+              location=FLAGS.cloud_location
+          ),
+
+          num_trials_total=100,
+          num_parallel_trial_runs=3,
+      ).launch()
+    else:
+      # tensorboard = FLAGS.tensorboard
+      output_dir = os.path.join(
+            config.output_dir, str(experiment.experiment_id), 'tensorboard'
+      )
+      # if not tensorboard:
+      tensorboard = vertex.get_default_client().get_or_create_tensorboard(
+          'skai'
+      )
+      tensorboard = asyncio.get_event_loop().run_until_complete(tensorboard)
+      tensorboard_capability = xm_local.TensorboardCapability(
+        name=tensorboard, base_output_directory=output_dir
+      )
+      executor.tensorboard = tensorboard_capability
+      experiment.add(
+          xm.Job(
+              executable=train_executable,
+              executor=executor,
+              args=job_args,
+            )
+      )
 
 
 if __name__ == '__main__':
