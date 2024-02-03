@@ -252,14 +252,14 @@ def main(_) -> None:
       ).launch()
     else:
       output_dir = os.path.join(
-            config.output_dir, str(experiment.experiment_id), 'tensorboard'
+          config.output_dir, str(experiment.experiment_id), 'tensorboard'
       )
       tensorboard = vertex.get_default_client().get_or_create_tensorboard(
           'skai'
       )
       tensorboard = asyncio.get_event_loop().run_until_complete(tensorboard)
       tensorboard_capability = xm_local.TensorboardCapability(
-        name=tensorboard, base_output_directory=output_dir
+          name=tensorboard, base_output_directory=output_dir
       )
       executor.tensorboard = tensorboard_capability
       experiment.add(
