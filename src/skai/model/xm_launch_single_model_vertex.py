@@ -251,11 +251,9 @@ def main(_) -> None:
           num_parallel_trial_runs=3,
       ).launch()
     else:
-      # tensorboard = FLAGS.tensorboard
       output_dir = os.path.join(
             config.output_dir, str(experiment.experiment_id), 'tensorboard'
       )
-      # if not tensorboard:
       tensorboard = vertex.get_default_client().get_or_create_tensorboard(
           'skai'
       )
