@@ -24,27 +24,27 @@ class UtilsTest(parameterized.TestCase):
       dict(
           longitude=38.676355712551015,
           latitude=58.92948405901603,
-          correct_utm='32637',
+          correct_utm='EPSG:32637',
       ),
       dict(
           longitude=74.38574398625497,
           latitude=6.082091014059927,
-          correct_utm='32643',
+          correct_utm='EPSG:32643',
       ),
       dict(
           longitude=19.09160680029879,
           latitude=30.920059879467274,
-          correct_utm='32634',
+          correct_utm='EPSG:32634',
       ),
       dict(
           longitude=-16.321149967123773,
           latitude=62.08112825201508,
-          correct_utm='32628',
+          correct_utm='EPSG:32628',
       ),
       dict(
           longitude=149.78080000677284,
           latitude=25.31143284356746,
-          correct_utm='32655',
+          correct_utm='EPSG:32655',
       )
   )
   def testConvertWGStoUTM(self, longitude, latitude, correct_utm):

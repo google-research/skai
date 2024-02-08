@@ -136,6 +136,6 @@ def convert_wgs_to_utm(lon: float, lat: float):
     utm_band = '0' + utm_band
   if lat >= 0:
     epsg_code = '326' + utm_band
-    return epsg_code
-  epsg_code = '327' + utm_band
-  return epsg_code
+  else:
+    epsg_code = '327' + utm_band
+  return f'EPSG:{epsg_code}'
