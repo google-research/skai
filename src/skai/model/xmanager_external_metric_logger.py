@@ -20,16 +20,17 @@ import tensorflow as tf
 from xmanager.vizier.vizier_cloud import vizier_worker
 
 
-TENSORBOARD_LOG_DIR = os.environ.get('AIP_TENSORBOARD_LOG_DIR', '')
 class XManagerMetricLogger(log_metrics_callback.MetricLogger):
   """Class for logging metrics to XManager."""
 
-  def __init__(self, trial_name: str | None) -> None:
+  def __init__(self, trial_name: str | None, output_dir: str | None) -> None:
     """Constructor for XManagerMetricLogger.
 
     Args:
       trial_name: A string containing the Vizier trial name. None if
         running on local machine.
+      output_dir: Directory where Tensorboard metrics will be logged when
+        running locally.
     """
     self.trial_name = trial_name
     if trial_name:
@@ -37,12 +38,12 @@ class XManagerMetricLogger(log_metrics_callback.MetricLogger):
     else:  # Local run. Write to Tensorboard.
       self._train_summary_writer = (
           tf.summary.create_file_writer(
-              os.path.join(TENSORBOARD_LOG_DIR, 'train')
+              os.path.join(output_dir, 'tensorboard', 'train')
           ),
       )
       self._val_summary_writer = (
           tf.summary.create_file_writer(
-              os.path.join(TENSORBOARD_LOG_DIR, 'val')
+              os.path.join(output_dir, 'tensorboard', 'val')
           ),
       )
 

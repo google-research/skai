@@ -498,7 +498,9 @@ def create_callbacks(
   trial_name = vizier_trial_name if is_vertex else None
   hyperparameter_tuner_callback = log_metrics_callback.LogMetricsCallback(
       metric_loggers=[
-          xmanager_external_metric_logger.XManagerMetricLogger(trial_name)
+          xmanager_external_metric_logger.XManagerMetricLogger(
+              trial_name, output_dir
+          )
       ],
       logging_frequency=int(dataset_size / batch_size) * batch_size,
       batch_size=batch_size,
