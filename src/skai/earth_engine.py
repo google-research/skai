@@ -20,12 +20,13 @@ import time
 import urllib.request
 
 from absl import logging
-import ee  # pytype: disable=import-error  # mapping-is-not-sequence
 import geopandas as gpd
 import pandas as pd
 import shapely.geometry
 from skai import buildings
 import tensorflow as tf
+
+import ee
 
 ShapelyGeometry = shapely.geometry.base.BaseGeometry
 
@@ -33,7 +34,7 @@ ShapelyGeometry = shapely.geometry.base.BaseGeometry
 def _shapely_to_ee_feature(shapely_geometry: ShapelyGeometry) -> ee.Feature:
   """Converts shapely geometry into Earth Engine Feature."""
   geojson = json.loads(gpd.GeoSeries([shapely_geometry]).to_json())
-  return ee.Feature(geojson['features'][0]['geometry'])
+  return ee.Feature(geojson['features'][0]['geometry']).geometry()
 
 
 def _get_open_building_feature_centroid(feature: ee.Feature) -> ee.Feature:
@@ -70,6 +71,16 @@ def _download_feature_collection(
   temp_path = output_path + '.temp.csv'
   if temp_path.startswith('gs://'):
     bucket, _, file_name_prefix = temp_path[5:].partition('/')
+    task = ee.batch.Export.table.toCloudStorage(
+        collection=collection,
+        fileNamePrefix=file_name_prefix[:-4],
+        bucket=bucket,
+        fileFormat='CSV',
+        selectors=properties,
+    )
+    _wait_for_task(task)
+  elif temp_path.startswith('/bigstore/'):
+    bucket, file_name_prefix = temp_path.split('/', maxsplit=3)[2:]
     task = ee.batch.Export.table.toCloudStorage(
         collection=collection,
         fileNamePrefix=file_name_prefix[:-4],
@@ -118,7 +129,9 @@ def get_open_buildings(regions: list[ShapelyGeometry],
     as_centroids: If true, download centroids instead of full footprints.
     output_path: Path to save footprints to.
   """
-  bounds = ee.FeatureCollection([_shapely_to_ee_feature(r) for r in regions])
+  bounds = ee.FeatureCollection(
+      [_shapely_to_ee_feature(r) for r in regions]
+  ).geometry()
   open_buildings = ee.FeatureCollection(collection)
   aoi_buildings = open_buildings.filterBounds(bounds)
   aoi_buildings = aoi_buildings.filter(f'confidence >= {confidence}')
