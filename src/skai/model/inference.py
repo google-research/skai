@@ -12,8 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Runs model inference.
-"""
+"""Runs model inference."""
 
 import time
 
@@ -22,13 +21,19 @@ from absl import flags
 from skai import beam_utils
 from skai.model import inference_lib
 
+
 ModelType = inference_lib.ModelType
 FLAGS = flags.FLAGS
 
 flags.DEFINE_string(
     'examples_pattern', None, 'File pattern for input TFRecords.', required=True
 )
-flags.DEFINE_string('model_dir', None, 'Saved model directory.', required=True)
+flags.DEFINE_string(
+    'image_model_dir', None, 'Saved text model directory.', required=True
+)
+flags.DEFINE_string(
+    'text_model_dir', None, 'Saved image model directory.', required=False
+)
 flags.DEFINE_enum_class(
     'model_type',
     'classification',
@@ -43,20 +48,40 @@ flags.DEFINE_string('cloud_project', None, 'GCP project name.')
 flags.DEFINE_string('cloud_region', None, 'GCP region, e.g. us-central1.')
 flags.DEFINE_bool('use_dataflow', None, 'If true, run pipeline on Dataflow.')
 flags.DEFINE_string(
-    'worker_service_account', None,
+    'worker_service_account',
+    None,
     'Service account that will launch Dataflow workers. If unset, workers will '
-    'run with the project\'s default Compute Engine service account.')
+    "run with the project's default Compute Engine service account.",
+)
 flags.DEFINE_string('dataflow_temp_dir', '', 'Temp dir.')
 flags.DEFINE_integer(
     'max_dataflow_workers', None, 'Maximum number of dataflow workers'
 )
 flags.DEFINE_string('worker_type', 'c3-standard-8', 'Dataflow worker type.')
 flags.DEFINE_string(
-    'worker_machine_type', 'n1-highmem-8', 'worker machine type')
+    'worker_machine_type', 'n1-highmem-8', 'worker machine type'
+)
 flags.DEFINE_string('accelerator', None, 'Accelerator to use.')
+
+# Setting experiments flags to no_use_multiple_sdk_containers is important when
+# using GPU, Because it will save memory
+flags.DEFINE_string(
+    'experiments',
+    'use_runner_v2',
+    'Enable pre-GA Dataflow features. Setting experiments flags to'
+    ' no_use_multiple_sdk_containers is important when using GPU, Because it'
+    ' will save memory',
+)
 flags.DEFINE_integer('accelerator_count', 1, 'Number of accelerators to use.')
-flags.DEFINE_list(
-    'text_labels', ['intact buildings', 'damaged buildings'], 'Text labels.'
+flags.DEFINE_string(
+    'positive_labels_filepath',
+    None,
+    'File path to a text file containing positive labels.',
+)
+flags.DEFINE_string(
+    'negative_labels_filepath',
+    None,
+    'File path to a text file containing negative labels.',
 )
 flags.DEFINE_float('threshold', 0.5, 'Damaged score threshold.')
 flags.DEFINE_float(
@@ -86,16 +111,19 @@ def main(_) -> None:
       machine_type=FLAGS.worker_machine_type,
       accelerator=FLAGS.accelerator,
       accelerator_count=FLAGS.accelerator_count,
+      experiments=FLAGS.experiments,
   )
 
   inference_lib.run_tf2_inference_with_csv_output(
       FLAGS.examples_pattern,
-      FLAGS.model_dir,
+      FLAGS.image_model_dir,
+      FLAGS.text_model_dir,
       FLAGS.output_path,
       FLAGS.image_size,
       FLAGS.post_images_only,
       FLAGS.batch_size,
-      FLAGS.text_labels,
+      FLAGS.positive_labels_filepath,
+      FLAGS.negative_labels_filepath,
       FLAGS.model_type,
       FLAGS.threshold,
       FLAGS.high_precision_threshold,

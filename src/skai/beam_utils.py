@@ -122,7 +122,8 @@ def get_pipeline_options(
     worker_service_account: str | None,
     machine_type: str | None,
     accelerator: str | None,
-    accelerator_count: int
+    accelerator_count: int,
+    experiments: str = 'use_runner_v2'
 ) -> PipelineOptions:
   """Returns dataflow pipeline options.
 
@@ -139,6 +140,9 @@ def get_pipeline_options(
     machine_type: Dataflow worker type.
     accelerator: Accelerator type, e.g. nvidia-tesla-t4.
     accelerator_count: Number of acccelerators to use.
+    experiments: Enable pre-GA Dataflow features. Setting experiments flags to
+    no_use_multiple_sdk_containers is important when using GPU, Because it will
+    save memory.
 
   Returns:
     Dataflow options.
@@ -159,7 +163,7 @@ def get_pipeline_options(
       'region': region,
       'temp_location': temp_dir,
       'runner': 'DataflowRunner',
-      'experiments': 'use_runner_v2',
+      'experiments': experiments,
       'sdk_location': 'container',
       'setup_file': _get_setup_file_path(),
       'max_num_workers': max_workers,

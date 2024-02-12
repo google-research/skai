@@ -21,7 +21,7 @@ import tempfile
 from absl.testing import absltest
 import apache_beam as beam
 from apache_beam.testing import test_pipeline
-from apache_beam.testing.util import assert_that
+from apache_beam.testing import util
 import fiona
 import geopandas as gp
 import numpy as np
@@ -53,6 +53,32 @@ def _create_test_model(model_path: str, image_size: int):
       outputs={'main': main_out, 'bias': bias_out},
   )
   tf.saved_model.save(model, model_path)
+
+
+def _create_test_text_tower_model(
+    model_path: str, vocab_size: int, output_dim: int
+):
+  class _TestTextTowerModel(tf.Module):
+
+    def __init__(self, vocab_size, dim):
+      self.vec = tf.keras.layers.TextVectorization(
+          max_tokens=vocab_size, output_mode='int', output_sequence_length=dim
+      )
+      self.vec.adapt(tf.convert_to_tensor(['test'], tf.string))
+      self.emb = tf.keras.layers.Embedding(input_dim=dim, output_dim=100)
+
+    @tf.function(
+        input_signature=[tf.TensorSpec(shape=(None,), dtype=tf.string)]
+    )
+    def serving_fn(self, inputs):
+      tokenized_inputs = self.vec(inputs)
+      embeddings = self.emb(tokenized_inputs)
+      return tf.reduce_mean(embeddings, axis=-1)
+
+  model = _TestTextTowerModel(vocab_size=vocab_size, dim=output_dim)
+  tf.saved_model.save(
+      model, model_path
+  )
 
 
 def _create_embedding_test_model(model_path: str, image_size: int):
@@ -111,6 +137,7 @@ def _create_test_example(
 
 
 class TestModel(inference_lib.InferenceModel):
+
   def __init__(self, expected_batch_size: int, id_to_score: dict[int, float]):
     self._expected_batch_size = expected_batch_size
     self._id_to_score = id_to_score
@@ -131,12 +158,10 @@ class TestModel(inference_lib.InferenceModel):
           f'Expected batch size is at most {self._expected_batch_size}, got'
           f' {len(batch)}.'
       )
-    return np.array(
-        [
-            self._id_to_score[utils.get_int64_feature(e, 'int64_id')[0]]
-            for e in batch
-        ]
-    )
+    return np.array([
+        self._id_to_score[utils.get_int64_feature(e, 'int64_id')[0]]
+        for e in batch
+    ])
 
 
 class TestEmbeddingGeneration(absltest.TestCase):
@@ -155,15 +180,34 @@ class TestEmbeddingGeneration(absltest.TestCase):
 
 class InferenceTest(absltest.TestCase):
 
+  def test_do_batch_divisible_array(self):
+    input_list = ['dummy input'] * 32
+    result = inference_lib._do_batch(input_list, 8)
+    for batch in result:
+      self.assertLen(batch, 8)
+
+  def test_do_batch_non_divisible_array(self):
+    input_list = ['dummy input'] * 31
+    result = inference_lib._do_batch(input_list, 8)
+    for batch in result[:-1]:
+      self.assertLen(batch, 8)
+
+    final_batch = result[-1]
+    self.assertLen(final_batch, 7)
+
+  def test_do_batch_small_array(self):
+    input_list = ['dummy input'] * 7
+    result = inference_lib._do_batch(input_list, 8)
+    self.assertLen(result, 1)
+    only_batch = result[0]
+    self.assertLen(only_batch, 7)
+
   def test_csv_output(self):
-    examples = [_create_test_example(224, False, True) for i in range(7)]
+    examples = [_create_test_example(224, False, True) for _ in range(7)]
     output_path = os.path.join(_make_temp_dir(), 'inference.csv')
     temp_prefix = f'{output_path}.tmp/output'
     with test_pipeline.TestPipeline() as pipeline:
-      examples_collection = (
-          pipeline
-          | beam.Create(examples)
-      )
+      examples_collection = pipeline | beam.Create(examples)
       inference_lib.examples_to_csv(
           examples_collection, 0.5, 0.5, 0.5, temp_prefix
       )
@@ -216,6 +260,31 @@ class InferenceTest(absltest.TestCase):
     )
     self.assertLen(df, 25)
 
+  def test_run_text_tower_inference(self):
+    positive_labels = ['positive']*100
+    negative_labels = ['negative']*100
+    model_path = os.path.join(_make_temp_dir(), 'model.keras')
+    positive_embedding_path = os.path.join(_make_temp_dir(), 'positive.npy')
+    negative_embedding_path = os.path.join(_make_temp_dir(), 'negative.npy')
+    _create_test_text_tower_model(model_path, 100, 1024)
+    with test_pipeline.TestPipeline() as pipeline:
+      inference_lib._run_text_tower_inference(
+          pipeline,
+          positive_labels,
+          negative_labels,
+          model_path,
+          positive_embedding_path,
+          negative_embedding_path
+      )
+
+    def _test_embedding_shape(path, expected_shape):
+      with tf.io.gfile.GFile(path, 'rb') as f:
+        label_embedding = np.load(f)
+        self.assertEqual(label_embedding.shape, expected_shape)
+
+    _test_embedding_shape(positive_embedding_path, (1024,))
+    _test_embedding_shape(negative_embedding_path, (1024,))
+
   def test_run_inference(self):
     with test_pipeline.TestPipeline() as pipeline:
       examples = []
@@ -229,10 +298,7 @@ class InferenceTest(absltest.TestCase):
         examples.append(example)
         id_to_score[example_id] = 1 / (example_id + 1)
 
-      examples_collection = (
-          pipeline
-          | beam.Create(examples)
-      )
+      examples_collection = pipeline | beam.Create(examples)
       batch_size = 4
       model = TestModel(batch_size, id_to_score)
       result = inference_lib.run_inference(
@@ -251,7 +317,7 @@ class InferenceTest(absltest.TestCase):
               score, expected_score
           ), f'Expected score = {expected_score}, got {score}.'
 
-      assert_that(result, _check_examples)
+      util.assert_that(result, _check_examples)
 
   def test_run_inference_with_duplicates(self):
     coords_and_scores = [
@@ -272,10 +338,7 @@ class InferenceTest(absltest.TestCase):
         examples.append(example)
         id_to_score[i] = score
 
-      examples_collection = (
-          pipeline
-          | beam.Create(examples)
-      )
+      examples_collection = pipeline | beam.Create(examples)
       batch_size = 4
       model = TestModel(batch_size, id_to_score)
       result = inference_lib.run_inference(
@@ -298,7 +361,7 @@ class InferenceTest(absltest.TestCase):
               score, expected_score
           ), f'Expected score = {expected_score}, got {score}.'
 
-      assert_that(result, _check_examples)
+      util.assert_that(result, _check_examples)
 
   def test_tf2_model_prediction(self):
     model_path = os.path.join(_make_temp_dir(), 'model.keras')
@@ -440,6 +503,35 @@ class InferenceTest(absltest.TestCase):
           ],
       )
       self.assertLen(gdf, 6)
+
+  def test_write_embedding_mean_positive_key(self):
+    batch = ('pos', [np.array([[1.0, 2.0, 3.0]]), np.array([[4.0, 5.0, 6.0]])])
+    path = os.path.join(_make_temp_dir(), 'positive_embeddings.npy')
+    inference_lib._write_embedding_mean(
+        batch, path, ''
+    )
+    with tf.io.gfile.GFile(path, 'rb') as f:
+      embeddings = np.load(f)
+    np.testing.assert_allclose(embeddings, np.array([2.5, 3.5, 4.5]))
+
+  def test_write_embedding_mean_negative_key(self):
+    batch = ('neg', [np.array([[1.0, 2.0, 3.0]]), np.array([[4.0, 5.0, 6.0]])])
+    path = os.path.join(_make_temp_dir(), 'negative_embeddings.npy')
+    inference_lib._write_embedding_mean(batch, '', path)
+    with tf.io.gfile.GFile(path, 'rb') as f:
+      embeddings = np.load(f)
+    np.testing.assert_allclose(embeddings, np.array([2.5, 3.5, 4.5]))
+
+  def test_write_embedding_mean_raise_key_error(self):
+    batch = (
+        'unknown key',
+        [np.array([[1.0, 2.0, 3.0]]), np.array([[4.0, 5.0, 6.0]])],
+    )
+    path = os.path.join(_make_temp_dir(), 'negative_embeddings.npy')
+    with self.assertRaisesRegex(
+        ValueError, 'Unrecognized embedding key "unknown key"'
+    ):
+      inference_lib._write_embedding_mean(batch, '', path)
 
 
 if __name__ == '__main__':
