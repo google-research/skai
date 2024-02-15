@@ -254,7 +254,7 @@ def main(_) -> None:
               executable=train_executable,
               executor=executor,
               args=job_args,
-            )
+          )
       )
 
 
