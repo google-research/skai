@@ -66,7 +66,7 @@ _TPU = flags.DEFINE_string(
 
 
 def get_model_dir(root_dir: str) -> str:
-  if FLAGS.is_vertex:
+  if FLAGS.is_vertex and FLAGS.trial_name:
     basename = FLAGS.trial_name.split('/')[-1]
   else:
     # TODO(skai) - Maybe change directory name in case vertex ai is not used in
