@@ -33,6 +33,7 @@ import pexpect
 import pyproj
 import requests
 import tensorflow as tf
+import pycountry
 
 from google.cloud import monitoring_v3
 from PIL import Image, ImageDraw, ImageFont
@@ -61,6 +62,7 @@ def launch_pexpect_process(script,
   commands = '; '.join([
       'set -e', f'source {dir_args["python_env"]}',
       f'export GOOGLE_APPLICATION_CREDENTIALS={dir_args["path_cred"]}',
+      f'export PYTHONPATH={dir_args["path_skai"]}/src',
       f'python {dir_args["path_skai"]}/src/{script[0]} {flags_str[0]}'
   ])
 
@@ -318,13 +320,13 @@ def run_example_generation(generate_examples_args,
   num_buildings = 1
   while child.isalive():
     i = child.expect(
-        [BUILDINGS_MATCHED_PATTERN, JOB_CREATION_PATTERN, pexpect.EOF],
+        [JOB_CREATION_PATTERN, pexpect.EOF],
         timeout=3000)
     if i == 0:
-      num_buildings = int(child.match.group(1))
+      data = pd.read_parquet(f'{generate_examples_args["output_dir"]}/processed_buildings.parquet')
+      num_buildings = data.shape[0]
       print(f'Found {num_buildings} buildings in area of interest.')
-      progress_bar.update({'value': 0, 'max': num_buildings})
-    elif i == 1:
+      progress_bar.update({'value': 0, 'max': num_buildings}) 
       job_params = parse_dataflow_job_creation_params(
           child.match.group(1).decode())
       job_name = job_params['name']
@@ -599,7 +601,7 @@ def create_labeled_dataset(create_labeled_dataset_args, path_dir_args):
                                  create_labeled_dataset_args, path_dir_args,
                                  True)
   print('Labeling dataset used for labeled datasets creation :'
-        f'{create_labeled_dataset_args["cloud_dataset_id"]}')
+        f'{create_labeled_dataset_args["cloud_dataset_ids"]}')
   print('Creating labeled datasets...')
   child.expect(pexpect.EOF, timeout=None)
   child.close()
