@@ -57,6 +57,7 @@ class InferenceRow(NamedTuple):
   damaged: bool | None
   damaged_high_precision: bool | None
   damaged_high_recall: bool | None
+  label: float | None
 
 
 def set_gpu_memory_growth() -> None:
@@ -496,7 +497,13 @@ def example_to_row(
   except IndexError:
     footprint_wkt = None
 
+  try:
+    label = utils.get_float_feature(example, 'label')[0]
+  except IndexError:
+    label = None
+
   return InferenceRow(
+      label=label,
       example_id=example_id,
       building_id=building_id,
       longitude=longitude,

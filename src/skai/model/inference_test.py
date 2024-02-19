@@ -230,6 +230,7 @@ class InferenceTest(absltest.TestCase):
             'damaged',
             'damaged_high_precision',
             'damaged_high_recall',
+            'label'
         ],
     )
     self.assertLen(df, 7)
