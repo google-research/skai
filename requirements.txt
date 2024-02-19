@@ -1,14 +1,14 @@
 absl-py>=0.12.0
-apache_beam==2.53.0
+apache_beam==2.54.0
 earthengine-api
 gcsfs
-geopandas
+geopandas>=0.8
 google_apitools
 google-cloud-aiplatform>=1.35.0
 ml-collections
 numpy
 opencv-python
-pandas<2.0.0
+pandas>=2
 pillow
 pyproj
 pytest
