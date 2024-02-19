@@ -18,9 +18,8 @@ import collections
 import functools
 import multiprocessing
 import os
-import queue
 import random
-from typing import Dict, Iterable, List, Optional, Set, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
 from absl import logging
 import geopandas as gpd
@@ -213,6 +212,7 @@ def create_labeling_images(
     excluded_import_file_patterns: List[str],
     output_dir: str,
     use_multiprocessing: bool,
+    multiprocessing_context: Any,
     buffered_sampling_radius: float,
 ) -> Tuple[int, Optional[str]]:
   """Creates PNGs used for labeling from TFRecords.
@@ -231,6 +231,8 @@ def create_labeling_images(
     output_dir: Output directory.
     use_multiprocessing: If true, create multiple processes to create labeling
       images.
+    multiprocessing_context: Context to spawn processes with when using
+      multiprocessing.
     buffered_sampling_radius: The minimum distance between two examples for the
       two examples to be in the labeling task.
 
@@ -244,21 +246,11 @@ def create_labeling_images(
         f'Example pattern {examples_pattern} did not match any files.'
     )
 
-  excluded_example_ids = set()
-  if excluded_import_file_patterns:
-    for pattern in excluded_import_file_patterns:
-      for path in tf.io.gfile.glob(pattern):
-        logging.info('Excluding example ids from "%s"', path)
-        excluded_example_ids.update(_read_example_ids_from_import_file(path))
-    logging.info('Excluding %d example ids', len(excluded_example_ids))
-
-  allowed_example_ids = None
   if allowed_example_ids_path:
     with tf.io.gfile.GFile(allowed_example_ids_path, 'r') as f:
       allowed_example_ids = set(line.strip() for line in f)
     logging.info('Allowing %d example ids', len(allowed_example_ids))
   else:
-    df_metadata = None
     metadata_path = str(
         os.path.join(
             '/'.join(examples_pattern.split('/')[:-2]),
@@ -275,6 +267,17 @@ def create_labeling_images(
             ' put metadata_examples.csv in the appropriate directory that is'
             ' PATH_DIR/examples/'
         ) from error
+
+    if excluded_import_file_patterns:
+      excluded_example_ids = set()
+      for pattern in excluded_import_file_patterns:
+        for path in tf.io.gfile.glob(pattern):
+          logging.info('Excluding example ids from "%s"', path)
+          excluded_example_ids.update(_read_example_ids_from_import_file(path))
+      logging.info('Excluding %d example ids', len(excluded_example_ids))
+      df_metadata = df_metadata[
+          df_metadata['example_id'].isin(excluded_example_ids)
+      ]
 
     logging.info(
         'Randomly searching for buffered samples with buffer radius %.2f'
@@ -296,73 +299,92 @@ def create_labeling_images(
         len(allowed_example_ids),
         buffered_sampling_radius,
     )
-    max_images = len(allowed_example_ids)
 
+  all_images = []
   if use_multiprocessing:
-    labeling_images_info_queue = multiprocessing.Manager().Queue(
-        maxsize=max_images
-    )
-    num_workers = min(multiprocessing.cpu_count(), len(example_files))
+    def accumulate(images: list[tuple[int, str, str, str]]) -> None:
+      all_images.extend(images)
 
-    arg_list = []
+    num_workers = min(multiprocessing.cpu_count(), len(example_files), 10)
+    if multiprocessing_context:
+      pool = multiprocessing_context.Pool(num_workers)
+    else:
+      pool = multiprocessing.Pool(num_workers)
     for example_file in example_files:
-      arg_list.append((
-          example_file,
-          output_dir,
-          allowed_example_ids,
-          excluded_example_ids,
-          labeling_images_info_queue,
-      ))
-
-    with multiprocessing.Pool(num_workers) as pool_executor:
-      _ = pool_executor.starmap(
+      pool.apply_async(
           _create_labeling_images_from_example_file,
-          arg_list,
+          args=(example_file, output_dir, allowed_example_ids),
+          callback=accumulate,
+          error_callback=print,
       )
+    pool.close()
+    pool.join()
   else:
-    labeling_images_info_queue = queue.Queue(maxsize=max_images)
     for example_file in example_files:
-      _create_labeling_images_from_example_file(
-          example_file,
-          output_dir,
-          allowed_example_ids,
-          excluded_example_ids,
-          labeling_images_info_queue,
+      all_images.extend(
+          _create_labeling_images_from_example_file(
+              example_file,
+              output_dir,
+              allowed_example_ids,
+          )
       )
 
-  if labeling_images_info_queue.empty():
+  if not all_images:
     return 0, None
 
   image_metadata_csv = os.path.join(
       output_dir, 'image_metadata.csv'
   )
 
-  num_images = labeling_images_info_queue.qsize()
+  num_images = len(all_images)
   with tf.io.gfile.GFile(image_metadata_csv, 'w') as f:
-    while not labeling_images_info_queue.empty():
-      if labeling_images_info_queue.qsize() == num_images:
-        f.write(
-            'id,int64_id,example_id,image,'
-            + 'image_source_path,tfrecord_source_path\n'
-        )
-      int64_id, example_id, image_path, tfrecord_source_path = (
-          labeling_images_info_queue.get()
-      )
+    f.write(
+        'id,int64_id,example_id,image,image_source_path,tfrecord_source_path\n'
+    )
+    for int64_id, example_id, image_path, tfrecord_source_path in all_images:
       f.write(
           f'{int64_id},{int64_id},{example_id},'
           + f'file://{image_path},{image_path},{tfrecord_source_path}\n'
       )
-
   return num_images, image_metadata_csv
+
+
+def _tfrecord_iterator(path: str) -> tf.train.Example:
+  """Creates an iterator over TFRecord files.
+
+  Supports both eager and non-eager execution.
+
+  Args:
+    path: Path to TFRecord file.
+
+  Yields:
+    Examples from the TFRecord file.
+  """
+  ds = tf.data.TFRecordDataset([path])
+  if tf.executing_eagerly():
+    for record in ds:
+      example = tf.train.Example()
+      example.ParseFromString(record.numpy())
+      yield example
+  else:
+    iterator = tf.compat.v1.data.make_one_shot_iterator(ds)
+    next_element = iterator.get_next()
+    with tf.compat.v1.Session() as sess:
+      while True:
+        try:
+          value = sess.run(next_element)
+        except tf.errors.OutOfRangeError:
+          return
+        example = tf.train.Example()
+        example.ParseFromString(value)
+        yield example
 
 
 def _create_labeling_images_from_example_file(
     example_file: str,
     output_dir: str,
     allowed_example_ids: Set[str],
-    excluded_example_ids: Set[str],
-    labeling_images_info_queue: queue.Queue[tuple[int, str, str, str]],
-) -> None:
+) -> list[tuple[int, str, str, str]]:
   """Creates PNGs used for labeling from TFRecords for a single example_file.
 
   Also writes an import file in CSV format that is used to upload the images
@@ -373,13 +395,12 @@ def _create_labeling_images_from_example_file(
     output_dir: Output directory.
     allowed_example_ids: Set of example_id from which a subset will be used in
       creating labeling task.
-    excluded_example_ids: Set of example_id to be excluded.
-    labeling_images_info_queue: List of tuples int64_id, example_id, paths to
-      images created for labeling task.
+
+  Returns:
+    List of tuples of int64_id, example_id, image path, example path.
   """
-  for record in tf.data.TFRecordDataset([example_file]):
-    example = Example()
-    example.ParseFromString(record.numpy())
+  images = []
+  for example in _tfrecord_iterator(example_file):
     if 'example_id' in example.features.feature:
       example_id = (
           example.features.feature['example_id'].bytes_list.value[0].decode()
@@ -408,12 +429,7 @@ def _create_labeling_images_from_example_file(
     else:
       plus_code = 'unknown'
 
-    if (allowed_example_ids is not None
-        and example_id not in allowed_example_ids):
-      continue
-
-    if example_id in excluded_example_ids:
-      logging.info('"%s" excluded', example_id)
+    if example_id not in allowed_example_ids:
       continue
 
     before_image = utils.deserialize_image(
@@ -430,15 +446,11 @@ def _create_labeling_images_from_example_file(
     labeling_image_bytes = utils.serialize_image(labeling_image, 'png')
     path = os.path.join(output_dir, f'{example_id}.png')
 
-    try:
-      _ = labeling_images_info_queue.put_nowait(
-          [int64_id, str(example_id), path, example_file]
-      )
-      with tf.io.gfile.GFile(path, 'w') as writer:
-        writer.write(labeling_image_bytes)
+    with tf.io.gfile.GFile(path, 'wb') as writer:
+      writer.write(labeling_image_bytes)
+    images.append((int64_id, str(example_id), path, example_file))
 
-    except queue.Full:
-      break
+  return images
 
 
 def _write_tfrecord(examples: Iterable[Example], path: str) -> None:

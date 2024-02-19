@@ -84,6 +84,7 @@ def main(unused_argv):
       FLAGS.exclude_import_file_patterns,
       FLAGS.output_dir,
       FLAGS.use_multiprocessing,
+      None,
       FLAGS.buffered_sampling_radius,
   )
 
