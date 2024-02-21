@@ -17,13 +17,11 @@
 Useful for performing analysis on the examples.
 """
 
-from collections.abc import Sequence
-import multiprocessing
+import collections
 
 from absl import app
 from absl import flags
 import pandas as pd
-from skai import utils
 import tensorflow as tf
 import tqdm
 
@@ -31,56 +29,53 @@ import tqdm
 FLAGS = flags.FLAGS
 flags.DEFINE_string('examples_pattern', None, 'Examples pattern', required=True)
 flags.DEFINE_string('output_path', None, 'Output path.', required=True)
-flags.DEFINE_bool('parallel', False, 'Read TFRecords in parallel.')
 
 
-def read_single_tfrecord(path: str) -> pd.DataFrame:
-  """Reads example properties from a single TFRecord.
+def _single_parse_function(example):
+  features = {
+      'example_id': tf.io.FixedLenFeature(1, tf.string),
+      'plus_code': tf.io.FixedLenFeature(1, tf.string),
+      'pre_image_id': tf.io.FixedLenFeature(1, tf.string),
+      'post_image_id': tf.io.FixedLenFeature(1, tf.string),
+      'encoded_coordinates': tf.io.FixedLenFeature(1, tf.string),
+      'string_label': tf.io.FixedLenFeature(1, tf.string),
+      'coordinates': tf.io.FixedLenFeature((2,), tf.float32),
+  }
+  return tf.io.parse_single_example(example, features=features)
+
+
+def read_tfrecords(pattern: str) -> pd.DataFrame:
+  """Reads TFRecords and returns Pandas DataFrame with metadata.
 
   Args:
-    path: TFRecord path.
+    pattern: File pattern for TFRecords.
 
   Returns:
-    DataFrame with example properties.
+    DataFrame with example metadata.
   """
-  example_properties = []
-  for record in tf.data.TFRecordDataset([path]).as_numpy_iterator():
-    example = tf.train.Example()
-    example.ParseFromString(record)
-    longitude, latitude = utils.get_float_feature(example, 'coordinates')
-    properties = {
-        'longitude': longitude,
-        'latitude': latitude,
-    }
-    for string_prop in [
-        'example_id',
-        'plus_code',
-        'pre_image_id',
-        'post_image_id',
-        'encoded_coordinates',
-        'string_label',
-    ]:
-      properties[string_prop] = utils.get_bytes_feature(example, string_prop)[
-          0
-      ].decode()
-    example_properties.append(properties)
-  return pd.DataFrame(example_properties)
-
-
-def read_tfrecords(paths: Sequence[str]) -> pd.DataFrame:
-  if FLAGS.parallel:
-    num_workers = min(multiprocessing.cpu_count(), len(paths))
-    with multiprocessing.Pool(num_workers) as executor:
-      results = tqdm.tqdm(
-          executor.imap(read_single_tfrecord, paths), total=len(paths)
-      )
-  else:
-    results = [read_single_tfrecord(p) for p in tqdm.tqdm(paths)]
-  return pd.concat(results)
+  paths = tf.io.gfile.glob(pattern)
+  ds = tf.data.Dataset.from_tensor_slices(paths)
+  ds = ds.interleave(
+      tf.data.TFRecordDataset,
+      cycle_length=len(paths),
+      num_parallel_calls=tf.data.AUTOTUNE,
+      deterministic=False,
+  )
+  ds = ds.map(_single_parse_function, num_parallel_calls=tf.data.AUTOTUNE)
+  ds = ds.prefetch(tf.data.AUTOTUNE)
+  feature_values = collections.defaultdict(list)
+  for x in tqdm.tqdm(ds.as_numpy_iterator(), smoothing=0):
+    for feature, values_array in x.items():
+      if feature == 'coordinates':
+        feature_values['longitude'].append(values_array[0])
+        feature_values['latitude'].append(values_array[1])
+      else:
+        feature_values[feature].append(values_array[0].decode())
+  return pd.DataFrame(feature_values)
 
 
 def main(_) -> None:
-  df = read_tfrecords(tf.io.gfile.glob(FLAGS.examples_pattern))
+  df = read_tfrecords(FLAGS.examples_pattern)
   with tf.io.gfile.GFile(FLAGS.output_path, 'w') as f:
     df.to_csv(f, index=False)
 
