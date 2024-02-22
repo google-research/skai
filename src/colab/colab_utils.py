@@ -26,17 +26,15 @@ import time
 import ee
 import folium
 from folium.plugins import HeatMap
+from google.cloud import monitoring_v3
 import ipyplot
 from IPython.display import display, HTML, Javascript
 import pandas as pd
 import pexpect
+from PIL import Image, ImageDraw, ImageFont
 import pyproj
 import requests
 import tensorflow as tf
-import pycountry
-
-from google.cloud import monitoring_v3
-from PIL import Image, ImageDraw, ImageFont
 
 
 def launch_pexpect_process(script,
