@@ -313,7 +313,6 @@ def run_example_generation(generate_examples_args,
       use_pexpect=True)
 
   JOB_CREATION_PATTERN = 'Create job: <Job(.*clientRequestId:.*)>'
-  BUILDINGS_MATCHED_PATTERN = 'Found ([0-9]+) buildings in area of interest.'
 
   num_buildings = 1
   while child.isalive():
@@ -321,10 +320,11 @@ def run_example_generation(generate_examples_args,
         [JOB_CREATION_PATTERN, pexpect.EOF],
         timeout=3000)
     if i == 0:
-      data = pd.read_parquet(f'{generate_examples_args["output_dir"]}/processed_buildings.parquet')
+      data = pd.read_parquet(
+          f'{generate_examples_args["output_dir"]}/processed_buildings.parquet')
       num_buildings = data.shape[0]
       print(f'Found {num_buildings} buildings in area of interest.')
-      progress_bar.update({'value': 0, 'max': num_buildings}) 
+      progress_bar.update({'value': 0, 'max': num_buildings})
       job_params = parse_dataflow_job_creation_params(
           child.match.group(1).decode())
       job_name = job_params['name']
