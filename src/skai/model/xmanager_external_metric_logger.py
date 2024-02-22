@@ -59,7 +59,7 @@ class XManagerMetricLogger(log_metrics_callback.MetricLogger):
       if xm_label == 'epoch_main_aucpr_1_vs_rest_val':
         self.worker.add_trial_measurement(step, {xm_label: metric_value})
     else:
-      with self._get_summary_writer(is_val_metric)[0].as_default():
+      with self._get_summary_writer(is_val_metric).as_default():
         tf.summary.scalar(metric_label, metric_value, step=step)
 
   def _get_summary_writer(

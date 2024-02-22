@@ -885,9 +885,6 @@ def _merge_examples_and_labels(
   for result in results:
     all_labeled_examples.extend(result)
 
-  if not all_labeled_examples:
-    raise ValueError('No examples found matching labels.')
-
   train_examples, test_examples = _split_examples(
       all_labeled_examples, test_fraction, connecting_distance_meters
   )
