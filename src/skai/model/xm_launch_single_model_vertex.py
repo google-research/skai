@@ -233,29 +233,19 @@ def main(_) -> None:
 
     if FLAGS.cloud_location is None:
       raise ValueError('Google Cloud location is either None or invalid.')
+    vizier_cloud.VizierExploration(
+        experiment=experiment,
+        job=xm.Job(
+            executable=train_executable, executor=executor, args=job_args
+        ),
+        study_factory=vizier_cloud.NewStudy(
+            study_config=get_study_config(),
+            location=FLAGS.cloud_location
+        ),
 
-    if FLAGS.use_vizier:
-      vizier_cloud.VizierExploration(
-          experiment=experiment,
-          job=xm.Job(
-              executable=train_executable, executor=executor, args=job_args
-          ),
-          study_factory=vizier_cloud.NewStudy(
-              study_config=get_study_config(),
-              location=FLAGS.cloud_location
-          ),
-
-          num_trials_total=100,
-          num_parallel_trial_runs=3,
-      ).launch()
-    else:
-      experiment.add(
-          xm.Job(
-              executable=train_executable,
-              executor=executor,
-              args=job_args,
-          )
-      )
+        num_trials_total=100,
+        num_parallel_trial_runs=3,
+    ).launch()
 
 
 if __name__ == '__main__':

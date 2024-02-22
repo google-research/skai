@@ -30,7 +30,6 @@ python labeling_task.py \
 """
 # pylint: enable=line-too-long
 
-import multiprocessing
 import sys
 
 from absl import app
@@ -60,11 +59,6 @@ flags.DEFINE_bool(
     True,
     'If true, starts multiple processes to run task.',
 )
-flags.DEFINE_integer(
-    'max_processes',
-    multiprocessing.cpu_count(),
-    'If using multiprocessing, the maximum number of processes to use.',
-)
 flags.DEFINE_float(
     'buffered_sampling_radius',
     70.0,
@@ -90,8 +84,6 @@ def main(unused_argv):
       FLAGS.exclude_import_file_patterns,
       FLAGS.output_dir,
       FLAGS.use_multiprocessing,
-      None,
-      FLAGS.max_processes,
       FLAGS.buffered_sampling_radius,
   )
 

@@ -138,5 +138,5 @@ def get_building_centroids_in_regions(
   for region in regions:
     polygons.extend(get_buildings_in_region(region, overpass_url))
   buildings.write_buildings_file(
-      gpd.GeoDataFrame(geometry=polygons, crs=4326), output_path
+      gpd.GeoDataFrame(geometry=polygons), output_path
   )

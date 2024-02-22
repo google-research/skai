@@ -18,7 +18,6 @@ After a dataset is labeled on the Vertex AI labeling tool, the labels must be
 merged with the original Tensorflow Examples in order to create a labeled
 training and test set.
 """
-import multiprocessing
 import random
 
 from absl import app
@@ -62,11 +61,6 @@ flags.DEFINE_bool(
     True,
     'If true, starts multiple processes to run task.',
 )
-flags.DEFINE_integer(
-    'max_processes',
-    multiprocessing.cpu_count(),
-    'If using multiprocessing, the maximum number of processes to use.',
-)
 
 
 def main(unused_argv):
@@ -95,9 +89,7 @@ def main(unused_argv):
         FLAGS.train_output_path,
         FLAGS.test_output_path,
         FLAGS.connecting_distance_meters,
-        FLAGS.use_multiprocessing,
-        None,
-        FLAGS.max_processes)
+        FLAGS.use_multiprocessing)
 
 
 if __name__ == '__main__':
