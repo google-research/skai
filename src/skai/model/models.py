@@ -291,6 +291,11 @@ class TwoTower(tf.keras.Model):
       combined = tf.concat(
           [before_embed, after_embed, after_crop_embed], axis=-1
       )
+    else:
+      raise ValueError(
+          'Invalid number of channels in image. Must be 3 or 6, got '
+          f' {self.model_params.num_channels}'
+      )
 
     out_main = self.output_main(combined)
     out_bias = self.output_bias(combined)

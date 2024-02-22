@@ -225,6 +225,14 @@ def main(_) -> None:
           ),
           'config.data.tfds_dataset_name': config.data.tfds_dataset_name,
           'config.data.tfds_data_dir': config.data.tfds_data_dir,
+          'config.data.adhoc_config_name': config.data.adhoc_config_name,
+          'config.data.labeled_train_pattern': (
+              config.data.labeled_train_pattern
+          ),
+          'config.data.validation_pattern': config.data.validation_pattern,
+          'config.data.unlabeled_train_pattern': (
+              config.data.unlabeled_train_pattern
+          ),
       })
 
     job_args['config.training.save_model_checkpoints'] = False

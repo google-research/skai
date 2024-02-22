@@ -977,6 +977,7 @@ def get_skai_dataset(num_splits: int,
                      tfds_dataset_name: str = 'skai_dataset',
                      data_dir: str = DATA_DIR,
                      include_train_sample: bool = False,
+                     adhoc_config_name: str = 'skai_dataset',
                      labeled_train_pattern: str = '',
                      unlabeled_train_pattern: str = '',
                      validation_pattern: str = '',
@@ -997,6 +998,8 @@ def get_skai_dataset(num_splits: int,
     tfds_dataset_name: The name of the tfd dataset to load from.
     data_dir: Default data directory to store the sampled data.
     include_train_sample: Whether to include the `train_sample` split.
+    adhoc_config_name: Name of adhoc configuration specified with
+        labeled_train_pattern, validation_pattern, unlabeled_train_pattern, etc.
     labeled_train_pattern: File pattern for labeled training data.
     unlabeled_train_pattern: File pattern for unlabeled training data.
     validation_pattern: File pattern for validation data.
@@ -1023,7 +1026,7 @@ def get_skai_dataset(num_splits: int,
     # No named config variant specified, so provide the config explicitly.
     # pylint: disable=unexpected-keyword-arg
     builder_kwargs['config'] = SkaiDatasetConfig(
-        name='skai_dataset',
+        name=adhoc_config_name,
         labeled_train_pattern=labeled_train_pattern,
         labeled_test_pattern=validation_pattern,
         unlabeled_pattern=unlabeled_train_pattern,

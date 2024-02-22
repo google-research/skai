@@ -41,6 +41,7 @@ def get_config() -> ml_collections.ConfigDict:
   data.initial_sample_proportion = 1.
   data.tfds_dataset_name = 'skai_dataset'
   data.tfds_data_dir = '/tmp/skai_dataset'
+  data.adhoc_config_name = ''
   data.labeled_train_pattern = ''
   data.unlabeled_train_pattern = ''
   data.validation_pattern = ''

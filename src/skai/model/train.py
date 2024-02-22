@@ -99,6 +99,7 @@ def main(_) -> None:
     ds_kwargs.update({
         'tfds_dataset_name': config.data.tfds_dataset_name,
         'data_dir': config.data.tfds_data_dir,
+        'adhoc_config_name': config.data.adhoc_config_name,
         'labeled_train_pattern': config.data.labeled_train_pattern,
         'unlabeled_train_pattern': config.data.unlabeled_train_pattern,
         'validation_pattern': config.data.validation_pattern,
