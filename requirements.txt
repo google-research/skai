@@ -1,5 +1,5 @@
 absl-py>=0.12.0
-apache_beam==2.54.0
+apache_beam[gcp]==2.54.0
 earthengine-api
 gcsfs
 geopandas>=0.8
