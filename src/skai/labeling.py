@@ -19,7 +19,7 @@ import functools
 import multiprocessing
 import os
 import random
-from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 
 from absl import logging
 import geopandas as gpd
@@ -205,6 +205,69 @@ def sample_with_buffer(
   return sample
 
 
+def get_buffered_example_ids(
+    examples_pattern: str,
+    buffered_sampling_radius: float,
+    excluded_example_ids: set[str],
+    max_examples: Optional[int] = None,
+) -> set[str]:
+  """Gets a set of allowed example ids.
+
+  Args:
+    examples_pattern: File pattern for input TFRecords.
+    buffered_sampling_radius: The minimum distance between two examples for the
+      two examples to be in the labeling task.
+    excluded_example_ids: Set of example ids to be excluded prior to generating 
+      buffered example ids.
+    max_examples: Maximum number of images to create.
+  Returns:
+    Set of allowed example ids.
+  """
+  metadata_path = str(
+      os.path.join(
+          '/'.join(examples_pattern.split('/')[:-2]),
+          'metadata_examples.csv',
+      )
+  )
+  with tf.io.gfile.GFile(metadata_path, 'r') as f:
+    try:
+      df_metadata = pd.read_csv(f)
+      df_metadata = df_metadata[
+          ~df_metadata['example_id'].isin(excluded_example_ids)
+      ].reset_index(drop=True)
+    except tf.errors.NotFoundError as error:
+      raise SystemExit(
+          f'\ntf.errors.NotFoundError: {metadata_path} was not found\nUse'
+          ' examples_to_csv module to generate metadata_examples.csv and/or'
+          ' put metadata_examples.csv in the appropriate directory that is'
+          ' PATH_DIR/examples/'
+      ) from error
+
+  logging.info(
+      'Randomly searching for buffered samples with buffer radius %.2f'
+      ' metres...',
+      buffered_sampling_radius,
+  )
+  points = gpd.GeoSeries(
+      gpd.points_from_xy(df_metadata['longitude'], df_metadata['latitude'])
+  ).set_crs(4326)
+  centroid = points.unary_union.centroid
+  utm_points = points.to_crs(utils.convert_wgs_to_utm(centroid.x, centroid.y))
+  gpd_df = gpd.GeoDataFrame(df_metadata, geometry=utm_points)
+  max_examples = len(gpd_df) if max_examples is None else max_examples
+  df_buffered_samples = sample_with_buffer(
+      gpd_df, max_examples, buffered_sampling_radius
+  )
+  allowed_example_ids = set(df_buffered_samples['example_id'].unique())
+  logging.info(
+      'Allowing %d example ids with buffer radius: %.2f metres',
+      len(allowed_example_ids),
+      buffered_sampling_radius,
+  )
+
+  return allowed_example_ids
+
+
 def create_labeling_images(
     examples_pattern: str,
     max_images: int,
@@ -247,90 +310,36 @@ def create_labeling_images(
     raise ValueError(
         f'Example pattern {examples_pattern} did not match any files.'
     )
+  excluded_example_ids = set()
+  if excluded_import_file_patterns:
+    for pattern in excluded_import_file_patterns:
+      for path in tf.io.gfile.glob(pattern):
+        logging.info('Excluding example ids from "%s"', path)
+        excluded_example_ids.update(_read_example_ids_from_import_file(path))
+    logging.info('Excluding %d example ids', len(excluded_example_ids))
 
   if allowed_example_ids_path:
     with tf.io.gfile.GFile(allowed_example_ids_path, 'r') as f:
       allowed_example_ids = set(line.strip() for line in f)
     logging.info('Allowing %d example ids', len(allowed_example_ids))
+    allowed_example_ids = allowed_example_ids - excluded_example_ids
   else:
-    metadata_path = str(
-        os.path.join(
-            '/'.join(examples_pattern.split('/')[:-2]),
-            'metadata_examples.csv',
-        )
-    )
-    with tf.io.gfile.GFile(metadata_path, 'r') as f:
-      try:
-        df_metadata = pd.read_csv(f)
-      except tf.errors.NotFoundError as error:
-        raise SystemExit(
-            f'\ntf.errors.NotFoundError: {metadata_path} was not found\nUse'
-            ' examples_to_csv module to generate metadata_examples.csv and/or'
-            ' put metadata_examples.csv in the appropriate directory that is'
-            ' PATH_DIR/examples/'
-        ) from error
-
-    if excluded_import_file_patterns:
-      excluded_example_ids = set()
-      for pattern in excluded_import_file_patterns:
-        for path in tf.io.gfile.glob(pattern):
-          logging.info('Excluding example ids from "%s"', path)
-          excluded_example_ids.update(_read_example_ids_from_import_file(path))
-      logging.info('Excluding %d example ids', len(excluded_example_ids))
-      df_metadata = df_metadata[
-          df_metadata['example_id'].isin(excluded_example_ids)
-      ]
-
-    logging.info(
-        'Randomly searching for buffered samples with buffer radius %.2f'
-        ' metres...',
+    allowed_example_ids = get_buffered_example_ids(
+        examples_pattern,
         buffered_sampling_radius,
-    )
-    points = gpd.GeoSeries(
-        gpd.points_from_xy(df_metadata['longitude'], df_metadata['latitude'])
-    ).set_crs(4326)
-    centroid = points.unary_union.centroid
-    utm_points = points.to_crs(utils.convert_wgs_to_utm(centroid.x, centroid.y))
-    gpd_df = gpd.GeoDataFrame(df_metadata, geometry=utm_points)
-    df_buffered_samples = sample_with_buffer(
-        gpd_df, max_images, buffered_sampling_radius
-    )
-    allowed_example_ids = set(df_buffered_samples['example_id'].unique())
-    logging.info(
-        'Allowing %d example ids with buffer radius: %.2f metres',
-        len(allowed_example_ids),
-        buffered_sampling_radius,
+        excluded_example_ids,
+        max_images,
     )
 
-  all_images = []
-  if use_multiprocessing:
-    def accumulate(images: list[tuple[int, str, str, str]]) -> None:
-      all_images.extend(images)
-
-    num_workers = min(
-        multiprocessing.cpu_count(), len(example_files), max_processes)
-    if multiprocessing_context:
-      pool = multiprocessing_context.Pool(num_workers)
-    else:
-      pool = multiprocessing.Pool(num_workers)
-    for example_file in example_files:
-      pool.apply_async(
-          _create_labeling_images_from_example_file,
-          args=(example_file, output_dir, allowed_example_ids),
-          callback=accumulate,
-          error_callback=print,
-      )
-    pool.close()
-    pool.join()
-  else:
-    for example_file in example_files:
-      all_images.extend(
-          _create_labeling_images_from_example_file(
-              example_file,
-              output_dir,
-              allowed_example_ids,
-          )
-      )
+  all_images = _process_example_files(
+      example_files,
+      output_dir,
+      use_multiprocessing,
+      multiprocessing_context,
+      max_processes,
+      allowed_example_ids,
+      _create_labeling_images_from_example_file,
+  )
 
   if not all_images:
     return 0, None
@@ -350,6 +359,124 @@ def create_labeling_images(
           + f'file://{image_path},{image_path},{tfrecord_source_path}\n'
       )
   return num_images, image_metadata_csv
+
+
+def create_buffered_tfrecords(
+    examples_pattern: str,
+    output_dir: str,
+    use_multiprocessing: bool,
+    multiprocessing_context: Any,
+    excluded_import_file_patterns: list[str],
+    max_processes: int,
+    buffered_sampling_radius: float,
+):
+  """Creates filtered TFRecords.
+
+  Args:
+    examples_pattern: File pattern for input TFRecords.
+    output_dir: Output directory.
+    use_multiprocessing: If true, create multiple processes to create labeling
+      images.
+    multiprocessing_context: Context to spawn processes with when using
+      multiprocessing.
+    excluded_import_file_patterns: List of import file patterns containing
+      images to exclude.
+    max_processes: Maximum number of processes.
+    buffered_sampling_radius: The minimum distance between two examples for the
+      two examples to be in the labeling task.
+
+  """
+  example_files = tf.io.gfile.glob(examples_pattern)
+  if not example_files:
+    raise ValueError(
+        f'Example pattern {examples_pattern} did not match any files.'
+    )
+
+  excluded_example_ids = set()
+  if excluded_import_file_patterns:
+    for pattern in excluded_import_file_patterns:
+      for path in tf.io.gfile.glob(pattern):
+        logging.info('Excluding example ids from "%s"', path)
+        excluded_example_ids.update(_read_example_ids_from_import_file(path))
+    logging.info('Excluding %d example ids', len(excluded_example_ids))
+  allowed_example_ids = get_buffered_example_ids(
+      examples_pattern, buffered_sampling_radius, excluded_example_ids
+  )
+
+  _ = _process_example_files(
+      example_files,
+      output_dir,
+      use_multiprocessing,
+      multiprocessing_context,
+      max_processes,
+      allowed_example_ids,
+      filter_examples_from_allowed_ids,
+  )
+
+  logging.info(
+      'Filtered out %d images to tfrecords to %s',
+      len(allowed_example_ids),
+      output_dir,
+  )
+
+
+def _process_example_files(
+    example_files: str,
+    output_dir: str,
+    use_multiprocessing: bool,
+    multiprocessing_context: Any,
+    max_processes: int,
+    allowed_example_ids: set[str],
+    processing_function: Callable[[str, str, set[str]], list[Any]],
+) -> list[tuple[int, str, str, str]]:
+  """Process TFrecords.
+
+  This processing done using either multiprocessing or a sequential single
+  process.
+
+  Args:
+    example_files: List of input TFRecords.
+    output_dir: Output directory.
+    use_multiprocessing: If true, create multiple processes to create labeling
+      images.
+    multiprocessing_context: Context to spawn processes with when using
+      multiprocessing.
+    max_processes: Maximum number of processes.
+    allowed_example_ids: Set of example_id from which a subset will be used in
+      for filtering or creating a labeling file.
+    processing_function: Function to be executed.
+
+  Returns:
+    Tuple of number of images written, and labeling service agnostic import
+    file.
+  """
+  all_results = []
+  if use_multiprocessing:
+    def accumulate(results: list[Any]) -> None:
+      all_results.extend(results)
+    num_workers = min(
+        multiprocessing.cpu_count(), len(example_files), max_processes
+    )
+    if multiprocessing_context:
+      pool = multiprocessing_context.Pool(num_workers)
+    else:
+      pool = multiprocessing.Pool(num_workers)
+    for example_file in example_files:
+      pool.apply_async(
+          processing_function,
+          args=(example_file, output_dir, allowed_example_ids),
+          callback=accumulate,
+          error_callback=print,
+      )
+    pool.close()
+    pool.join()
+  else:
+    for example_file in example_files:
+      all_results.extend(processing_function(
+          example_file, output_dir, allowed_example_ids
+      ))
+
+  return all_results
 
 
 def _tfrecord_iterator(path: str) -> tf.train.Example:
@@ -386,7 +513,7 @@ def _tfrecord_iterator(path: str) -> tf.train.Example:
 def _create_labeling_images_from_example_file(
     example_file: str,
     output_dir: str,
-    allowed_example_ids: Set[str],
+    allowed_example_ids: set[str],
 ) -> list[tuple[int, str, str, str]]:
   """Creates PNGs used for labeling from TFRecords for a single example_file.
 
@@ -466,10 +593,50 @@ def _write_tfrecord(examples: Iterable[Example], path: str) -> None:
       writer.write(example.SerializeToString())
 
 
+def filter_examples_from_allowed_ids(
+    example_file: str, output_path: str, allowed_example_ids: set[str]
+):
+  """Filters examples based on allowed ids.
+
+  Args:
+    example_file: Path to file containing TF records.
+    output_path: Path to output filtered examples.
+    allowed_example_ids: List of example_id for filtering
+  Returns:
+    Empty list
+  """
+  filtered_examples = []
+  for record in tf.data.TFRecordDataset([example_file]):
+    example = Example()
+    example.ParseFromString(record.numpy())
+    if 'example_id' in example.features.feature:
+      example_id = (
+          example.features.feature['example_id'].bytes_list.value[0].decode()
+      )
+    else:
+      # If the example doesn't have an "example_id" feature, fall back on
+      # using "encoded_coordinates". This maintains backwards compatibility
+      # with older datasets.
+      # TODO(jzxu): Remove this branch when backward compatibility is no
+      # longer needed.
+      example_id = (
+          example.features.feature['encoded_coordinates']
+          .bytes_list.value[0]
+          .decode()
+      )
+    if example_id in allowed_example_ids:
+      filtered_examples.append(example)
+
+  _write_tfrecord(
+      filtered_examples, f'{output_path}/{example_file.split("/")[-1]}'
+  )
+  return []
+
+
 def get_connection_matrix(
     longitudes: List[float],
     latitudes: List[float],
-    encoded_coordinates: List[str],
+    encoded_coordinates: list[str],
     connecting_distance_meters: float,
 )-> Tuple[gpd.GeoDataFrame, np.ndarray]:
   """Gets a connection matrix for a set of points.
