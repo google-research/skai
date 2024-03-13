@@ -104,7 +104,8 @@ def read_aois(path: str) -> list[Polygon]:
     lines or points).
   """
   # Convert all data to long/lat
-  df = gpd.read_file(path).to_crs(epsg=4326)
+  with tf.io.gfile.GFile(path, 'rb') as f:
+    df = gpd.read_file(f).to_crs(epsg=4326)
   geometries = list(df.geometry.values)
   for g in geometries:
     if g.geometryType() not in ['Polygon', 'MultiPolygon']:
