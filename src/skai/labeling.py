@@ -278,6 +278,7 @@ def create_labeling_images(
     multiprocessing_context: Any,
     max_processes: int,
     buffered_sampling_radius: float,
+    scores_path: Optional[str] = None,
 ) -> Tuple[int, Optional[str]]:
   """Creates PNGs used for labeling from TFRecords.
 
@@ -300,6 +301,7 @@ def create_labeling_images(
     max_processes: Maximum number of processes.
     buffered_sampling_radius: The minimum distance between two examples for the
       two examples to be in the labeling task.
+    scores_path: File containing scores obtained from pre-trained models.
 
   Returns:
     Tuple of number of images written, and labeling service agnostic import
@@ -318,18 +320,37 @@ def create_labeling_images(
         excluded_example_ids.update(_read_example_ids_from_import_file(path))
     logging.info('Excluding %d example ids', len(excluded_example_ids))
 
-  if allowed_example_ids_path:
-    with tf.io.gfile.GFile(allowed_example_ids_path, 'r') as f:
-      allowed_example_ids = set(line.strip() for line in f)
-    logging.info('Allowing %d example ids', len(allowed_example_ids))
-    allowed_example_ids = allowed_example_ids - excluded_example_ids
+  if scores_path:
+    allowed_example_ids = []
+    with tf.io.gfile.GFile(scores_path, 'r') as f:
+      scores_df = pd.read_csv(f)
+    num_examples_per_bin = int(0.25 * max_images)
+    bins = {
+        (0.0, 0.25): num_examples_per_bin,
+        (0.25, 0.5): num_examples_per_bin,
+        (0.5, 0.75): num_examples_per_bin,
+        (0.75, 1.0): num_examples_per_bin,
+    }
+    for (low, high), num_examples in bins.items():
+      df_example_ids = scores_df[
+          (scores_df['score'] >= low) & (scores_df['score'] < high)
+      ]
+      example_ids = list(df_example_ids['example_id'])
+      random.shuffle(example_ids)
+      allowed_example_ids.extend(example_ids[:num_examples])
   else:
-    allowed_example_ids = get_buffered_example_ids(
-        examples_pattern,
-        buffered_sampling_radius,
-        excluded_example_ids,
-        max_images,
-    )
+    if allowed_example_ids_path:
+      with tf.io.gfile.GFile(allowed_example_ids_path, 'r') as f:
+        allowed_example_ids = set(line.strip() for line in f)
+      logging.info('Allowing %d example ids', len(allowed_example_ids))
+      allowed_example_ids = allowed_example_ids - excluded_example_ids
+    else:
+      allowed_example_ids = get_buffered_example_ids(
+          examples_pattern,
+          buffered_sampling_radius,
+          excluded_example_ids,
+          max_images,
+      )
 
   all_images = _process_example_files(
       example_files,

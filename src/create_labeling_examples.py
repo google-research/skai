@@ -71,6 +71,11 @@ flags.DEFINE_float(
     'The minimum distance between two examples for the two examples to be in'
     ' the labeling task.',
 )
+flags.DEFINE_string(
+    'scores_path',
+    None,
+    'File containing scores obtained from pre-trained models.',
+)
 
 
 def main(unused_argv):
@@ -93,6 +98,7 @@ def main(unused_argv):
       None,
       FLAGS.max_processes,
       FLAGS.buffered_sampling_radius,
+      FLAGS.scores_path,
   )
 
   if num_images == 0:
