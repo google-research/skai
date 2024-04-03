@@ -136,6 +136,7 @@ def main(_) -> None:
         'config.train_stage_2_as_ensemble': False,
         'config.round_idx': 0,
         'config.data.initial_sample_proportion': 1.0,
+        'config.data.batch_size': config.data.batch_size,
         'config.training.early_stopping': config.training.early_stopping,
         'config.model.load_pretrained_weights': (
             config.model.load_pretrained_weights
