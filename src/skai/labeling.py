@@ -278,6 +278,10 @@ def create_labeling_images(
     multiprocessing_context: Any,
     max_processes: int,
     buffered_sampling_radius: float,
+    score_bins_to_sample_fraction: Optional[
+        Dict[Tuple[float, float], float]
+    ] = None,
+    scores_path: Optional[str] = None,
 ) -> Tuple[int, Optional[str]]:
   """Creates PNGs used for labeling from TFRecords.
 
@@ -300,11 +304,19 @@ def create_labeling_images(
     max_processes: Maximum number of processes.
     buffered_sampling_radius: The minimum distance between two examples for the
       two examples to be in the labeling task.
+    score_bins_to_sample_fraction: Dictionary of bins for selecting labeling 
+      examples.
+    scores_path: File containing scores obtained from pre-trained models.
 
   Returns:
     Tuple of number of images written, and labeling service agnostic import
     file.
   """
+  if scores_path and allowed_example_ids_path:
+    raise ValueError(
+        'scores_path and allowed_example_ids_path cannot be set at the same'
+        ' time.'
+    )
   example_files = tf.io.gfile.glob(examples_pattern)
   if not example_files:
     raise ValueError(
@@ -318,7 +330,26 @@ def create_labeling_images(
         excluded_example_ids.update(_read_example_ids_from_import_file(path))
     logging.info('Excluding %d example ids', len(excluded_example_ids))
 
-  if allowed_example_ids_path:
+  if scores_path:
+    allowed_example_ids = []
+    with tf.io.gfile.GFile(scores_path, 'r') as f:
+      scores_df = pd.read_csv(f)
+      scores_df = scores_df[~scores_df['example_id'].isin(excluded_example_ids)]
+
+    num_total_images = min(max_images, len(scores_df))
+    if score_bins_to_sample_fraction:
+      for (
+          low,
+          high,
+      ), percentage_examples in score_bins_to_sample_fraction.items():
+        num_examples = int(percentage_examples * num_total_images)
+        df_example_ids = scores_df[
+            (scores_df['score'] >= low) & (scores_df['score'] < high)
+        ]
+        example_ids = list(df_example_ids['example_id'])
+        random.shuffle(example_ids)
+        allowed_example_ids.extend(example_ids[:num_examples])
+  elif allowed_example_ids_path:
     with tf.io.gfile.GFile(allowed_example_ids_path, 'r') as f:
       allowed_example_ids = set(line.strip() for line in f)
     logging.info('Allowing %d example ids', len(allowed_example_ids))

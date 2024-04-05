@@ -30,6 +30,7 @@ python create_labeling_examples.py \
 """
 # pylint: enable=line-too-long
 
+import ast
 import multiprocessing
 import sys
 
@@ -71,6 +72,63 @@ flags.DEFINE_float(
     'The minimum distance between two examples for the two examples to be in'
     ' the labeling task.',
 )
+flags.DEFINE_string(
+    'scores_path',
+    None,
+    'Path to a CSV with example_id and score columns that assigns a score to'
+    ' each example, for sampling based on example scores.',
+)
+flags.DEFINE_string(
+    'score_bins_to_sample_fraction',
+    '{'
+    '(0.0, 0.25): 0.25,'
+    '(0.25, 0.5): 0.25,'
+    '(0.5, 0.75): 0.25,'
+    '(0.75, 1.0): 0.25,'
+    '}',
+    'Dictionary mapping bins of score ranges to the fraction of the sample that'
+    ' should be drawn from each bin. The value should be a string representing'
+    ' a literal Python dict of tuples (low score, high score) to a fraction'
+    ' from 0 - 1.0. The fractions should sum to 1.0.',
+)
+
+
+def validate_score_bins(score_bins_to_sample_fraction):
+  """Validates the score_bins_to_sample_fraction flag.
+
+  Args:
+    score_bins_to_sample_fraction: Dictionary mapping bins of score ranges to
+      the fraction of the sample that should be drawn from each bin. The value
+      should be a string representing a literal Python dict of tuples (low
+      score, high score) to a fraction from 0 - 1.0. The fractions should sum to
+      1.0.'.
+
+  Returns:
+    True if the score_bins_to_sample_fraction are valid.
+  """
+  score_bins_to_sample_fraction = ast.literal_eval(
+      score_bins_to_sample_fraction
+  )
+  total_percentage = 0
+  for bin_interval, percentage in score_bins_to_sample_fraction.items():
+    total_percentage += percentage
+    assert percentage >= 0, f'{percentage} should be non-negative.'
+    assert (
+        bin_interval[1] > bin_interval[0]
+    ), f'{bin_interval[1]} should be greater than {bin_interval[0]}'
+
+  assert total_percentage == 1.0, (
+      'total percentage in score_bins_to_sample_fraction should be equal to'
+      f' 1.0, got {total_percentage}'
+  )
+  return True
+
+
+flags.register_validator(
+    'score_bins_to_sample_fraction',
+    validate_score_bins,
+    '--score_bins_to_sample_fraction value is not valid.',
+)
 
 
 def main(unused_argv):
@@ -82,6 +140,9 @@ def main(unused_argv):
         f'\nError: {FLAGS.output_dir} is not empty.\n\nUse an empty directory'
         ' for --output_dir.'
     )
+  score_bins_to_sample_fraction = ast.literal_eval(
+      FLAGS.score_bins_to_sample_fraction
+  )
 
   num_images, images_to_label_import_csv_path = labeling.create_labeling_images(
       FLAGS.examples_pattern,
@@ -93,6 +154,8 @@ def main(unused_argv):
       None,
       FLAGS.max_processes,
       FLAGS.buffered_sampling_radius,
+      score_bins_to_sample_fraction,
+      FLAGS.scores_path,
   )
 
   if num_images == 0:
