@@ -740,6 +740,10 @@ class SkaiDataset(tfds.core.GeneratorBasedBuilder):
     if not pattern:
       return
     paths = tf.io.gfile.glob(pattern)
+    if not paths:
+      raise FileNotFoundError(
+          f'File pattern "{pattern}" does not match any files.'
+      )
     ds = tf.data.TFRecordDataset(paths).map(
         self._decode_record, num_parallel_calls=tf.data.AUTOTUNE)
     if self.builder_config.max_examples:
