@@ -29,10 +29,10 @@ flags.DEFINE_string(
     'examples_pattern', None, 'File pattern for input TFRecords.', required=True
 )
 flags.DEFINE_string(
-    'image_model_dir', None, 'Saved text model directory.', required=True
+    'image_model_dir', None, 'Saved image model directory.', required=True
 )
 flags.DEFINE_string(
-    'text_model_dir', None, 'Saved image model directory.', required=False
+    'text_model_dir', None, 'Saved text model directory.', required=False
 )
 flags.DEFINE_enum_class(
     'model_type',
