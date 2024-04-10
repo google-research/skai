@@ -1,6 +1,7 @@
 """A script for backfilling TFRecords that don't contain the int64_id feature.
 """
 
+import time
 from typing import Iterator
 
 from absl import app
@@ -63,9 +64,10 @@ def main(_) -> None:
     use_dataflow = True
 
   temp_dir = f'{FLAGS.output_path}.beam_temp'
+  timestamp = time.strftime('%Y%m%d-%H%M%S')
   pipeline_options = beam_utils.get_pipeline_options(
       use_dataflow,
-      'backfill-int64-id',
+      f'backfill-int64-id-{timestamp}',
       FLAGS.cloud_project,
       FLAGS.cloud_region,
       temp_dir,
