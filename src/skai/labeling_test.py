@@ -15,14 +15,12 @@
 """Tests for labeling."""
 
 import os
-import pathlib
 import random
 import tempfile
 
 from absl.testing import absltest
 import numpy as np
 import pandas as pd
-import PIL
 from skai import labeling
 from skai import utils
 import tensorflow as tf
@@ -31,10 +29,18 @@ import tensorflow as tf
 Example = tf.train.Example
 
 
+def _read_tfrecord(path: str) -> list[Example]:
+  examples = []
+  for record in tf.data.TFRecordDataset([path]):
+    example = Example()
+    example.ParseFromString(record.numpy())
+    examples.append(example)
+  return examples
+
+
 def _write_example_to_tfrecord(
     example_id_lon_lat: tuple[str, [float, float]],
     tfrecord_output_path: str,
-    test_image_path: str,
 ):
   with tf.io.TFRecordWriter(tfrecord_output_path) as writer:
     random.shuffle(example_id_lon_lat)
@@ -45,9 +51,7 @@ def _write_example_to_tfrecord(
           value=example_id.encode(),
           example=example,
       )
-      image = tf.io.encode_png(
-          np.array(PIL.Image.open(test_image_path))
-      ).numpy()
+      image = tf.io.encode_png(np.zeros((256, 256, 3), dtype=np.uint8)).numpy()
       utils.add_bytes_feature(
           feature_name='pre_image_png_large', value=image, example=example
       )
@@ -78,8 +82,6 @@ class LabelingTest(absltest.TestCase):
 
   def test_create_buffered_tfrecords(self):
     """Tests create_buffered_tfrecords."""
-    current_dir = pathlib.Path(__file__).parent
-    test_image_path = str(current_dir / 'test_data/blank.tif')
     # Create 5 unlabeled examples in 3 tfrecords.
     with tempfile.TemporaryDirectory() as examples_dir:
       os.mkdir(os.path.join(examples_dir, 'examples'))
@@ -131,7 +133,6 @@ class LabelingTest(absltest.TestCase):
         _write_example_to_tfrecord(
             example_id_lon_lat,
             tfrecord_output_path,
-            test_image_path,
         )
 
       labeling.create_buffered_tfrecords(
@@ -162,8 +163,6 @@ class LabelingTest(absltest.TestCase):
 
   def test_create_labeling_images(self):
     """Tests create_labeling_images."""
-    current_dir = pathlib.Path(__file__).parent
-    test_image_path = str(current_dir / 'test_data/blank.tif')
     # Create 5 unlabeled examples in 3 tfrecords.
     with tempfile.TemporaryDirectory() as examples_dir:
       os.mkdir(os.path.join(examples_dir, 'examples'))
@@ -208,7 +207,6 @@ class LabelingTest(absltest.TestCase):
         _write_example_to_tfrecord(
             example_id_lon_lat,
             tfrecord_output_path,
-            test_image_path,
         )
 
       labeling.create_labeling_images(
@@ -233,6 +231,147 @@ class LabelingTest(absltest.TestCase):
           set(['a.png', 'b.png', 'e.png', 'image_metadata.csv']),
       )
 
+  def testCreateLabeledExamplesFromLabelFile(self):
+    # Create unlabeled examples.
+    _, unlabeled_examples_path = tempfile.mkstemp(
+        dir=absltest.TEST_TMPDIR.value)
+    with tf.io.TFRecordWriter(unlabeled_examples_path) as writer:
+      for i, example_id in enumerate(['a', 'b', 'c', 'd']):
+        example = Example()
+        example.features.feature['example_id'].bytes_list.value.append(
+            example_id.encode()
+        )
+        example.features.feature['encoded_coordinates'].bytes_list.value.append(
+            str(i).encode()
+        )
+        example.features.feature['coordinates'].float_list.value.extend([i, i])
+        writer.write(example.SerializeToString())
+
+    # Create a label file.
+    _, label_file_path = tempfile.mkstemp(dir=absltest.TEST_TMPDIR.value)
+    label_file_contents = pd.DataFrame(
+        [
+            ('a', 'no_damage', [0, 0]),
+            ('b', 'minor_damage', [1, 1]),
+            ('c', 'major_damage', [2, 2]),
+            ('c', 'no_damage', [2, 2]),
+            ('d', 'destroyed', [3, 3]),
+            ('d', 'bad_example', [3, 3]),
+        ],
+        columns=['example_id', 'string_label', 'coordinates'],
+    )
+    label_file_contents.to_csv(label_file_path, index=False)
+
+    _, train_path = tempfile.mkstemp(dir=absltest.TEST_TMPDIR.value)
+    _, test_path = tempfile.mkstemp(dir=absltest.TEST_TMPDIR.value)
+
+    labeling.create_labeled_examples(
+        label_file_paths=[label_file_path],
+        string_to_numeric_labels=[
+            'no_damage=0',
+            'minor_damage=0',
+            'major_damage=1',
+            'destroyed=1',
+            'bad_example=0',
+        ],
+        example_patterns=[unlabeled_examples_path],
+        test_fraction=0.333,
+        train_output_path=train_path,
+        test_output_path=test_path,
+        connecting_distance_meters=78,
+        use_multiprocessing=False,
+        multiprocessing_context=None,
+        max_processes=1,
+    )
+
+    all_examples = _read_tfrecord(train_path) + _read_tfrecord(test_path)
+    self.assertLen(all_examples, 6)
+
+    id_to_float_label = []
+    for e in all_examples:
+      id_to_float_label.append((
+          e.features.feature['example_id'].bytes_list.value[0].decode(),
+          e.features.feature['label'].float_list.value[0],
+          list(e.features.feature['coordinates'].float_list.value),
+      ))
+
+    self.assertSameElements(
+        id_to_float_label,
+        [
+            ('a', 0.0, [0, 0]),
+            ('b', 0.0, [1, 1]),
+            ('c', 1.0, [2, 2]),
+            ('c', 0.0, [2, 2]),
+            ('d', 0.0, [3, 3]),
+            ('d', 1.0, [3, 3]),
+        ],
+    )
+
+  def testCreateLabeledExamplesFromLabeledExamples(self):
+    # Create labeled examples.
+    _, examples_path = tempfile.mkstemp(dir=absltest.TEST_TMPDIR.value)
+    with tf.io.TFRecordWriter(examples_path) as writer:
+      for i, example_id in enumerate(['a', 'b', 'c', 'd']):
+        example = Example()
+        example.features.feature['example_id'].bytes_list.value.append(
+            example_id.encode()
+        )
+        example.features.feature['encoded_coordinates'].bytes_list.value.append(
+            str(i).encode()
+        )
+        example.features.feature['coordinates'].float_list.value.extend([i, i])
+        if example_id in ['a', 'b']:
+          example.features.feature['string_label'].bytes_list.value.append(
+              b'no_damage'
+          )
+          example.features.feature['label'].float_list.value.append(0)
+        else:
+          example.features.feature['string_label'].bytes_list.value.append(
+              b'destroyed'
+          )
+          example.features.feature['label'].float_list.value.append(1)
+        writer.write(example.SerializeToString())
+
+    _, train_path = tempfile.mkstemp(dir=absltest.TEST_TMPDIR.value)
+    _, test_path = tempfile.mkstemp(dir=absltest.TEST_TMPDIR.value)
+
+    labeling.create_labeled_examples(
+        label_file_paths=[],
+        string_to_numeric_labels=[],
+        example_patterns=[examples_path],
+        test_fraction=0.25,
+        train_output_path=train_path,
+        test_output_path=test_path,
+        connecting_distance_meters=78,
+        use_multiprocessing=False,
+        multiprocessing_context=None,
+        max_processes=1,
+    )
+
+    train_examples = _read_tfrecord(train_path)
+    self.assertLen(train_examples, 3)
+    test_examples = _read_tfrecord(test_path)
+    self.assertLen(test_examples, 1)
+    all_examples = train_examples + test_examples
+    self.assertLen(all_examples, 4)
+
+    id_to_float_label = []
+    for e in all_examples:
+      id_to_float_label.append((
+          e.features.feature['example_id'].bytes_list.value[0].decode(),
+          e.features.feature['label'].float_list.value[0],
+          list(e.features.feature['coordinates'].float_list.value),
+      ))
+
+    self.assertSameElements(
+        id_to_float_label,
+        [
+            ('a', 0.0, [0, 0]),
+            ('b', 0.0, [1, 1]),
+            ('c', 1.0, [2, 2]),
+            ('d', 1.0, [3, 3]),
+        ],
+    )
 
 if __name__ == '__main__':
   absltest.main()

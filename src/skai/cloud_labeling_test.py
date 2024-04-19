@@ -15,7 +15,6 @@
 """Tests for cloud_labeling."""
 
 import os
-import pathlib
 import random
 import tempfile
 from typing import List
@@ -126,7 +125,7 @@ class CloudLabelingTest(parameterized.TestCase):
             'bad_example=0',
         ],
         export_dir=None,
-        examples_pattern=unlabeled_examples_path,
+        example_patterns=[unlabeled_examples_path],
         test_fraction=0.333,
         train_output_path=train_path,
         test_output_path=test_path,
@@ -219,7 +218,7 @@ class CloudLabelingTest(parameterized.TestCase):
               'bad_example=0',
           ],
           export_dir=None,
-          examples_pattern=unlabeled_examples_path,
+          example_patterns=[unlabeled_examples_path],
           test_fraction=test_fraction,
           train_output_path=train_path,
           test_output_path=test_path,
@@ -330,8 +329,7 @@ class CreateLabelingImagesTestUsingBufferedSampling(tf.test.TestCase):
   def testSamplingWithBufferRadiusAndMetaDataExamplesFile(self):
     """Tests buffered sampling when metadata_examples.csv is PRESENT."""
     max_num_images = 2
-    current_dir = pathlib.Path(__file__).parent
-    test_image_path = str(current_dir / 'test_data/blank.tif')
+
     # Create 4 unlabeled examples.
     with tempfile.TemporaryDirectory() as examples_dir:
       os.mkdir(os.path.join(examples_dir, 'examples'))
@@ -410,7 +408,7 @@ class CreateLabelingImagesTestUsingBufferedSampling(tf.test.TestCase):
               example=example,
           )
           image = tf.io.encode_png(
-              np.array(PIL.Image.open(test_image_path))
+              np.zeros((256, 256, 3), dtype=np.uint8)
           ).numpy()
           utils.add_bytes_feature(
               feature_name='pre_image_png_large', value=image, example=example

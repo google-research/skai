@@ -12,12 +12,23 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Merges labels from the Vertex AI labeling tool with original TF Examples.
+"""Creates labeled train and test data from labels and TFRecords.
 
-After a dataset is labeled on the Vertex AI labeling tool, the labels must be
-merged with the original Tensorflow Examples in order to create a labeled
-training and test set.
+There are 3 sources of labels that this script can use.
+
+1. Download labels from a VertexAI dataset. You must provide a value for the
+   "cloud_dataset_ids" flag.
+
+2. A CSV file. You must provide a value for the "label_file_paths" flag.
+   The files must have "example_id" and "string_label" columns. This serves as
+   a mapping from examples to labels.
+
+3. Use the label features already in the examples. You must not provide values
+   for either of the above flags. This can be used to reshuffle existing labeled
+   examples into new train and test splits, or to combine multiple existing
+   labeled datasets.
 """
+
 import multiprocessing
 import random
 
@@ -33,9 +44,9 @@ flags.DEFINE_string('cloud_location', None, 'Project location.')
 flags.DEFINE_list('cloud_dataset_ids', [], 'Dataset IDs.')
 flags.DEFINE_list('label_file_paths', [], 'List of paths to label files')
 flags.DEFINE_string('cloud_temp_dir', None, 'GCS temporary directory.')
-flags.DEFINE_string('examples_pattern', None,
-                    'Pattern for TFRecords of examples to merge with labels.',
-                    required=True)
+flags.DEFINE_list('example_patterns', None,
+                  'Patterns for TFRecords of examples to merge with labels.',
+                  required=True)
 flags.DEFINE_string('train_output_path', None,
                     'Path to output labeled training examples.', required=True)
 flags.DEFINE_string('test_output_path', None,
@@ -80,7 +91,7 @@ def main(unused_argv):
         FLAGS.label_file_paths,
         FLAGS.string_to_numeric_labels,
         FLAGS.cloud_temp_dir,
-        FLAGS.examples_pattern,
+        FLAGS.example_patterns,
         FLAGS.test_fraction,
         FLAGS.train_output_path,
         FLAGS.test_output_path,
@@ -90,7 +101,7 @@ def main(unused_argv):
     labeling.create_labeled_examples(
         FLAGS.label_file_paths,
         FLAGS.string_to_numeric_labels,
-        FLAGS.examples_pattern,
+        FLAGS.example_patterns,
         FLAGS.test_fraction,
         FLAGS.train_output_path,
         FLAGS.test_output_path,

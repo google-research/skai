@@ -19,7 +19,7 @@ import functools
 import multiprocessing
 import os
 import random
-from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Callable, Iterable, Optional
 
 from absl import logging
 import geopandas as gpd
@@ -217,7 +217,7 @@ def get_buffered_example_ids(
     examples_pattern: File pattern for input TFRecords.
     buffered_sampling_radius: The minimum distance between two examples for the
       two examples to be in the labeling task.
-    excluded_example_ids: Set of example ids to be excluded prior to generating 
+    excluded_example_ids: Set of example ids to be excluded prior to generating
       buffered example ids.
     max_examples: Maximum number of images to create.
   Returns:
@@ -272,17 +272,17 @@ def create_labeling_images(
     examples_pattern: str,
     max_images: int,
     allowed_example_ids_path: str,
-    excluded_import_file_patterns: List[str],
+    excluded_import_file_patterns: list[str],
     output_dir: str,
     use_multiprocessing: bool,
     multiprocessing_context: Any,
     max_processes: int,
     buffered_sampling_radius: float,
     score_bins_to_sample_fraction: Optional[
-        Dict[Tuple[float, float], float]
+        dict[tuple[float, float], float]
     ] = None,
     scores_path: Optional[str] = None,
-) -> Tuple[int, Optional[str]]:
+) -> tuple[int, Optional[str]]:
   """Creates PNGs used for labeling from TFRecords.
 
   Also writes an import file in CSV format that is used to upload the images
@@ -304,7 +304,7 @@ def create_labeling_images(
     max_processes: Maximum number of processes.
     buffered_sampling_radius: The minimum distance between two examples for the
       two examples to be in the labeling task.
-    score_bins_to_sample_fraction: Dictionary of bins for selecting labeling 
+    score_bins_to_sample_fraction: Dictionary of bins for selecting labeling
       examples.
     scores_path: File containing scores obtained from pre-trained models.
 
@@ -510,7 +510,7 @@ def _process_example_files(
   return all_results
 
 
-def _tfrecord_iterator(path: str) -> tf.train.Example:
+def _tfrecord_iterator(path: str) -> Example:
   """Creates an iterator over TFRecord files.
 
   Supports both eager and non-eager execution.
@@ -524,7 +524,7 @@ def _tfrecord_iterator(path: str) -> tf.train.Example:
   ds = tf.data.TFRecordDataset([path]).prefetch(tf.data.AUTOTUNE)
   if tf.executing_eagerly():
     for record in ds:
-      example = tf.train.Example()
+      example = Example()
       example.ParseFromString(record.numpy())
       yield example
   else:
@@ -536,7 +536,7 @@ def _tfrecord_iterator(path: str) -> tf.train.Example:
           value = sess.run(next_element)
         except tf.errors.OutOfRangeError:
           return
-        example = tf.train.Example()
+        example = Example()
         example.ParseFromString(value)
         yield example
 
@@ -665,11 +665,11 @@ def filter_examples_from_allowed_ids(
 
 
 def get_connection_matrix(
-    longitudes: List[float],
-    latitudes: List[float],
+    longitudes: list[float],
+    latitudes: list[float],
     encoded_coordinates: list[str],
     connecting_distance_meters: float,
-)-> Tuple[gpd.GeoDataFrame, np.ndarray]:
+)-> tuple[gpd.GeoDataFrame, np.ndarray]:
   """Gets a connection matrix for a set of points.
 
   Args:
@@ -710,7 +710,7 @@ def get_connection_matrix(
 
 def get_connected_labels(
     connection_matrix: np.ndarray,
-) -> List[str]:
+) -> list[str]:
   """Gets the labels of connected components.
 
   Args:
@@ -729,10 +729,10 @@ def get_connected_labels(
 
 
 def _split_examples(
-    examples: List[Example],
+    examples: list[Example],
     test_fraction: float,
     connecting_distance_meters: float,
-) -> Tuple[List[Example], List[Example]]:
+) -> tuple[list[Example], list[Example]]:
   """Splits a list of examples into training and test sets.
 
   Examples with the same encoded coordinates will always end up in the same
@@ -816,8 +816,8 @@ def get_testset_indices(num_test, list_of_connected_examples):
 
 
 def _merge_single_example_file_and_labels(
-    example_file: str, labels: Dict[str, List[Tuple[str, float, str]]]
-) -> List[Example]:
+    example_file: str, labels: dict[str, list[tuple[str, float, str]]]
+) -> list[Example]:
   """Merges TF records from single example_file with corresponding labels.
 
   Args:
@@ -874,37 +874,39 @@ def _merge_single_example_file_and_labels(
   return labeled_examples
 
 
+def _match_patterns(patterns: list[str]) -> list[str]:
+  paths = []
+  for pattern in patterns:
+    if not (matches := tf.io.gfile.glob(pattern)):
+      raise ValueError(f'File pattern {pattern} did not match anything')
+    paths.extend(matches)
+  return paths
+
+
 def _merge_examples_and_labels(
-    examples_pattern: str,
-    labels: Dict[str, List[Tuple[str, float, str]]],
-    test_fraction: float,
-    train_output_path: str,
-    test_output_path: str,
-    connecting_distance_meters: float,
+    example_patterns: list[str],
+    labels: dict[str, list[tuple[str, float, str]]],
     use_multiprocessing: bool,
     multiprocessing_context: Any,
     max_processes: int,
-) -> None:
+) -> list[Example]:
   """Merges examples with labels into train and test TFRecords.
 
   Args:
-    examples_pattern: File pattern for input examples.
+    example_patterns: File patterns for input examples.
     labels: Dictionary of example ids to a list of tuples
         (string label, numeric label, source dataset id).
-    test_fraction: Fraction of examples to write to test output.
-    train_output_path: Path to training examples TFRecord output.
-    test_output_path: Path to test examples TFRecord output.
-    connecting_distance_meters: Maximum distance for two points to be connected.
     use_multiprocessing: If true, create multiple processes to create labeled
       examples.
     multiprocessing_context: Context to spawn processes with when using
       multiprocessing.
     max_processes: Maximum number of processes.
-  """
-  example_files = tf.io.gfile.glob(examples_pattern)
 
-  if not example_files:
-    raise ValueError(f'File pattern {examples_pattern} did not match anything')
+  Returns:
+    A list of labeled examples.
+  """
+
+  example_files = _match_patterns(example_patterns)
   if not labels:
     raise ValueError(
         'Dictionary of labels is empty. Ensure that the dictionary of'
@@ -937,24 +939,10 @@ def _merge_examples_and_labels(
   all_labeled_examples = []
   for result in results:
     all_labeled_examples.extend(result)
-
-  if not all_labeled_examples:
-    raise ValueError('No examples found matching labels.')
-
-  train_examples, test_examples = _split_examples(
-      all_labeled_examples, test_fraction, connecting_distance_meters
-  )
-
-  _write_tfrecord(train_examples, train_output_path)
-  _write_tfrecord(test_examples, test_output_path)
-  logging.info(
-      'Written %d test examples and %d train examples',
-      len(test_examples),
-      len(train_examples),
-  )
+  return all_labeled_examples
 
 
-def _read_label_file(path: str) -> List[Tuple[str, str, str]]:
+def _read_label_file(path: str) -> list[tuple[str, str, str]]:
   """Reads a label file.
 
   The file should be a CSV containing at least an "example_id" column
@@ -978,9 +966,9 @@ def _read_label_file(path: str) -> List[Tuple[str, str, str]]:
 
 
 def create_labeled_examples(
-    label_file_paths: List[str],
-    string_to_numeric_labels: List[str],
-    examples_pattern: str,
+    label_file_paths: list[str],
+    string_to_numeric_labels: list[str],
+    example_patterns: list[str],
     test_fraction: float,
     train_output_path: str,
     test_output_path: str,
@@ -994,7 +982,7 @@ def create_labeled_examples(
     label_file_paths: Paths to files to read labels from.
     string_to_numeric_labels: List of strings in the form
       "<string label>=<numeric label>", e.g. "no_damage=0"
-    examples_pattern: Pattern for unlabeled examples.
+    example_patterns: Patterns for unlabeled examples.
     test_fraction: Fraction of examples to write to test output.
     train_output_path: Path to training examples TFRecord output.
     test_output_path: Path to test examples TFRecord output.
@@ -1018,32 +1006,57 @@ def create_labeled_examples(
       logging.error('Class %s is not numeric.', numeric_label)
       raise
 
-  labels = []
-  for path in label_file_paths:
-    labels.extend(_read_label_file(path))
+  if label_file_paths:
+    labels = []
+    for path in label_file_paths:
+      labels.extend(_read_label_file(path))
 
-  logging.info('Read %d labels total.', len(labels))
-  ids_to_labels = collections.defaultdict(list)
-  for example_id, string_label, dataset_id_or_label_path in labels:
-    example_labels = ids_to_labels[example_id]
-    if string_label in [l[0] for l in example_labels]:
-      # Don't add multiple labels with the same value for a single example.
-      continue
-    numeric_label = string_to_numeric_map.get(string_label, None)
-    if numeric_label is None:
-      raise ValueError(f'Label "{string_label}" has no numeric mapping.')
-    example_labels.append(
-        (string_label, numeric_label, dataset_id_or_label_path)
+    logging.info('Read %d labels total.', len(labels))
+    ids_to_labels = collections.defaultdict(list)
+    for example_id, string_label, dataset_id_or_label_path in labels:
+      example_labels = ids_to_labels[example_id]
+      if string_label in [l[0] for l in example_labels]:
+        # Don't add multiple labels with the same value for a single example.
+        continue
+      numeric_label = string_to_numeric_map.get(string_label, None)
+      if numeric_label is None:
+        raise ValueError(f'Label "{string_label}" has no numeric mapping.')
+      example_labels.append(
+          (string_label, numeric_label, dataset_id_or_label_path)
+      )
+
+    all_labeled_examples = _merge_examples_and_labels(
+        example_patterns,
+        ids_to_labels,
+        use_multiprocessing,
+        multiprocessing_context,
+        max_processes
     )
+    if not all_labeled_examples:
+      raise ValueError('No examples found matching labels.')
+  else:
+    # If no labels are provided, then assume that input examples already have
+    # labels. Simply read them in.
+    all_labeled_examples = []
+    for example_path in _match_patterns(example_patterns):
+      for example in _tfrecord_iterator(example_path):
+        if ('string_label' not in example.features.feature) or (
+            'label' not in example.features.feature
+        ):
+          raise ValueError(
+              f'An example in file {example_path} does not have a string_label'
+              ' or label feature.'
+          )
+        all_labeled_examples.append(example)
 
-  _merge_examples_and_labels(
-      examples_pattern,
-      ids_to_labels,
-      test_fraction,
-      train_output_path,
-      test_output_path,
-      connecting_distance_meters,
-      use_multiprocessing,
-      multiprocessing_context,
-      max_processes
+  train_examples, test_examples = _split_examples(
+      all_labeled_examples, test_fraction, connecting_distance_meters
+  )
+
+  _write_tfrecord(train_examples, train_output_path)
+  _write_tfrecord(test_examples, test_output_path)
+  logging.info(
+      'Written %d test examples and %d train examples',
+      len(test_examples),
+      len(train_examples),
   )

@@ -22,7 +22,7 @@ import os
 import queue
 import random
 import time
-from typing import Dict, Iterable, List, Optional, Set, Tuple
+from typing import Iterable, Optional
 
 from absl import logging
 import geopandas as gpd
@@ -228,11 +228,11 @@ def create_labeling_images(
     examples_pattern: str,
     max_images: int,
     allowed_example_ids_path: str,
-    excluded_import_file_patterns: List[str],
+    excluded_import_file_patterns: list[str],
     output_dir: str,
     use_multiprocessing: bool,
     buffered_sampling_radius: float,
-) -> Tuple[int, Optional[str]]:
+) -> tuple[int, Optional[str]]:
   """Creates PNGs used for labeling from TFRecords.
 
   Also writes an import file in CSV format that is used to upload the images
@@ -359,8 +359,8 @@ def create_labeling_images(
 def _create_labeling_images_from_example_file(
     example_file: str,
     output_dir: str,
-    allowed_example_ids: Set[str],
-    excluded_example_ids: Set[str],
+    allowed_example_ids: set[str],
+    excluded_example_ids: set[str],
     image_paths_queue: queue.Queue[str],
 ) -> None:
   """Creates PNGs used for labeling from TFRecords for a single example_file.
@@ -460,7 +460,7 @@ def create_cloud_labeling_job(
     project: str,
     location: str,
     dataset_name: str,
-    label_classes: List[str],
+    label_classes: list[str],
     import_file_uri: str,
     instruction_uri: str,
     specialist_pool: Optional[str]) -> None:
@@ -544,8 +544,8 @@ def create_specialist_pool(
     project: str,
     location: str,
     display_name: str,
-    manager_emails: List[str],
-    worker_emails: List[str],
+    manager_emails: list[str],
+    worker_emails: list[str],
 ) -> str:
   """Creates a specialist labeling pool in Vertex AI.
 
@@ -581,7 +581,7 @@ def create_specialist_pool(
   return response.name
 
 
-def _read_label_annotations_file(path: str) -> Dict[str, str]:
+def _read_label_annotations_file(path: str) -> dict[str, str]:
   """Reads labels out of annotations file.
 
   For details on annotation file format, see
@@ -621,11 +621,11 @@ def _write_tfrecord(examples: Iterable[Example], path: str) -> None:
 
 
 def get_connection_matrix(
-    longitudes: List[float],
-    latitudes: List[float],
-    encoded_coordinates: List[str],
+    longitudes: list[float],
+    latitudes: list[float],
+    encoded_coordinates: list[str],
     connecting_distance_meters: float,
-)-> Tuple[gpd.GeoDataFrame, np.ndarray]:
+)-> tuple[gpd.GeoDataFrame, np.ndarray]:
   """Gets a connection matrix for a set of points.
 
   Args:
@@ -666,7 +666,7 @@ def get_connection_matrix(
 
 def get_connected_labels(
     connection_matrix: np.ndarray,
-) -> List[str]:
+) -> list[str]:
   """Gets the labels of connected components.
 
   Args:
@@ -685,10 +685,10 @@ def get_connected_labels(
 
 
 def _split_examples(
-    examples: List[Example],
+    examples: list[Example],
     test_fraction: float,
     connecting_distance_meters: float,
-) -> Tuple[List[Example], List[Example]]:
+) -> tuple[list[Example], list[Example]]:
   """Splits a list of examples into training and test sets.
 
   Examples with the same encoded coordinates will always end up in the same
@@ -772,8 +772,8 @@ def get_testset_indices(num_test, list_of_connected_examples):
 
 
 def _merge_single_example_file_and_labels(
-    example_file: str, labels: Dict[str, List[Tuple[str, float, str]]]
-) -> List[Example]:
+    example_file: str, labels: dict[str, list[tuple[str, float, str]]]
+) -> list[Example]:
   """Merges TF records from single example_file with corresponding labels.
 
   Args:
@@ -833,8 +833,8 @@ def _merge_single_example_file_and_labels(
 
 
 def _merge_examples_and_labels(
-    examples_pattern: str,
-    labels: Dict[str, List[Tuple[str, float, str]]],
+    example_patterns: list[str],
+    labels: dict[str, list[tuple[str, float, str]]],
     test_fraction: float,
     train_output_path: str,
     test_output_path: str,
@@ -844,7 +844,7 @@ def _merge_examples_and_labels(
   """Merges examples with labels into train and test TFRecords.
 
   Args:
-    examples_pattern: File pattern for input examples.
+    example_patterns: File patterns for input examples.
     labels: Dictionary of example ids to a list of tuples
         (string label, numeric label, source dataset id).
     test_fraction: Fraction of examples to write to test output.
@@ -854,10 +854,12 @@ def _merge_examples_and_labels(
     use_multiprocessing: If true, create multiple processes to create labeled
       examples.
   """
-  example_files = tf.io.gfile.glob(examples_pattern)
+  example_files = []
+  for pattern in example_patterns:
+    if not (matches := tf.io.gfile.glob(pattern)):
+      raise ValueError(f'File pattern {pattern} did not match anything')
+    example_files.extend(matches)
 
-  if not example_files:
-    raise ValueError(f'File pattern {examples_pattern} did not match anything')
   if not labels:
     raise ValueError(
         'Dictionary of labels is empty. Ensure that the dictionary of'
@@ -905,7 +907,7 @@ def _get_labels_from_dataset(
     project: str,
     location: str,
     dataset_id: str,
-    export_dir: str) -> List[Tuple[str, str, str]]:
+    export_dir: str) -> list[tuple[str, str, str]]:
   """Reads labels from completed cloud labeling job.
 
   Args:
@@ -939,7 +941,7 @@ def _get_labels_from_dataset(
   ]
 
 
-def _read_label_file(path: str) -> List[Tuple[str, str, str]]:
+def _read_label_file(path: str) -> list[tuple[str, str, str]]:
   """Reads a label file.
 
   The file should be a CSV containing at least an "example_id" column
@@ -965,11 +967,11 @@ def _read_label_file(path: str) -> List[Tuple[str, str, str]]:
 def create_labeled_examples(
     project: str,
     location: str,
-    dataset_ids: List[str],
-    label_file_paths: List[str],
-    string_to_numeric_labels: List[str],
+    dataset_ids: list[str],
+    label_file_paths: list[str],
+    string_to_numeric_labels: list[str],
     export_dir: str,
-    examples_pattern: str,
+    example_patterns: list[str],
     test_fraction: float,
     train_output_path: str,
     test_output_path: str,
@@ -985,7 +987,7 @@ def create_labeled_examples(
     string_to_numeric_labels: List of strings in the form
       "<string label>=<numeric label>", e.g. "no_damage=0"
     export_dir: GCS directory to export annotations to.
-    examples_pattern: Pattern for unlabeled examples.
+    example_patterns: Pattern for unlabeled examples.
     test_fraction: Fraction of examples to write to test output.
     train_output_path: Path to training examples TFRecord output.
     test_output_path: Path to test examples TFRecord output.
@@ -1030,7 +1032,7 @@ def create_labeled_examples(
     )
 
   _merge_examples_and_labels(
-      examples_pattern,
+      example_patterns,
       ids_to_labels,
       test_fraction,
       train_output_path,
