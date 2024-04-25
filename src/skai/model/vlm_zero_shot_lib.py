@@ -1,0 +1,318 @@
+"""Library for using Vision-Language for zero-shot evaluation of damage."""
+
+import abc
+import collections
+from typing import Iterator
+
+from big_vision.models.proj.image_text import two_towers
+from big_vision.pp import builder as pp_builder
+# Below unused imports are needed to construct required global variables.
+# pylint:disable=unused-import
+import big_vision.pp.ops_general
+import big_vision.pp.ops_image
+import big_vision.pp.ops_text
+# pylint:enable=unused-import
+
+import flax
+import jax
+import numpy as np
+import pandas as pd
+import tensorflow as tf
+
+
+OUTPUT_FEATURES = [
+    'building_id',
+    'example_id',
+    'int64_id',
+    'plus_code',
+    'label',
+]
+
+
+def _batch_array(
+    array: np.ndarray, batch_size: int = 32
+) -> Iterator[np.ndarray]:
+  """Batch a numpy array.
+
+  Args:
+    array: The input numpy array to be batched with at least one dimension.
+    batch_size: The size of the batch for which the array will be batched.
+
+  Yields:
+    A sequence of batched numpy arrays each with batch size of batch_size.
+    If number of arrays is not dividable then the last array will have a
+    batch size of number_of_arrays % batch_size.
+  """
+  for i in range(0, array.shape[0], batch_size):
+    yield array[i : i + batch_size]
+
+
+class VLM(abc.ABC):
+  """Provide a generic interface for Vision Language models."""
+
+  def __init__(self):
+    self.label_embeddings = None
+
+  @abc.abstractmethod
+  def tokenize(self, texts: list[str]) -> np.ndarray:
+    raise NotImplementedError()
+
+  @abc.abstractmethod
+  def encode_tokens(self, tokens: np.ndarray) -> np.ndarray:
+    raise NotImplementedError()
+
+  @abc.abstractmethod
+  def encode_images(self, images: np.ndarray) -> np.ndarray:
+    raise NotImplementedError()
+
+  @abc.abstractmethod
+  def get_temperature(self) -> float:
+    raise NotImplementedError()
+
+  def set_label_embeddings(
+      self,
+      positive_labels: list[str],
+      negative_labels: list[str]
+  ):
+    """Set label embeddings.
+
+    Args:
+      positive_labels: List of label descriptions of the positive class i.e
+        damaged buildings.
+      negative_labels: List of label descriptions of the negative class i.e
+        undamaged buildings.
+    """
+
+    def _get_embedding(labels):
+      embeddings = []
+      for labels_batch in _batch_array(np.array(labels)):
+        tokens = self.tokenize(labels_batch.tolist())
+        embeddings.append(self.encode_tokens(tokens))
+      embeddings = np.concatenate(embeddings, axis=0)
+      embedding = np.mean(embeddings, axis=0)
+      return embedding
+
+    negative_embedding = _get_embedding(negative_labels)
+    positive_embedding = _get_embedding(positive_labels)
+    self.label_embeddings = np.stack(
+        [positive_embedding, negative_embedding], axis=0
+    )
+
+  def predict(self, images: np.ndarray) -> np.ndarray:
+    """Generate probability scores for a batch of images.
+
+    Args:
+      images: A batch of images.
+
+    Returns:
+      A 2-D array of shape (batch, 2), where the second dimension contains the
+        positive and negative class probabilities respectively.
+
+    Raises:
+     ValueError if the connected device is not TPU or labels are not set.
+    """
+    if self.label_embeddings is None:
+      raise ValueError('Label embeddings are not set.')
+
+    if jax.lib.xla_bridge.get_backend().platform != 'tpu':
+      raise ValueError('Not connected to TPU.')
+
+    batch_size, image_size, _, _ = images.shape
+    num_images_to_augment = 0
+    if batch_size % jax.local_device_count() != 0:
+      num_images_to_augment = jax.local_device_count() - (
+          batch_size % jax.local_device_count()
+      )
+      images_to_augment = np.zeros((num_images_to_augment,) + images.shape[1:])
+      images = np.concatenate([images, images_to_augment], axis=0)
+
+    images = images.reshape(
+        jax.local_device_count(),
+        (batch_size + num_images_to_augment) // jax.local_device_count(),
+        image_size,
+        image_size,
+        3,
+    )
+    image_embeddings = self.encode_images(images)
+    image_embeddings = image_embeddings.reshape(
+        batch_size + num_images_to_augment, -1
+    )[:batch_size, :]
+    sims = image_embeddings @ self.label_embeddings.T * self.get_temperature()
+    probability_scores = np.array(jax.nn.softmax(sims, axis=-1))
+    return probability_scores
+
+
+class WebliViT(VLM):
+  """WebliViT model."""
+
+  def __init__(self, config):
+    """Initialize WebliViT model.
+
+    Args:
+      config: Configuration dict that specifys how the model would be loaded.
+        The configuration dict should have the following fields:
+          - init_shapes: Tuple specifys the expected shape of the image and the
+            tokenized text.
+          - model: Dict specifys which model architecture to load.
+          - model_init:Dict specifys model checkpoints.
+          - evals: Dict specifys preprocessing functions for the image and text.
+    """
+    super().__init__()
+    self.temperature = None
+    (_, image_size, _, _), _ = config.init_shapes
+    self.image_size = image_size
+    self._core_model = two_towers.Model(**config.get('model', {}))
+    self._params = two_towers.load(None, config.model_init, config.model)
+    self._p_params = flax.jax_utils.replicate(self._params)
+    self.preprcoess_txt = pp_builder.get_preprocess_fn(
+        config.evals.pp_txt
+    )
+    self._encode = jax.pmap(
+        lambda params, images: self._core_model.apply(
+            {'params': params}, images, None
+        )[0]
+    )
+
+  def tokenize(self, texts: list[str]) -> np.ndarray:
+    texts = tf.convert_to_tensor(
+        [tf.convert_to_tensor([text]) for text in texts], dtype=tf.string
+    )
+    return tf.map_fn(
+        lambda text: self.preprcoess_txt({'texts': text})['labels'],
+        texts,
+        tf.int32,
+    ).numpy()
+
+  def encode_tokens(self, tokens: np.ndarray) -> np.ndarray:
+    _, ztxt, _ = self._core_model.apply({'params': self._params}, None, tokens)
+    return np.array(ztxt)
+
+  def get_temperature(self) -> float:
+    if self.temperature is None:
+      _, _, out = self._core_model.apply({'params': self._params}, None, None)
+      self.temperature = float(out['t'][0])
+    return self.temperature
+
+  def encode_images(self, images: np.ndarray) -> np.ndarray:
+    embd = self._encode(self._p_params, images)
+    return np.array(embd, np.float32)
+
+
+def create_inference_dataset(
+    image_size: int, pp_img: str, path: str, batch_size: int, image_feature: str
+) -> tf.data.Dataset:
+  """Create dataset for VLM inference.
+
+  Args:
+    image_size: The image size.
+    pp_img: String repersent the preprocessing functions for the image.
+    path: Pattern for the dataset filepaths.
+    batch_size: The size of the batch.
+    image_feature: Example feature to use as input image.
+
+  Returns:
+    dataset: The dataset.
+  """
+  paths = tf.io.gfile.glob(path)
+  dataset = tf.data.Dataset.from_tensor_slices(paths)
+  image_preprocess_fn = pp_builder.get_preprocess_fn(pp_img)
+  dataset = dataset.interleave(
+      tf.data.TFRecordDataset,
+      cycle_length=len(paths),
+      num_parallel_calls=tf.data.AUTOTUNE,
+      block_length=50,
+      deterministic=False,
+  )
+
+  def _parse_examples(record_bytes) -> dict[str, tf.Tensor]:
+    example = tf.io.parse_single_example(
+        record_bytes,
+        {
+            image_feature: tf.io.FixedLenFeature([], tf.string),
+            'example_id': tf.io.FixedLenFeature([], tf.string),
+            'int64_id': tf.io.FixedLenFeature([], tf.int64),
+            'coordinates': tf.io.FixedLenFeature([2], tf.float32),
+            'encoded_coordinates': tf.io.FixedLenFeature([], tf.string),
+            'plus_code': tf.io.FixedLenFeature([], tf.string),
+            'label': tf.io.FixedLenFeature([], tf.float32, -1),
+        },
+    )
+    example['building_id'] = example['encoded_coordinates']
+    image = tf.image.resize(
+        tf.io.decode_image(
+            example[image_feature],
+            channels=3,
+            expand_animations=False,
+            dtype=tf.float32,
+        ),
+        [image_size, image_size],
+    )
+    image = tf.cast(image * 255, tf.uint8)
+    example['image'] = image
+    del example[image_feature]
+    return example
+
+  def image_preprocessing(example):
+    example['image'] = image_preprocess_fn({'image': example['image']})['image']
+    return example
+
+  dataset = (
+      dataset.map(_parse_examples, num_parallel_calls=tf.data.AUTOTUNE)
+      .map(image_preprocessing, num_parallel_calls=tf.data.AUTOTUNE)
+      .batch(batch_size)
+      .prefetch(tf.data.AUTOTUNE)
+  )
+  return dataset
+
+
+def generate_zero_shot_assessment(
+    model_config,
+    positive_labels_file,
+    negative_labels_file,
+    dataset_names,
+    dataset_paths,
+    image_feature,
+    batch_size,
+    output_dir,
+):
+  """Generate zero shot assessment."""
+  model = WebliViT(model_config)
+  with tf.io.gfile.GFile(positive_labels_file, 'r') as f:
+    positive_labels = [label.strip() for label in f.readlines()]
+
+  with tf.io.gfile.GFile(negative_labels_file, 'r') as f:
+    negative_labels = [label.strip() for label in f.readlines()]
+
+  model.set_label_embeddings(positive_labels, negative_labels)
+
+  for dataset_name, dataset_file_path in zip(dataset_names, dataset_paths):
+    image_size = model_config.init_shapes[0][1]
+    dataset = create_inference_dataset(
+        image_size,
+        model_config.evals.pp_img,
+        dataset_file_path,
+        batch_size,
+        image_feature,
+    )
+    result = collections.defaultdict(list)
+    for examples in dataset.as_numpy_iterator():
+      scores = model.predict(examples['image'])
+      result['score'].extend(scores[:, 0])
+      result['longitude'].extend(examples['coordinates'][:, 0])
+      result['latitude'].extend(examples['coordinates'][:, 1])
+      for key in OUTPUT_FEATURES:
+        result[key].extend(examples[key])
+
+    # TODO(mohammedelfatihsalah): Threshold as a flag.
+    threshold = 0.5
+    result['damage'] = [s > threshold for s in result['score']]
+
+    output_df = pd.DataFrame(result)
+    # Convert bytes columns to str
+    for column in output_df.columns:
+      if output_df[column].dtype == np.object_:
+        output_df[column] = output_df[column].str.decode('utf-8')
+    with tf.io.gfile.GFile(
+        f'{output_dir}/{dataset_name}_output.csv', 'w'
+    ) as output_csv_file:
+      output_df.to_csv(output_csv_file, index=False)
