@@ -46,7 +46,8 @@ class ModelType(enum.Enum):
 
 class InferenceRow(NamedTuple):
   """A row in the inference output CSV."""
-  example_id: int | None
+  example_id: str | None
+  int64_id: int | None
   building_id: str | None
   longitude: float | None
   latitude: float | None
@@ -376,7 +377,7 @@ def _merge_examples(
 def _dedup_scored_examples(
     examples: beam.PCollection
 ) -> beam.PCollection:
-  """Deduplications examples by merging those sharing the same coordinates.
+  """Deduplicates examples by merging those sharing the same coordinates.
 
   Args:
     examples: PCollection of examples with scores.
@@ -402,9 +403,9 @@ def _example_id_embeddings(examples: beam.PCollection) -> beam.PCollection:
 
 def _get_example_ids_and_embeddings(
     example: tf.train.Example
-) -> tuple[int, np.ndarray]:
+) -> tuple[str, np.ndarray]:
   try:
-    example_id = utils.get_int64_feature(example, 'int64_id')[0]
+    example_id = utils.get_bytes_feature(example, 'int64_id')[0].decode()
   except IndexError as e:
     raise IndexError('No example_id was found.') from e
   try:
@@ -419,6 +420,7 @@ def run_inference(
     score_feature: str,
     batch_size: int,
     model: InferenceModel,
+    deduplicate: bool,
 ) -> beam.PCollection:
   """Runs inference and augments input examples with inference scores.
 
@@ -427,6 +429,7 @@ def run_inference(
     score_feature: Feature name to use for inference scores.
     batch_size: Batch size.
     model: Inference model to use.
+    deduplicate: If true, examples of the same building are merged.
 
   Returns:
     PCollection of Tensorflow Examples augmented with inference scores.
@@ -441,7 +444,9 @@ def run_inference(
   )
   if score_feature == 'embedding':
     return _example_id_embeddings(scored_examples)
-  return _dedup_scored_examples(scored_examples)
+  if deduplicate:
+    return _dedup_scored_examples(scored_examples)
+  return scored_examples
 
 
 def _key_example_by_encoded_coordinates(
@@ -474,7 +479,8 @@ def example_to_row(
     Inference row.
   """
 
-  example_id = utils.get_int64_feature(example, 'int64_id')[0]
+  example_id = utils.get_bytes_feature(example, 'example_id')[0].decode()
+  int64_id = utils.get_int64_feature(example, 'int64_id')[0]
   building_id = utils.get_bytes_feature(example, 'encoded_coordinates')[
       0
   ].decode()
@@ -505,6 +511,7 @@ def example_to_row(
   return InferenceRow(
       label=label,
       example_id=example_id,
+      int64_id=int64_id,
       building_id=building_id,
       longitude=longitude,
       latitude=latitude,
@@ -766,6 +773,7 @@ def run_tf2_inference_with_csv_output(
     threshold: float,
     high_precision_threshold: float,
     high_recall_threshold: float,
+    deduplicate: bool,
     generate_embeddings: bool,
     pipeline_options,
 ):
@@ -789,6 +797,7 @@ def run_tf2_inference_with_csv_output(
     threshold: Damaged score threshold.
     high_precision_threshold: Damaged score threshold for high precision.
     high_recall_threshold: Damaged score threshold for high recall.
+    deduplicate: If true, examples of the same building are merged.
     generate_embeddings: Generate embeddings.
     pipeline_options: Dataflow pipeline options.
   """
@@ -827,7 +836,7 @@ def run_tf2_inference_with_csv_output(
     )
     inference_feature = 'embedding' if generate_embeddings else 'score'
     scored_examples = run_inference(
-        examples, inference_feature, batch_size, model
+        examples, inference_feature, batch_size, model, deduplicate
     )
     if generate_embeddings:
       embeddings_examples_to_csv(scored_examples, tempfile_prefix)

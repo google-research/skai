@@ -121,6 +121,7 @@ def _create_test_example(
     utils.add_bytes_feature('pre_image_png', image_bytes, example)
     utils.add_bytes_feature('post_image_png', image_bytes, example)
   utils.add_int64_feature('int64_id', 0, example)
+  utils.add_bytes_feature('example_id', b'aaa', example)
   utils.add_float_list_feature('coordinates', [0.0, 0.0], example)
   utils.add_float_list_feature('area_in_meters', [12.0], example)
   utils.add_bytes_list_feature('plus_code', [b'abcdef'], example)
@@ -220,6 +221,7 @@ class InferenceTest(absltest.TestCase):
         df.columns,
         [
             'example_id',
+            'int64_id',
             'building_id',
             'longitude',
             'latitude',
@@ -303,7 +305,7 @@ class InferenceTest(absltest.TestCase):
       batch_size = 4
       model = TestModel(batch_size, id_to_score)
       result = inference_lib.run_inference(
-          examples_collection, 'score', batch_size, model
+          examples_collection, 'score', batch_size, model, False
       )
 
       def _check_examples(examples):
@@ -343,7 +345,7 @@ class InferenceTest(absltest.TestCase):
       batch_size = 4
       model = TestModel(batch_size, id_to_score)
       result = inference_lib.run_inference(
-          examples_collection, 'score', batch_size, model
+          examples_collection, 'score', batch_size, model, True
       )
 
       def _check_examples(examples):

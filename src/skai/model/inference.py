@@ -92,7 +92,7 @@ flags.DEFINE_float(
 flags.DEFINE_float(
     'high_recall_threshold', 0.5, 'Damaged score threshold for high recall.'
 )
-
+flags.DEFINE_bool('deduplicate', True, 'Merge examples of the same building.')
 flags.DEFINE_bool('generate_embeddings', False, 'Generate embeddings.')
 
 
@@ -128,6 +128,7 @@ def main(_) -> None:
       FLAGS.threshold,
       FLAGS.high_precision_threshold,
       FLAGS.high_recall_threshold,
+      FLAGS.deduplicate,
       FLAGS.generate_embeddings,
       pipeline_options,
   )
