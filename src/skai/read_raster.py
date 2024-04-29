@@ -14,21 +14,25 @@
 """Library for reading raster images."""
 
 import dataclasses
+import functools
 import logging
 import time
 from typing import Dict, Iterable, List, Tuple
 
+import affine
 import apache_beam as beam
-import cv2
 import numpy as np
 import pyproj
 import rasterio
 import rasterio.plot
+import rasterio.warp
 import rtree
 import shapely.geometry
 
 from skai import buildings
 from skai import utils
+
+from tqdm import tqdm
 
 Metrics = beam.metrics.Metrics
 Polygon = shapely.geometry.Polygon
@@ -39,20 +43,31 @@ _MAX_PATCH_SIZE = 2048
 
 @dataclasses.dataclass(order=True, frozen=True)
 class _Window:
-  """Class representing a window in pixel coordinates.
+  """Information about a window to extract from a source raster.
 
   Attributes:
     window_id: Arbitrary string identifier for this window.
-    column: Starting column of window.
-    row: Starting row of window.
-    width: Width of window in pixels.
-    height: Height of window in pixels.
+    column: Starting column of source window.
+    row: Starting row of source window.
+    width: Width of source window in pixels.
+    height: Height of source window in pixels.
+    source_crs: CRS of the source image.
+    source_transform: Affine transform of the source window.
+    target_crs: CRS of the target image.
+    target_transform: Affine transform of the target window.
+    target_image_size: Size of target image in pixels.
   """
   window_id: str
   column: int
   row: int
   width: int
   height: int
+
+  source_crs: rasterio.crs.CRS | None = None
+  source_transform: affine.Affine | None = None
+  target_crs: rasterio.crs.CRS | None = None
+  target_transform: affine.Affine | None = None
+  target_image_size: int | None = None
 
   def expand(self, other):
     """Returns a new window that covers this window and another one.
@@ -83,6 +98,21 @@ class _Window:
   def area(self) -> int:
     return self.width * self.height
 
+  def reproject(self, source_image: np.ndarray) -> np.ndarray:
+    """Reprojects image into target CRS."""
+    target_image = np.zeros(
+        (3, self.target_image_size, self.target_image_size), dtype=np.uint8)
+    rasterio.warp.reproject(
+        source_image,
+        target_image,
+        src_transform=self.source_transform,
+        src_crs=self.source_crs,
+        dst_transform=self.target_transform,
+        dst_crs=self.target_crs,
+        resampling=rasterio.warp.Resampling.bilinear,
+    )
+    return target_image
+
 
 class _WindowGroup:
   """A group of windows, covered by an overall window.
@@ -96,53 +126,196 @@ class _WindowGroup:
     self.window = self.window.expand(other)
     self.members.append(other)
 
-  def extract_members(self, group_data: np.ndarray):
-    for i, member in enumerate(self.members):
+  def extract_images(self, group_data: np.ndarray):
+    for member in self.members:
       column_start = member.column - self.window.column
       column_end = column_start + member.width
       row_start = member.row - self.window.row
       row_end = row_start + member.height
-      if column_end > group_data.shape[1] or row_end > group_data.shape[0]:
+      # Note that rasterio uses (channel, row, col) order instead of the usual
+      # (row, col, channel) order.
+      if column_end > group_data.shape[2] or row_end > group_data.shape[1]:
         raise ValueError('Member window exceeds group window bounds.')
-      yield i, group_data[row_start:row_end, column_start:column_end, :]
+      source_image = group_data[:, row_start:row_end, column_start:column_end]
+      yield member.window_id, member.reproject(source_image)
 
 
-def _in_bounds(x: float, y: float, bounds) -> bool:
-  return (bounds.left <= x <= bounds.right and
-          bounds.bottom <= y <= bounds.top)
+@functools.cache
+def _get_transformer(source_crs, target_crs) -> pyproj.Transformer:
+  """Returns a cached Transformer object to optimize runtime."""
+  return pyproj.Transformer.from_crs(source_crs, target_crs, always_xy=True)
+
+
+def _in_bounds(longitude: float, latitude: float, raster) -> bool:
+  """Checks if a longitude, latitude point is in the raster's bounds.
+
+  Args:
+    longitude: Longitude of the point.
+    latitude: Latitude of the point.
+    raster: The raster.
+
+  Returns:
+    True iff (longitude, latitude) lies in the bounds of raster.
+  """
+  transformer = _get_transformer('EPSG:4326', raster.crs)
+  # Map longitude, latitude into the raster's native CRS.
+  x, y = transformer.transform(longitude, latitude, errcheck=True)
+  return ((raster.bounds.left <= x <= raster.bounds.right) and
+          (raster.bounds.bottom <= y <= raster.bounds.top))
+
+
+def _compute_window(
+    raster,
+    window_id: str,
+    longitude: float,
+    latitude: float,
+    target_image_size: int,
+    target_resolution: float,
+) -> _Window:
+  """Computes window information.
+
+  Algorithm for computing source window coordinates:
+
+  1. Select the *target CRS*. This should be the UTM zone for the
+     building centroid. Both the before and after images will be
+     reprojected into this CRS.
+  2. Convert longitude, latitude of the building centroid into the
+     target CRS.
+  3. Find the coordinates in the target CRS of the corners of the NxN
+     pixel window we want to extract. This is easy in UTM coordinates
+     since we know exactly how many meters corresponds to N pixels in
+     the target resolution, so we only need to offset that many meters
+     from the centroid to get the corners.
+  4. Project the corner coordinates into the raster's native CRS (i.e.
+     the source CRS). Then convert these coordinates into row, column
+     coordinates in pixel space. This gives you the window to pass into
+     the raster.read call. Call this the *source window*. Note that the
+     size of the source window may be very different from the size of
+     the target window we requested.
+     - The corner coordinates will also give us the *source transform*,
+       which tells us where the source window is located in the
+       raster's native CRS.
+
+  Later on in the pipeline, the computed source window will be read from the
+  source raster. This image must then be reprojected into the target CRS in
+  order to maintain consistency between the pre-disaster and post-disaster
+  images.
+
+  This reprojection requires the source transform and the *target transform*.
+  The target transform is calculated from the source transform using the
+  function rasterio.warp.calculate_default_transform, and is also included in
+  the returned _Window object.
+
+  Args:
+    raster: Rasterio raster handle.
+    window_id: An id for this window.
+    longitude: Longitude of center of window.
+    latitude: Latitude of center of window.
+    target_image_size: Size of the target image in pixels.
+    target_resolution: Resolution of the target image.
+
+  Returns:
+    All information needed to extract and reproject this window encapsulated
+    in a _Window object.
+  """
+  source_crs = raster.crs
+
+  # First find the corner coordinates of a [window_size] x [window_size] pixel
+  # window in the target CRS. Always use UTM for the target CRS so that
+  # rectangles are easy to derive.
+  target_crs = rasterio.CRS.from_string(
+      utils.convert_wgs_to_utm(longitude, latitude)
+  )
+  transformer = _get_transformer('EPSG:4326', target_crs)
+  x, y = transformer.transform(longitude, latitude, errcheck=True)
+
+  half_box_len_meters = (target_image_size / 2) * target_resolution
+  target_left = x - half_box_len_meters
+  target_right = x + half_box_len_meters
+  target_bottom = y - half_box_len_meters
+  target_top = y + half_box_len_meters
+
+  # Map these coordinates back into the source CRS to get the window
+  # coordinates in that CRS.
+  source_transformer = _get_transformer(target_crs, source_crs)
+  src_left, src_bottom = source_transformer.transform(
+      target_left, target_bottom, errcheck=True)
+  src_right, src_top = source_transformer.transform(
+      target_right, target_top, errcheck=True)
+
+  # Map the source coordinates into pixel space.
+  #
+  # The top-left corner of the image maps to row=0, col=0. So in coordinate
+  # space, the largest y coordinate maps to the smallest row, and the smallest
+  # y coordinate maps to the largest row. This is quite unintuitive, but is the
+  # accepted convention.
+  min_row, min_col = raster.index(src_left, src_top)
+  max_row, max_col = raster.index(src_right, src_bottom)
+  window_width = max_col - min_col
+  window_height = max_row - min_row
+
+  # The source window affine transform should correspond to the top-left
+  # coordinates of the source window.
+  source_transform = affine.Affine(
+      a=raster.transform.a,
+      b=raster.transform.b,
+      c=src_left,
+      d=raster.transform.d,
+      e=raster.transform.e,
+      f=src_top)
+
+  # Compute the target transform.
+  target_transform, _, _ = rasterio.warp.calculate_default_transform(
+      source_crs,
+      target_crs,
+      width=window_width,
+      height=window_height,
+      left=src_left,
+      bottom=src_bottom,
+      top=src_top,
+      right=src_right,
+      resolution=target_resolution)
+
+  return _Window(
+      window_id=window_id,
+      column=min_col,
+      row=min_row,
+      width=window_width,
+      height=window_height,
+      source_crs=source_crs,
+      source_transform=source_transform,
+      target_crs=target_crs,
+      target_transform=target_transform,
+      target_image_size=target_image_size,
+  )
 
 
 def _get_windows(
     raster,
     window_size: int,
+    resolution: float,
     coordinates: Iterable[Tuple[str, float, float]]) -> List[_Window]:
   """Computes windows in pixel coordinates for a raster.
 
   Args:
     raster: Input raster.
     window_size: Size of windows to generate. Windows are always square.
+    resolution: Desired resolution of generated images.
     coordinates: Longitude, latitude centroids of windows.
 
   Returns:
     List of windows.
   """
-  transformer = pyproj.Transformer.from_crs(
-      'epsg:4326', raster.crs, always_xy=True)
-  windows = []
-  for example_id, longitude, latitude in coordinates:
-    x, y = transformer.transform(longitude, latitude, errcheck=True)
-    if not _in_bounds(x, y, raster.bounds):
-      continue
-    row, col = raster.index(x, y)
-    half_size = window_size // 2
-    col_off = col - half_size
-    row_off = row - half_size
-    windows.append(
-        _Window(example_id, col_off, row_off, window_size, window_size))
-  return windows
+  return [
+      _compute_window(
+          raster, example_id, longitude, latitude, window_size, resolution
+      )
+      for example_id, longitude, latitude in tqdm(coordinates)
+      if _in_bounds(longitude, latitude, raster)
+  ]
 
 
-def _group_windows(windows: List[_Window]) -> List[_WindowGroup]:
+def _group_windows(windows: list[_Window]) -> Iterable[_WindowGroup]:
   """Groups overlapping windows to minimize data read from raster.
 
   The current implementation uses a greedy approach. It repeatedly chooses an
@@ -153,11 +326,10 @@ def _group_windows(windows: List[_Window]) -> List[_WindowGroup]:
   Args:
     windows: A list of windows to group.
 
-  Returns:
+  Yields:
     Grouped windows.
   """
 
-  groups = []
   ungrouped = set(range(len(windows)))
   index = rtree.index.Index()
   for i, w in enumerate(windows):
@@ -181,8 +353,7 @@ def _group_windows(windows: List[_Window]) -> List[_WindowGroup]:
           group.add_window(other)
           ungrouped.remove(i)
           changed = True
-    groups.append(group)
-  return groups
+    yield group
 
 
 def _convert_to_uint8(image: np.ndarray) -> np.ndarray:
@@ -206,40 +377,6 @@ def _convert_to_uint8(image: np.ndarray) -> np.ndarray:
         f'Pixel values have a range of {np.min(image)}-{np.max(image)}. '
         'Only 0-255 is supported.')
   return image.astype(np.uint8)
-
-
-def _get_raster_resolution_in_meters(raster) -> float:
-  """Covert different resolution unit into meters.
-
-  Args:
-    raster: Input raster.
-  Returns:
-    Resolution in meters.
-  Raises:
-    ValueError: CRS error
-  """
-  if not np.isclose(raster.res[0], raster.res[1], rtol=0.0001):
-    raise ValueError(
-        f'Expecting identical x and y resolutions, got {raster.res[0]},'
-        f' {raster.res[1]}'
-    )
-  crs = raster.crs
-  try:
-    meter_conversion_factor = crs.linear_units_factor[1]
-  except rasterio.errors.CRSError as e:
-    if crs.to_epsg() == 4326:
-      # Raster resolution is expressed in degrees lon/lat. Convert to
-      # meters with approximation that 1 degree ~ 111km.
-      meter_conversion_factor = 111000
-    else:
-      raise ValueError(
-          f'No linear units factor or unsupported EPSG code, got {e}') from e
-  return raster.res[0] * meter_conversion_factor
-
-
-def _resample_image(image: np.ndarray, patch_size: int) -> np.ndarray:
-  return cv2.resize(
-      image, (patch_size, patch_size), interpolation=cv2.INTER_CUBIC)
 
 
 def _buildings_to_groups(
@@ -267,15 +404,10 @@ def _buildings_to_groups(
   ]
   with rasterio.Env(**gdal_env):
     raster = rasterio.open(raster_path)
-    raster_res = _get_raster_resolution_in_meters(raster)
-    scale_factor = resolution / raster_res
-    window_size = int(patch_size * scale_factor)
-    windows = _get_windows(raster, window_size, coords_with_ids)
-
-  window_groups = _group_windows(windows)
-  logging.info('Grouped %d windows into %d groups.', len(windows),
-               len(window_groups))
-  for group in window_groups:
+    windows = _get_windows(raster, patch_size, resolution, coords_with_ids)
+  Metrics.counter('skai', 'num_windows_created').inc(len(windows))
+  for group in _group_windows(windows):
+    Metrics.counter('skai', 'num_window_groups_created').inc()
     yield raster_path, group
 
 
@@ -336,11 +468,10 @@ class ReadRasterWindowGroupFn(beam.DoFn):
     self._num_groups_read.inc()
 
     window_data = np.clip(window_data, 0, None)
-    window_data = rasterio.plot.reshape_as_image(window_data)
     window_data = _convert_to_uint8(window_data)
-    for i, member_data in group.extract_members(window_data):
-      resampled = _resample_image(member_data, self._target_patch_size)
-      yield (group.members[i].window_id, (raster_path, resampled))
+    for window_id, channel_first_image in group.extract_images(window_data):
+      image = rasterio.plot.reshape_as_image(channel_first_image)
+      yield (window_id, (raster_path, image))
 
 
 def extract_patches_from_rasters(

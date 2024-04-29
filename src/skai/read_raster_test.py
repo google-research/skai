@@ -17,6 +17,7 @@ import pathlib
 import tempfile
 from absl.testing import absltest
 
+import affine
 import apache_beam as beam
 from apache_beam.testing import test_pipeline
 import apache_beam.testing.util as test_util
@@ -53,42 +54,70 @@ class ReadRasterTest(absltest.TestCase):
 
   def test_get_windows(self):
     coordinates = [('a', 178.482925, -16.632893), ('b', 178.482283, -16.632279)]
-    windows = read_raster._get_windows(self.raster, 64, coordinates)
-    expected_windows = [
-        Window(window_id='a', column=114, row=115, width=64, height=64),
-        Window(window_id='b', column=-29, row=-28, width=64, height=64)
-    ]
-    self.assertSameElements(windows, expected_windows)
-
-  def test_get_windows_odd_size(self):
-    coordinates = [('a', 178.482925, -16.632893), ('b', 178.482283, -16.632279)]
-    windows = read_raster._get_windows(self.raster, 63, coordinates)
-    expected_windows = [
-        Window(window_id='a', column=115, row=116, width=63, height=63),
-        Window(window_id='b', column=-28, row=-27, width=63, height=63)
-    ]
-    self.assertSameElements(windows, expected_windows)
+    utm_crs = rasterio.crs.CRS.from_epsg(32760)  # UTM for above coordinates.
+    windows = read_raster._get_windows(self.raster, 64, 0.5, coordinates)
+    self.assertLen(windows, 2)
+    for window in windows:
+      self.assertEqual(window.source_crs, self.raster.crs)
+      self.assertEqual(window.target_crs, utm_crs)
+      if window.window_id == 'a':
+        self.assertEqual(window.column, 113)
+        self.assertEqual(window.row, 113)
+        self.assertEqual(window.width, 66)
+        self.assertEqual(window.height, 68)
+        self.assertTrue(
+            window.source_transform.almost_equals(
+                affine.Affine(0.5, 0.0, 19868611.754, 0.0, -0.5, -1878116.215),
+                precision=1e-3,
+            )
+        )
+        self.assertTrue(
+            window.target_transform.almost_equals(
+                affine.Affine(0.5, 0.0, 658150.285, 0.0, -0.5, 8160485.707),
+                precision=1e-3,
+            )
+        )
+      elif window.window_id == 'b':
+        self.assertEqual(window.column, -30)
+        self.assertEqual(window.row, -29)
+        self.assertEqual(window.width, 66)
+        self.assertEqual(window.height, 67)
+        self.assertTrue(
+            window.source_transform.almost_equals(
+                affine.Affine(0.5, 0.0, 19868540.288, 0.0, -0.5, -1878044.880),
+                precision=1e-3,
+            )
+        )
+        self.assertTrue(
+            window.target_transform.almost_equals(
+                affine.Affine(0.5, 0.0, 658082.301, 0.0, -0.5, 8160554.155),
+                precision=1e-3,
+            )
+        )
 
   def test_get_windows_out_of_bounds(self):
     coordinates = [('a', 178.482925, -16.632893), ('b', 160, -10)]
-    windows = read_raster._get_windows(self.raster, 64, coordinates)
-    expected_windows = [
-        Window(window_id='a', column=114, row=115, width=64, height=64),
-    ]
-    self.assertSameElements(windows, expected_windows)
+    windows = read_raster._get_windows(self.raster, 64, 0.5, coordinates)
+    self.assertLen(windows, 1)
+    self.assertEqual(windows[0].window_id, 'a')
 
   def test_group_windows(self):
     windows = [Window('w1', 0, 0, 256, 256),
                Window('w2', 1, 1, 256, 256),
                Window('w3', 1000, 0, 256, 256)]
-    groups = read_raster._group_windows(windows)
+    groups = list(read_raster._group_windows(windows))
     self.assertLen(groups, 2)
     self.assertLen(windows, sum(len(g.members) for g in groups))
 
   def test_read_window_group(self):
-    group1 = WindowGroup(Window('w1', 17, 31, 72, 72))
-    group1.add_window(Window('w2', 13, 5, 72, 72))
-    group2 = WindowGroup(Window('w3', 0, 0, 32, 32))
+    windows = [
+        read_raster._compute_window(self.raster, 'w1', 0, 0, 64, 0.5),
+        read_raster._compute_window(self.raster, 'w2', 0.0002, 0.0002, 64, 0.5),
+        read_raster._compute_window(self.raster, 'w3', 20, 20, 64, 0.5),
+    ]
+    group1 = WindowGroup(windows[0])
+    group1.add_window(windows[1])
+    group2 = WindowGroup(windows[2])
     with test_pipeline.TestPipeline() as pipeline:
       patches = (
           pipeline
@@ -101,15 +130,15 @@ class ReadRasterTest(absltest.TestCase):
       expected_image_path = self.test_image_path
       def _check_output_patches(patches):
         assert len(patches) == 3, len(patches)
-        assert patches[0][0] == 'w1'
+        assert patches[0][0] == 'w1', patches[0][0]
         assert patches[0][1][0] == expected_image_path
-        assert patches[0][1][1].shape == (64, 64, 3)
-        assert patches[1][0] == 'w2'
+        assert patches[0][1][1].shape == (64, 64, 3), patches[0][1][1].shape
+        assert patches[1][0] == 'w2', patches[1][0]
         assert patches[1][1][0] == expected_image_path
-        assert patches[1][1][1].shape == (64, 64, 3)
-        assert patches[2][0] == 'w3'
+        assert patches[1][1][1].shape == (64, 64, 3), patches[1][1][1]
+        assert patches[2][0] == 'w3', patches[2][0]
         assert patches[2][1][0] == expected_image_path
-        assert patches[2][1][1].shape == (64, 64, 3)
+        assert patches[2][1][1].shape == (64, 64, 3), patches[2][1][1]
 
       test_util.assert_that(patches, _check_output_patches)
 
