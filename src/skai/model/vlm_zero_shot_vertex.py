@@ -10,6 +10,7 @@ from absl import flags
 from skai.model import public_vlm_config
 from skai.model import vlm_zero_shot_lib
 
+import tensorflow as tf
 
 _OUTPUT_DIR = flags.DEFINE_string(
     'output_dir', None, 'Output directory.', required=True
@@ -49,23 +50,29 @@ _IMAGE_FEATURE = flags.DEFINE_string(
 )
 
 _MODEL_VARIANT = flags.DEFINE_string(
-    'model_variant', 'B/16', 'Specifys model variant. Available model variants'
-    ' are "B/16", "L/16", "So400m/14" and "B/16-i18n". Note model_variant'
-    ' supports a specific set of image sizes.'
+    'model_variant', 'So400m/14', 'Specifies model variant. Available model '
+    'variants are "B/16", "L/16", "So400m/14" and "B/16-i18n". Note that each '
+    'model_variant supports a specific set of image sizes.'
 )
 
 _IMAGE_SIZE = flags.DEFINE_integer('image_size', 224, 'Image size.')
 
-OUTPUT_FEATURES = [
-    'building_id',
-    'example_id',
-    'plus_code',
-    'label',
-]
+
+def _check_example_patterns(patterns: list[str]) -> None:
+  if not patterns:
+    raise ValueError('example_patterns cannot be empty.')
+  for pattern in patterns:
+    paths = tf.io.gfile.glob(pattern)
+    if not paths:
+      raise ValueError(
+          f'Examples pattern "{pattern}" does not match any files.'
+      )
 
 
 def main(argv: Sequence[str]) -> None:
   del argv
+
+  _check_example_patterns(_EXAMPLE_PATTERNS.value)
 
   # Get configuration VLM model.
   model_config = public_vlm_config.get_model_config(

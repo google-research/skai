@@ -14,12 +14,46 @@
 
 """Functions to generate docker build instructions."""
 
+import pathlib
+
+from xmanager import xm
+
 GPU_ACCELERATORS = ['P100', 'V100', 'P4', 'T4', 'A100']
 TPU_ACCELERATORS = ['TPU_V2', 'TPU_V3']
 
 CPU_BASE_IMAGE = 'tensorflow/tensorflow:2.14.0'
 GPU_BASE_IMAGE = 'tensorflow/tensorflow:2.14.0-gpu'
 TPU_BASE_IMAGE = 'ubuntu:22.04'
+
+SKAI_DOCKER_INSTRUCTIONS = [
+    'COPY skai /skai',
+    'RUN pip install -r /skai/requirements.txt',
+    'RUN pip install /skai/src/.',
+]
+
+BIG_VISION_DOCKER_INSTRUCTIONS = [
+    'RUN apt-get -y install git',
+    'RUN git clone https://github.com/google-research/big_vision.git',
+    'RUN pip install -r /big_vision/big_vision/requirements.txt',
+    (
+        'RUN echo "from setuptools import setup, find_packages" >>'
+        ' /big_vision/setup.py'
+    ),
+    (
+        'RUN echo \'setup(name="big_vision"'
+        ' ,version="1.0",packages=find_packages())\' >> /big_vision/setup.py'
+    ),
+    'RUN touch /big_vision/big_vision/models/proj/__init__.py',
+    'RUN touch big_vision/big_vision/models/proj/image_text/__init__.py',
+    'RUN touch big_vision/big_vision/datasets/__init__.py',
+    'RUN touch big_vision/big_vision/datasets/imagenet/__init__.py',
+    'RUN pip uninstall big_vision',
+    'RUN pip install /big_vision/.',
+    (
+        'RUN pip install jax[tpu] -f'
+        ' https://storage.googleapis.com/jax-releases/libtpu_releases.html'
+    ),
+]
 
 
 def tpuvm_docker_instructions() -> list[str]:
@@ -51,7 +85,7 @@ def tpuvm_docker_instructions() -> list[str]:
 
 def get_docker_instructions(accelerator: str) -> tuple[str, list[str]]:
   """Returns the docker instructions and base image for `accelerator`."""
-  if accelerator in TPU_ACCELERATORS:
+  if (accelerator == 'tpu') or (accelerator in TPU_ACCELERATORS):
     # Required by TPU vm.
     base_image = TPU_BASE_IMAGE
     # Build can get stuck for a while without this line.
@@ -64,7 +98,7 @@ def get_docker_instructions(accelerator: str) -> tuple[str, list[str]]:
     ]
     docker_instructions += tpuvm_docker_instructions()
 
-  elif accelerator in GPU_ACCELERATORS:
+  elif (accelerator == 'gpu') or (accelerator in GPU_ACCELERATORS):
     # Select a base GPU image. Other options can be found in
     # https://cloud.google.com/deep-learning-containers/docs/choosing-container
     base_image = GPU_BASE_IMAGE
@@ -84,12 +118,38 @@ def get_docker_instructions(accelerator: str) -> tuple[str, list[str]]:
       'RUN apt-get install -y libgl1-mesa-glx libsm6 libxext6 libxrender-dev ' +
       'libglib2.0-0 python-is-python3'
   ]
-  docker_instructions += [
-      'WORKDIR /skai',
-      'COPY skai/requirements.txt /skai/requirements.txt',
-      'RUN pip install --upgrade pip',
-      'RUN pip install --timeout 1000 -r requirements.txt',
-      'COPY skai/ /skai',
-  ]
+  docker_instructions.extend(BIG_VISION_DOCKER_INSTRUCTIONS)
+  docker_instructions.extend(SKAI_DOCKER_INSTRUCTIONS)
 
   return base_image, docker_instructions
+
+
+def get_xm_executable_spec(accelerator: str):
+  """Returns a Xmanager executable spec that can be used to build docker images.
+
+  The image has a default entrypoint that launches a Python script. The script
+  must be specified as the first argument when running the image, followed by
+  all flags that the script expects. Making the script an argument allows the
+  built image to be used to launch any script in the SKAI repo.
+
+  The script path should start with "/skai/src". For example, the following
+  script path is used to run model training: "/skai/src/skai/model/train.py"
+
+  Args:
+    accelerator: The type of accelerator to build the image for (cpu, gpu, tpu).
+
+  Returns:
+    Xmanager executable spec.
+  """
+  source_path = str(pathlib.Path(__file__).parents[3])  # SKAI root directory.
+  base_image, instructions = get_docker_instructions(accelerator)
+  return xm.PythonContainer(
+      path=source_path,
+      base_image=base_image,
+      docker_instructions=instructions,
+      entrypoint=xm.CommandList([
+          'cd /skai',
+          'python $@',
+      ]),
+      use_deep_module=True,
+  )

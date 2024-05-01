@@ -17,6 +17,7 @@ xmanager launch src/skai/model/xm_vlm_zero_shot_vertex.py -- \
 """
 
 from absl import flags
+from skai.model import docker_instructions
 from xmanager import xm
 from xmanager import xm_local
 
@@ -72,80 +73,9 @@ _SOURCE_DIR = flags.DEFINE_string(
     'source_dir', None, 'Path to the dirctory containg the skai source code.'
 )
 
-
-TPU_BASE_IMAGE = 'ubuntu:22.04'
-
-SKAI_DOCKER_INSTRUCTIONS = [
-    'RUN apt-get -y install git',
-    'COPY skai/ /skai',
-    'RUN pip install -r /skai/requirements.txt --timeout 1000',
-    'RUN pip install /skai/src/.',
-]
-
-BIG_VISION_DOCKER_INSTRUCTIONS = [
-    'RUN git clone https://github.com/google-research/big_vision.git',
-    'RUN pip install -r /big_vision/big_vision/requirements.txt',
-    (
-        'RUN echo "from setuptools import setup, find_packages" >>'
-        ' /big_vision/setup.py'
-    ),
-    (
-        'RUN echo \'setup(name="big_vision"'
-        ' ,version="1.0",packages=find_packages())\' >> /big_vision/setup.py'
-    ),
-    'RUN touch /big_vision/big_vision/models/proj/__init__.py',
-    'RUN touch big_vision/big_vision/models/proj/image_text/__init__.py',
-    'RUN touch big_vision/big_vision/datasets/__init__.py',
-    'RUN touch big_vision/big_vision/datasets/imagenet/__init__.py',
-    'RUN pip uninstall big_vision',
-    'RUN pip install /big_vision/.',
-    (
-        'RUN pip install jax[tpu] -f'
-        ' https://storage.googleapis.com/jax-releases/libtpu_releases.html'
-    ),
-]
-
-
-# copied from skai.model.docker_instructions.
-# TODO(mohammedelfatihsalah): Refactor below function to a different location.
-def tpuvm_docker_instructions():
-  """Returns a list of docker commands necessary to use TensorFlow on TPUs.
-
-  Returns:
-    Docker container build commands.
-  """
-  docker_instructions = [
-      'ENV DEBIAN_FRONTEND=noninteractive',
-  ]
-  # Make sure python executable is python3.
-  docker_instructions += [
-      'RUN apt-get update && apt-get install -y python3-pip wget'
-  ]
-  tf_wheel_name = (
-      'tensorflow-2.14.0-cp310-cp310-manylinux_2_17_x86_64.'
-      + 'manylinux2014_x86_64.whl'
-  )
-  tf_wheel_url = (
-      'https://storage.googleapis.com/cloud-tpu-tpuvm-artifacts/'
-      + 'tensorflow/tf-2.14.0/'
-      + tf_wheel_name
-  )
-  tpu_shared_object_url = (
-      'https://storage.googleapis.com/'
-      + 'cloud-tpu-tpuvm-artifacts/libtpu/1.8.0/libtpu.so'
-  )
-  docker_instructions.extend([
-      f'RUN wget {tpu_shared_object_url} -O /lib/libtpu.so',
-      'RUN chmod 700 /lib/libtpu.so',
-      f'RUN wget {tf_wheel_url}',
-      f'RUN pip3 install {tf_wheel_name}',
-      f'RUN rm {tf_wheel_name}',
-  ])
-  docker_instructions.extend([
-      'RUN apt-get install -y libgl1-mesa-glx libsm6 libxext6 libxrender-dev ' +
-      'libglib2.0-0 python-is-python3'
-  ])
-  return docker_instructions
+_DOCKER_IMAGE = flags.DEFINE_string(
+    'docker_image', None, 'Pre-built Docker image to use.'
+)
 
 
 def main(_) -> None:
@@ -153,25 +83,28 @@ def main(_) -> None:
   experiment_name.append(_MODEL_VARIANT.value)
   experiment_name.append(str(_IMAGE_SIZE.value))
   if _DATASET_NAMES.value:
-    experiment_name.extend(_DATASET_NAMES)
+    experiment_name.extend(_DATASET_NAMES.value)
 
   experiment_name = '_'.join(experiment_name)
 
   with xm_local.create_experiment(
       experiment_title=experiment_name
   ) as experiment:
-    instructions = tpuvm_docker_instructions()
-    instructions.extend(SKAI_DOCKER_INSTRUCTIONS)
-    instructions.extend(BIG_VISION_DOCKER_INSTRUCTIONS)
-    executable_spec = xm.PythonContainer(
-        path=_SOURCE_DIR.value,
-        base_image=TPU_BASE_IMAGE,
-        docker_instructions=instructions,
-        entrypoint=xm.CommandList([
-            'python /skai/src/skai/model/vlm_zero_shot_vertex.py $@',
-        ]),
-        use_deep_module=True,
-    )
+    if _DOCKER_IMAGE.value:
+      [train_executable] = experiment.package([
+          xm.container(
+              image_path=_DOCKER_IMAGE.value,
+              executor_spec=xm_local.Vertex.Spec()
+          ),
+      ])
+    else:
+      [train_executable] = experiment.package([
+          xm.Packageable(
+              executable_spec=docker_instructions.get_xm_executable_spec('tpu'),
+              executor_spec=xm_local.Vertex.Spec(),
+          ),
+      ])
+
     resources_args = {
         'TPU_V3': 8,
         'RAM': 64 * xm.GiB,
@@ -182,27 +115,27 @@ def main(_) -> None:
             service_tier=xm.ServiceTier.PROD, **resources_args
         ),
     )
-    [train_executable] = experiment.package([
-        xm.Packageable(
-            executable_spec=executable_spec,
-            executor_spec=xm_local.Vertex.Spec()
-        ),
-    ])
+
+    args = {
+        'model_variant': _MODEL_VARIANT.value,
+        'image_size': _IMAGE_SIZE.value,
+        'example_patterns': ','.join(_EXAMPLE_PATTERNS.value),
+        'output_dir': _OUTPUT_DIR.value,
+        'negative_labels_filepath': _NEGATIVE_LABELS_FILEPATH.value,
+        'positive_labels_filepath': _POSITIVE_LABELS_FILEPATH.value,
+        'batch_size': _BATCH_SIZE.value,
+        'image_feature': _IMAGE_FEATURE.value,
+    }
+    if _DATASET_NAMES.value:
+      args['dataset_names'] = ','.join(_DATASET_NAMES.value)
+    xm_args = xm.merge_args(
+        ['/skai/src/skai/model/vlm_zero_shot_vertex.py'], args
+    )
 
     experiment.add(
         xm.Job(
             executable=train_executable,
-            args={
-                'model_variant': _MODEL_VARIANT.value,
-                'image_size': _IMAGE_SIZE.value,
-                'dataset_names': _DATASET_NAMES.value,
-                'example_patterns': _EXAMPLE_PATTERNS.value,
-                'output_dir': _OUTPUT_DIR.value,
-                'negative_labels_filepath': _NEGATIVE_LABELS_FILEPATH.value,
-                'positive_labels_filepath': _POSITIVE_LABELS_FILEPATH.value,
-                'batch_size': _BATCH_SIZE.value,
-                'image_feature': _IMAGE_FEATURE.value,
-            },
+            args=xm_args,
             executor=executor,
         )
     )

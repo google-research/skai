@@ -12,40 +12,38 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-r"""XM Launcher."""
+r"""XManager launcher for running SKAI training job.
+
+Example command:
+
+xmanager launch src/skai/model/xm_launch_single_model_vertex.py -- \
+    --docker_image=gcr.io/disaster-assessment/skai-ml-tpu:latest \
+    --accelerator=TPU_V3 \
+    --accelerator_count=8 \
+    --config=src/skai/model/configs/skai_two_tower_config.py \
+    --config.data.labeled_train_pattern=$TRAIN_EXAMPLES \
+    --config.data.unlabeled_train_pattern=$TRAIN_EXAMPLES \
+    --config.data.validation_pattern=$TEST_EXAMPLES \
+    --config.output_dir=gs://skai-data/experiments/test_skai \
+    --cloud_location='us-central1' \
+    --experiment_name=test_skai
+"""
 
 import os
 
 from absl import app
 from absl import flags
-from docker_instructions import get_docker_instructions
 from google.cloud import aiplatform_v1beta1 as aip
 from ml_collections import config_flags
+from skai.model import docker_instructions
 from xmanager import xm
 from xmanager import xm_local
 from xmanager.vizier import vizier_cloud
 
-
 parameter_spec = aip.StudySpec.ParameterSpec
-
-'''
-xmanager launch src/skai/model/xm_launch_single_model_vertex.py -- \
-    --xm_wrap_late_bindings \
-    --xm_upgrade_db=True \
-    --config=src/skai/model/configs/skai_config.py \
-    --config.data.tfds_dataset_name=skai_dataset \
-    --config.data.tfds_data_dir=gs://skai-data/hurricane_ian \
-    --config.output_dir=gs://skai-data/experiments/test_skai \
-    --cloud_location='us-central1' \
-    --experiment_name=test_skai \
-    --project_path=~/path/to/skai \
-    --accelerator=V100 \
-    --accelerator_count=1
-'''
 
 
 FLAGS = flags.FLAGS
-flags.DEFINE_string('project_path', '.', 'Path to project')
 flags.DEFINE_string(
     'experiment_name',
     '',
@@ -96,6 +94,8 @@ flags.DEFINE_integer(
 flags.DEFINE_string(
     'tpu', 'local', 'The BNS address of the first TPU worker (if using TPU).'
 )
+flags.DEFINE_string('docker_image', None, 'Pre-built docker image to use.')
+
 config_flags.DEFINE_config_file('config')
 
 
@@ -152,19 +152,23 @@ def main(_) -> None:
           f'{FLAGS.experiment_name} {config.data.name}_{config.model.name}'
       )
   ) as experiment:
-    base_image, docker_instructions = get_docker_instructions(FLAGS.accelerator)
+    if FLAGS.docker_image:
+      [train_executable] = experiment.package([
+          xm.container(
+              image_path=FLAGS.docker_image,
+              executor_spec=xm_local.Vertex.Spec(),
+          ),
+      ])
+    else:
+      [train_executable] = experiment.package([
+          xm.Packageable(
+              executable_spec=docker_instructions.get_xm_executable_spec(
+                  FLAGS.accelerator
+              ),
+              executor_spec=xm_local.Vertex.Spec(),
+          ),
+      ])
 
-    executable_spec = xm.PythonContainer(
-        # Package the current directory that this script is in.
-        path=os.path.expanduser(FLAGS.project_path),
-        base_image=base_image,
-        docker_instructions=docker_instructions,
-        entrypoint=xm.CommandList([
-            'pip install /skai/src/.',
-            'python /skai/src/skai/model/train.py $@',
-        ]),
-        use_deep_module=True,
-    )
     if FLAGS.accelerator is not None:
       if FLAGS.accelerator in ['TPU_V3', 'TPU_V2']:
         if FLAGS.accelerator_count != 8:
@@ -183,26 +187,11 @@ def main(_) -> None:
       resources_args = {'RAM': FLAGS.ram * xm.GiB, 'CPU': FLAGS.cpu * xm.vCPU}
       accelerator_type = 'cpu'
 
-    executor = xm_local.Vertex(
-        requirements=xm.JobRequirements(
-            service_tier=xm.ServiceTier.PROD, **resources_args
-        ),
-    )
-
-    [train_executable] = experiment.package([
-        xm.Packageable(
-            executable_spec=executable_spec,
-            executor_spec=xm_local.Vertex.Spec(),
-            args={
-                'config': config_path,
-                'is_vertex': True,
-                'accelerator_type': accelerator_type,
-                'tpu': FLAGS.tpu
-            },
-        ),
-    ])
-
     job_args = {
+        'config': config_path,
+        'is_vertex': True,
+        'accelerator_type': accelerator_type,
+        'tpu': FLAGS.tpu,
         'config.output_dir': os.path.join(config.output_dir,
                                           str(experiment.experiment_id)),
         'config.train_bias': config.train_bias,
@@ -240,14 +229,21 @@ def main(_) -> None:
     job_args['config.training.save_best_model'] = True
     job_args['config.training.num_epochs'] = config.training.num_epochs
 
+    xm_args = xm.merge_args(['/skai/src/skai/model/train.py'], job_args)
     if FLAGS.cloud_location is None:
       raise ValueError('Google Cloud location is either None or invalid.')
+
+    executor = xm_local.Vertex(
+        requirements=xm.JobRequirements(
+            service_tier=xm.ServiceTier.PROD, **resources_args
+        ),
+    )
 
     if FLAGS.use_vizier:
       vizier_cloud.VizierExploration(
           experiment=experiment,
           job=xm.Job(
-              executable=train_executable, executor=executor, args=job_args
+              executable=train_executable, executor=executor, args=xm_args
           ),
           study_factory=vizier_cloud.NewStudy(
               study_config=get_study_config(),
@@ -262,7 +258,7 @@ def main(_) -> None:
           xm.Job(
               executable=train_executable,
               executor=executor,
-              args=job_args,
+              args=xm_args,
           )
       )
 
