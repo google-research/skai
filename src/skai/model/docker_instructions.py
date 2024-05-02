@@ -149,7 +149,7 @@ def get_xm_executable_spec(accelerator: str):
       docker_instructions=instructions,
       entrypoint=xm.CommandList([
           'cd /skai',
-          'python $@',
+          'eval python $@',  # "eval" is needed to strip a level of quotes off.
       ]),
       use_deep_module=True,
   )
