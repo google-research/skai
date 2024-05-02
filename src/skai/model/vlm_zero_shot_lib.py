@@ -12,9 +12,9 @@ import big_vision.pp.ops_general
 import big_vision.pp.ops_image
 import big_vision.pp.ops_text
 # pylint:enable=unused-import
-
 import flax
 import jax
+import ml_collections
 import numpy as np
 import pandas as pd
 import tensorflow as tf
@@ -27,6 +27,8 @@ OUTPUT_FEATURES = [
     'plus_code',
     'label',
 ]
+
+DAMAGE_THRESHOLD = 0.85
 
 
 def _batch_array(
@@ -48,10 +50,29 @@ def _batch_array(
 
 
 class VLM(abc.ABC):
-  """Provide a generic interface for Vision Language models."""
+  """Provide a generic interface for Vision Language models.
+
+  Attributes:
+    _label_embeddings: The embeddings of the labels, which is a 2-D array of
+      shape (num_labels, embedding_dim).
+    _label_embedding_list: A list of embeddings for each label from which
+      _label_embeddings is constructed.
+  """
 
   def __init__(self):
-    self.label_embeddings = None
+    self._label_embeddings = None
+    self._label_embedding_list = []
+
+  @property
+  def label_embeddings(self) -> np.ndarray:
+    """Get label embeddings."""
+    if self._label_embeddings is not None:
+      return self._label_embeddings
+    elif self._label_embedding_list:
+      self._label_embeddings = np.stack(self._label_embedding_list, axis=0)
+      return self._label_embeddings
+    else:
+      raise ValueError('Label embeddings are not set.')
 
   @abc.abstractmethod
   def tokenize(self, texts: list[str]) -> np.ndarray:
@@ -71,16 +92,12 @@ class VLM(abc.ABC):
 
   def set_label_embeddings(
       self,
-      positive_labels: list[str],
-      negative_labels: list[str]
+      labels: list[str]
   ):
     """Set label embeddings.
 
     Args:
-      positive_labels: List of label descriptions of the positive class i.e
-        damaged buildings.
-      negative_labels: List of label descriptions of the negative class i.e
-        undamaged buildings.
+      labels: List of label descriptions
     """
 
     def _get_embedding(labels):
@@ -92,11 +109,7 @@ class VLM(abc.ABC):
       embedding = np.mean(embeddings, axis=0)
       return embedding
 
-    negative_embedding = _get_embedding(negative_labels)
-    positive_embedding = _get_embedding(positive_labels)
-    self.label_embeddings = np.stack(
-        [positive_embedding, negative_embedding], axis=0
-    )
+    self._label_embedding_list.append(_get_embedding(labels))
 
   def predict(self, images: np.ndarray) -> np.ndarray:
     """Generate probability scores for a batch of images.
@@ -266,24 +279,31 @@ def create_inference_dataset(
 
 
 def generate_zero_shot_assessment(
-    model_config,
-    positive_labels_file,
-    negative_labels_file,
-    dataset_names,
-    dataset_paths,
-    image_feature,
-    batch_size,
-    output_dir,
+    model_config: ml_collections.ConfigDict,
+    label_file_paths: list[str],
+    dataset_names: list[str],
+    dataset_paths: list[str],
+    image_feature: str,
+    batch_size: int,
+    output_dir: str,
 ):
-  """Generate zero shot assessment."""
+  """Generate zero shot assessment.
+
+  Args:
+    model_config: Configuration dict that specifys how the model would be
+        loaded.
+    label_file_paths: List of paths to files containing the labels.
+    dataset_names: List of dataset names.
+    dataset_paths: List of dataset filepaths.
+    image_feature: Example feature to use as input image.
+    batch_size: The size of the batch.
+    output_dir: The output directory.
+  """
   model = WebliViT(model_config)
-  with tf.io.gfile.GFile(positive_labels_file, 'r') as f:
-    positive_labels = [label.strip() for label in f.readlines()]
-
-  with tf.io.gfile.GFile(negative_labels_file, 'r') as f:
-    negative_labels = [label.strip() for label in f.readlines()]
-
-  model.set_label_embeddings(positive_labels, negative_labels)
+  for path in label_file_paths:
+    with tf.io.gfile.GFile(path, 'r') as f:
+      labels = [label.strip() for label in f.readlines()]
+      model.set_label_embeddings(labels)
 
   for dataset_name, dataset_file_path in zip(dataset_names, dataset_paths):
     image_size = model_config.init_shapes[0][1]
@@ -295,17 +315,20 @@ def generate_zero_shot_assessment(
         image_feature,
     )
     result = collections.defaultdict(list)
+    num_classes = len(label_file_paths)
     for examples in dataset.as_numpy_iterator():
       scores = model.predict(examples['image'])
-      result['score'].extend(scores[:, 0])
+      for i in range(num_classes):
+        result[f'score_{i}'].extend(scores[:, i])
+
       result['longitude'].extend(examples['coordinates'][:, 0])
       result['latitude'].extend(examples['coordinates'][:, 1])
       for key in OUTPUT_FEATURES:
         result[key].extend(examples[key])
 
     # TODO(mohammedelfatihsalah): Threshold as a flag.
-    threshold = 0.5
-    result['damage'] = [s > threshold for s in result['score']]
+    # By default, we use the first score to determine the damage.
+    result['damage'] = [s > DAMAGE_THRESHOLD for s in result['score_0']]
 
     output_df = pd.DataFrame(result)
     # Convert bytes columns to str

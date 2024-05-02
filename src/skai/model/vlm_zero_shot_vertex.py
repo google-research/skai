@@ -88,8 +88,7 @@ def main(argv: Sequence[str]) -> None:
 
   vlm_zero_shot_lib.generate_zero_shot_assessment(
       model_config,
-      _POSITIVE_LABELS_FILEPATH.value,
-      _NEGATIVE_LABELS_FILEPATH.value,
+      [_POSITIVE_LABELS_FILEPATH.value, _NEGATIVE_LABELS_FILEPATH.value],
       dataset_names,
       _EXAMPLE_PATTERNS.value,
       _IMAGE_FEATURE.value,
