@@ -73,9 +73,18 @@ _SOURCE_DIR = flags.DEFINE_string(
     'source_dir', None, 'Path to the dirctory containg the skai source code.'
 )
 
+_BUILD_DOCKER_IMAGE = flags.DEFINE_bool(
+    'build_docker_image',
+    False,
+    'If true, build a docker image from source. Otherwise, use a pre-built'
+    ' docker image.',
+)
+
 _DOCKER_IMAGE = flags.DEFINE_string(
     'docker_image', None, 'Pre-built Docker image to use.'
 )
+
+_DEFAULT_DOCKER_IMAGE = 'gcr.io/disaster-assessment/skai-ml-tpu:latest'
 
 
 def main(_) -> None:
@@ -90,18 +99,18 @@ def main(_) -> None:
   with xm_local.create_experiment(
       experiment_title=experiment_name
   ) as experiment:
-    if _DOCKER_IMAGE.value:
-      [train_executable] = experiment.package([
-          xm.container(
-              image_path=_DOCKER_IMAGE.value,
-              executor_spec=xm_local.Vertex.Spec()
-          ),
-      ])
-    else:
+    if _BUILD_DOCKER_IMAGE.value:
       [train_executable] = experiment.package([
           xm.Packageable(
               executable_spec=docker_instructions.get_xm_executable_spec('tpu'),
               executor_spec=xm_local.Vertex.Spec(),
+          ),
+      ])
+    else:
+      [train_executable] = experiment.package([
+          xm.container(
+              image_path=(_DOCKER_IMAGE.value or _DEFAULT_DOCKER_IMAGE),
+              executor_spec=xm_local.Vertex.Spec()
           ),
       ])
 

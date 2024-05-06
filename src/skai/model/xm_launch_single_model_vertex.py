@@ -17,7 +17,6 @@ r"""XManager launcher for running SKAI training job.
 Example command:
 
 xmanager launch src/skai/model/xm_launch_single_model_vertex.py -- \
-    --docker_image=gcr.io/disaster-assessment/skai-ml-tpu:latest \
     --accelerator=TPU_V3 \
     --accelerator_count=8 \
     --config=src/skai/model/configs/skai_two_tower_config.py \
@@ -94,9 +93,19 @@ flags.DEFINE_integer(
 flags.DEFINE_string(
     'tpu', 'local', 'The BNS address of the first TPU worker (if using TPU).'
 )
+flags.DEFINE_bool(
+    'build_docker_image',
+    False,
+    'If true, build a docker image from source. Otherwise, use a pre-built'
+    ' docker image.',
+)
 flags.DEFINE_string('docker_image', None, 'Pre-built docker image to use.')
 
 config_flags.DEFINE_config_file('config')
+
+
+def _get_default_docker_image(accelerator_type: str) -> str:
+  return f'gcr.io/disaster-assessment/skai-ml-{accelerator_type}:latest'
 
 
 def get_study_config() -> aip.StudySpec:
@@ -152,14 +161,20 @@ def main(_) -> None:
           f'{FLAGS.experiment_name} {config.data.name}_{config.model.name}'
       )
   ) as experiment:
-    if FLAGS.docker_image:
-      [train_executable] = experiment.package([
-          xm.container(
-              image_path=FLAGS.docker_image,
-              executor_spec=xm_local.Vertex.Spec(),
-          ),
-      ])
+    if FLAGS.accelerator is None:
+      accelerator_type = 'cpu'
+    elif FLAGS.accelerator in ['P100', 'V100', 'P4', 'T4', 'A100']:
+      accelerator_type = 'gpu'
+    elif FLAGS.accelerator in ['TPU_V3', 'TPU_V2']:
+      accelerator_type = 'tpu'
+      if FLAGS.accelerator_count != 8:
+        raise ValueError(
+            f'The accelerator {FLAGS.accelerator} only support 8 devices.'
+        )
     else:
+      raise ValueError(f'Unknown accelerator {FLAGS.accelerator}')
+
+    if FLAGS.build_docker_image:
       [train_executable] = experiment.package([
           xm.Packageable(
               executable_spec=docker_instructions.get_xm_executable_spec(
@@ -168,24 +183,16 @@ def main(_) -> None:
               executor_spec=xm_local.Vertex.Spec(),
           ),
       ])
-
-    if FLAGS.accelerator is not None:
-      if FLAGS.accelerator in ['TPU_V3', 'TPU_V2']:
-        if FLAGS.accelerator_count != 8:
-          raise ValueError(
-              f'The accelerator {FLAGS.accelerator} only support 8 devices.'
-          )
-        accelerator_type = 'tpu'
-      else:
-        accelerator_type = 'gpu'
-      resources_args = {
-          FLAGS.accelerator: FLAGS.accelerator_count,
-          'RAM': FLAGS.ram * xm.GiB,
-          'CPU': FLAGS.cpu * xm.vCPU,
-      }
     else:
-      resources_args = {'RAM': FLAGS.ram * xm.GiB, 'CPU': FLAGS.cpu * xm.vCPU}
-      accelerator_type = 'cpu'
+      [train_executable] = experiment.package([
+          xm.container(
+              image_path=(
+                  FLAGS.docker_image
+                  or _get_default_docker_image(accelerator_type)
+              ),
+              executor_spec=xm_local.Vertex.Spec(),
+          ),
+      ])
 
     job_args = {
         'config': config_path,
@@ -232,6 +239,10 @@ def main(_) -> None:
     xm_args = xm.merge_args(['/skai/src/skai/model/train.py'], job_args)
     if FLAGS.cloud_location is None:
       raise ValueError('Google Cloud location is either None or invalid.')
+
+    resources_args = {'RAM': FLAGS.ram * xm.GiB, 'CPU': FLAGS.cpu * xm.vCPU}
+    if FLAGS.accelerator:
+      resources_args[FLAGS.accelerator] = FLAGS.accelerator_count
 
     executor = xm_local.Vertex(
         requirements=xm.JobRequirements(
