@@ -82,34 +82,24 @@ def _get_setup_file_path():
   return str(pathlib.Path(__file__).parent.parent / 'setup.py')
 
 
-def _get_dataflow_container_image() -> str | None:
+def _get_dataflow_container_image(accelerator: str) -> str | None:
   """Gets default dataflow image based on Python version.
 
-  Returns:
-    Dataflow container image path.
-  """
-  py_version = '.'.join(platform.python_version().split('.')[:2])
-  if py_version in ['3.10', '3.11']:
-    return f'gcr.io/disaster-assessment/dataflow_{py_version}_image:latest'
-
-  raise ValueError(
-      f'Dataflow SDK supports Python versions 3.10+, not {py_version}'
-  )
-
-
-def _get_gpu_dataflow_container_image() -> str | None:
-  """Gets container image with GPU support based on Python version.
+  Args:
+    accelerator: Type of accelerator. Can only be "cpu" or "gpu" right now.
 
   Returns:
     Dataflow container image path.
   """
+  if accelerator not in ('cpu', 'gpu'):
+    raise ValueError(f'Accelerator must be "cpu" or "gpu", got "{accelerator}"')
   py_version = '.'.join(platform.python_version().split('.')[:2])
-  if py_version in ['3.10', '3.11']:
-    return f'gcr.io/disaster-assessment/inference/skai-inference-python{py_version}-gpu:latest'
+  if py_version not in ['3.10', '3.11']:
+    raise ValueError(
+        f'Dataflow SDK supports Python versions 3.10+, not {py_version}'
+    )
 
-  raise ValueError(
-      f'SKAI supports Python versions 3.10+, not {py_version}'
-  )
+  return f'gcr.io/disaster-assessment/dataflow_{accelerator}_{py_version}_image:latest'
 
 
 def get_pipeline_options(
@@ -180,8 +170,8 @@ def get_pipeline_options(
         f'count:{accelerator_count}',
         'install-nvidia-driver',
     ])
-    options['sdk_container_image'] = _get_gpu_dataflow_container_image()
+    options['sdk_container_image'] = _get_dataflow_container_image('gpu')
   else:
-    options['sdk_container_image'] = _get_dataflow_container_image()
+    options['sdk_container_image'] = _get_dataflow_container_image('cpu')
 
   return PipelineOptions.from_dictionary(options)
