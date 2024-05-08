@@ -28,6 +28,7 @@ import apache_beam.testing.util as test_util
 import geopandas as gpd
 import numpy as np
 import pandas as pd
+import shapely.geometry
 from skai import buildings
 from skai import generate_examples
 import tensorflow as tf
@@ -61,7 +62,7 @@ def _unordered_all_close(list1: list[Any], list2: list[Any]) -> bool:
 
 def _create_buildings_file(
     coordinates: list[tuple[float, float]], output_path: str
-) -> gpd.GeoDataFrame:
+) -> None:
   longitudes = [c[0] for c in coordinates]
   latitudes = [c[1] for c in coordinates]
   gdf = gpd.GeoDataFrame(
@@ -76,7 +77,7 @@ def _create_buildings_file(
 
 def _create_labeled_buildings_file(
     coordinates: list[tuple[float, float, float, str]], output_path: str
-) -> gpd.GeoDataFrame:
+) -> None:
   longitudes = [c[0] for c in coordinates]
   latitudes = [c[1] for c in coordinates]
   labels = [c[2] for c in coordinates]
@@ -96,7 +97,7 @@ def _create_labeled_buildings_file(
 
 def _create_buildings_file_with_plus_code(
     coordinates: list[tuple[float, float]], output_path: str
-) -> gpd.GeoDataFrame:
+) -> None:
   longitudes = [c[0] for c in coordinates]
   latitudes = [c[1] for c in coordinates]
   gdf = gpd.GeoDataFrame(
@@ -108,6 +109,24 @@ def _create_buildings_file_with_plus_code(
       crs=4326,
   )
   buildings.write_buildings_file(gdf, output_path)
+
+
+def _create_labeled_geojson(
+    coordinates: list[tuple[float, float, str]], label_property: str
+) -> None:
+  longitudes = [c[0] for c in coordinates]
+  latitudes = [c[1] for c in coordinates]
+  string_labels = [c[2] for c in coordinates]
+  gdf = gpd.GeoDataFrame(
+      {
+          label_property: string_labels,
+      },
+      geometry=gpd.points_from_xy(longitudes, latitudes),
+      crs=4326,
+  )
+  _, path = tempfile.mkstemp(suffix='.geojson', dir=absltest.TEST_TMPDIR.value)
+  gdf.to_file(path, driver='GeoJSON')
+  return path
 
 
 def _check_examples(
@@ -669,6 +688,40 @@ class GenerateExamplesTest(parameterized.TestCase):
   ):
     generate_examples.validate_image_patterns(before_image_patterns, False)
     generate_examples.validate_image_patterns(after_image_patterns, True)
+
+  def test_read_labels_file(self):
+    label_property = 'damage'
+    labels_file = _create_labeled_geojson(
+        [
+            (37, -122, 'damaged'),
+            (38, -123, 'undamaged'),
+        ],
+        label_property,
+    )
+    labels_to_classes = ['damaged=1', 'undamaged=0']
+    _, output_path = tempfile.mkstemp(dir=absltest.TEST_TMPDIR.value)
+    generate_examples.read_labels_file(
+        labels_file,
+        label_property,
+        labels_to_classes,
+        max_points=0,
+        output_path=output_path,
+    )
+    gdf = gpd.read_parquet(output_path)
+    self.assertLen(gdf, 2)
+    np.testing.assert_array_equal(gdf['longitude'].values, [37, 38])
+    np.testing.assert_array_equal(gdf['latitude'].values, [-122, -123])
+    np.testing.assert_array_equal(
+        gdf['string_label'].values, ['damaged', 'undamaged']
+    )
+    np.testing.assert_array_equal(gdf['label'], [1.0, 0.0])
+    np.testing.assert_array_equal(
+        gdf.geometry.values,
+        [
+            shapely.geometry.Point(37.0, -122.0),
+            shapely.geometry.Point(38.0, -123.0),
+        ],
+    )
 
 
 if __name__ == '__main__':

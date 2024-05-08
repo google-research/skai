@@ -723,20 +723,18 @@ def read_labels_file(
     max_points: Number of labeled examples to keep.
     output_path: Buildings file output path.
   """
-  # Parse labels_to_classes into dictionary format if specified
-  if labels_to_classes:
-    label_to_class_dict = {}
-    for label_to_class in labels_to_classes:
-      if '=' not in label_to_class:
-        raise ValueError(
-            f'Invalid label to class mapping "{label_to_class}",'
-            f'should have form "label=class".')
-      label, numeric_class = label_to_class.split('=')
-      try:
-        label_to_class_dict[label] = float(numeric_class)
-      except TypeError:
-        logging.error('Class %s is not numeric.', numeric_class)
-        raise
+  label_to_class_dict = {}
+  for label_to_class in labels_to_classes:
+    if '=' not in label_to_class:
+      raise ValueError(
+          f'Invalid label to class mapping "{label_to_class}",'
+          f'should have form "label=class".')
+    label, numeric_class = label_to_class.split('=')
+    try:
+      label_to_class_dict[label] = float(numeric_class)
+    except TypeError:
+      logging.error('Class %s is not numeric.', numeric_class)
+      raise
 
   # Generate coordinates from label file
   gdf = gpd.read_file(path)
@@ -760,7 +758,7 @@ def read_labels_file(
 
   output_gdf = gpd.GeoDataFrame(
       {'string_label': string_labels, 'label': float_labels},
-      geometry=gpd.geometry,
+      geometry=gdf.geometry,
   )
   buildings.write_buildings_file(output_gdf, output_path)
 
