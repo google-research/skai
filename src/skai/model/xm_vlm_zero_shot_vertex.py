@@ -49,6 +49,18 @@ _NEGATIVE_LABELS_FILEPATH = flags.DEFINE_string(
     'File path to a text file containing negative labels.',
 )
 
+_CLOUD_LABELS_FILEPATH = flags.DEFINE_string(
+    'cloud_labels_filepath',
+    'gs://skai-public/VLM/cloud_labels.txt',
+    'File path to a text file containing cloud labels.',
+)
+
+_NOCLOUD_LABELS_FILEPATH = flags.DEFINE_string(
+    'nocloud_labels_filepath',
+    'gs://skai-public/VLM/nocloud_labels.txt',
+    'File path to a text file containing nocloud labels.',
+)
+
 _BATCH_SIZE = flags.DEFINE_integer(
     'batch_size', 128, 'Batch size for the inference.'
 )
@@ -132,6 +144,8 @@ def main(_) -> None:
         'output_dir': _OUTPUT_DIR.value,
         'negative_labels_filepath': _NEGATIVE_LABELS_FILEPATH.value,
         'positive_labels_filepath': _POSITIVE_LABELS_FILEPATH.value,
+        'cloud_labels_filepath': _CLOUD_LABELS_FILEPATH.value,
+        'nocloud_labels_filepath': _NOCLOUD_LABELS_FILEPATH.value,
         'batch_size': _BATCH_SIZE.value,
         'image_feature': _IMAGE_FEATURE.value,
     }

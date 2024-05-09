@@ -280,7 +280,10 @@ def create_inference_dataset(
 
 def generate_zero_shot_assessment(
     model_config: ml_collections.ConfigDict,
-    label_file_paths: list[str],
+    damage_label_file_path: str,
+    undamage_label_file_path: str,
+    cloud_label_file_path: str,
+    nocloud_label_file_path: str,
     dataset_names: list[str],
     dataset_paths: list[str],
     image_feature: str,
@@ -291,14 +294,29 @@ def generate_zero_shot_assessment(
 
   Args:
     model_config: Configuration dict that specifys how the model would be
-        loaded.
-    label_file_paths: List of paths to files containing the labels.
+      loaded.
+    damage_label_file_path: Path to file containing the text descriptions of
+      damage buildings. Each description is separated by a new line.
+    undamage_label_file_path: Path to file containing the text descriptions of
+      undamaged buildings. Each description is separated by a new line.
+    cloud_label_file_path: Path to file containing the text descriptions of
+      buildings covered by clouds. Each description is separated by a new line.
+    nocloud_label_file_path: Path to file containing the text descriptions of
+      buildings not covered by clouds. Each description is separated by a new
+      line.
     dataset_names: List of dataset names.
     dataset_paths: List of dataset filepaths.
     image_feature: Example feature to use as input image.
     batch_size: The size of the batch.
     output_dir: The output directory.
   """
+
+  label_file_paths = [
+      damage_label_file_path,
+      undamage_label_file_path,
+      cloud_label_file_path,
+      nocloud_label_file_path,
+  ]
   model = WebliViT(model_config)
   for path in label_file_paths:
     with tf.io.gfile.GFile(path, 'r') as f:
@@ -315,20 +333,32 @@ def generate_zero_shot_assessment(
         image_feature,
     )
     result = collections.defaultdict(list)
-    num_classes = len(label_file_paths)
     for examples in dataset.as_numpy_iterator():
       scores = model.predict(examples['image'])
-      for i in range(num_classes):
-        result[f'score_{i}'].extend(scores[:, i])
+      # Normalize damage and cloud scores to be in the range of [0, 1].
+      damage_normalizer = scores[:, 0] + scores[:, 1]
+      cloud_normalizer = scores[:, 2] + scores[:, 3]
+      scores[:, 0] /= damage_normalizer
+      scores[:, 1] /= damage_normalizer
+      scores[:, 2] /= cloud_normalizer
+      scores[:, 3] /= cloud_normalizer
+      # Sanity check.
+      assert (
+          np.allclose(1, scores[:, 0] + scores[:, 1])
+      ), 'scores should sum to 1'
+      assert (
+          np.allclose(1, scores[:, 2] + scores[:, 3])
+      ), 'scores should sum to 1'
 
+      result['damage_score'].extend(scores[:, 0])
+      result['cloud_score'].extend(scores[:, 2])
       result['longitude'].extend(examples['coordinates'][:, 0])
       result['latitude'].extend(examples['coordinates'][:, 1])
       for key in OUTPUT_FEATURES:
         result[key].extend(examples[key])
 
     # TODO(mohammedelfatihsalah): Threshold as a flag.
-    # By default, we use the first score to determine the damage.
-    result['damage'] = [s > DAMAGE_THRESHOLD for s in result['score_0']]
+    result['damage'] = [s > DAMAGE_THRESHOLD for s in result['damage_score']]
 
     output_df = pd.DataFrame(result)
     # Convert bytes columns to str
