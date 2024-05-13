@@ -282,11 +282,40 @@ def create_labeling_images(
         dict[tuple[float, float], float]
     ] = None,
     scores_path: Optional[str] = None,
-) -> tuple[int, Optional[str]]:
-  """Creates PNGs used for labeling from TFRecords.
+) -> int:
+  """Samples labeling examples and creates PNG images for the labeling task.
 
-  Also writes an import file in CSV format that is used to upload the images
-  into the VertexAI labeling tool.
+  Example sampling works in 3 possible modes, depending on the parameters
+  specified:
+  - If allowed_example_ids_path is provided, then choose the examples with the
+    example ids specified in this file. No random sampling occurs.
+  - If scores_path is provided, then read the scores for examples from this file
+    and sample the examples based on their scores. The rate at which different
+    score ranges are sampled can be specified in the
+    score_bins_to_sample_fraction parameter.
+  - If neither of the above parameters are provided, then sample uniformly from
+    all examples.
+
+  For all 3 sampling modes, the parameter excluded_import_file_patterns can be
+  provided to prevent sampling examples with specific example ids.
+
+  This function will write 3 kinds of files to the output directory:
+  - A set of PNG images for use in the labeling task. The files will be named
+    after the example id of each example.
+  - A text file containing the absolute paths of all the generated PNG files.
+    This file can be used as the "import file" to specify which images to
+    upload to the Vertex AI labeling service. This file will be named
+    "import_file.csv", although it is not actually in CSV format, as it does not
+    contain a header.
+  - A CSV file with metadata information about each chosen example. The columns
+    in this file are:
+    - id: The int64 id of the example.
+    - int64_id: The int64 id of the example (repeated for convenience).
+    - example_id: The string example id of the example.
+    - image: The path to the image file, in the format "file://<filepath>".
+    - image_source_path: The path to the image file, without the "file://"
+      prefix. Repeated for convenience.
+    - tfrecord_source_path: Path to the TFRecord file that contains the example.
 
   Args:
     examples_pattern: File pattern for input TFRecords.
@@ -309,8 +338,7 @@ def create_labeling_images(
     scores_path: File containing scores obtained from pre-trained models.
 
   Returns:
-    Tuple of number of images written, and labeling service agnostic import
-    file.
+    Number of images written.
   """
   if scores_path and allowed_example_ids_path:
     raise ValueError(
@@ -330,7 +358,12 @@ def create_labeling_images(
         excluded_example_ids.update(_read_example_ids_from_import_file(path))
     logging.info('Excluding %d example ids', len(excluded_example_ids))
 
-  if scores_path:
+  if allowed_example_ids_path:
+    with tf.io.gfile.GFile(allowed_example_ids_path, 'r') as f:
+      allowed_example_ids = set(line.strip() for line in f)
+    logging.info('Allowing %d example ids', len(allowed_example_ids))
+    allowed_example_ids = allowed_example_ids - excluded_example_ids
+  elif scores_path:
     allowed_example_ids = []
     with tf.io.gfile.GFile(scores_path, 'r') as f:
       scores_df = pd.read_csv(f)
@@ -349,11 +382,6 @@ def create_labeling_images(
         example_ids = list(df_example_ids['example_id'])
         random.shuffle(example_ids)
         allowed_example_ids.extend(example_ids[:num_examples])
-  elif allowed_example_ids_path:
-    with tf.io.gfile.GFile(allowed_example_ids_path, 'r') as f:
-      allowed_example_ids = set(line.strip() for line in f)
-    logging.info('Allowing %d example ids', len(allowed_example_ids))
-    allowed_example_ids = allowed_example_ids - excluded_example_ids
   else:
     allowed_example_ids = get_buffered_example_ids(
         examples_pattern,
@@ -372,14 +400,10 @@ def create_labeling_images(
       _create_labeling_images_from_example_file,
   )
 
-  if not all_images:
-    return 0, None
-
   image_metadata_csv = os.path.join(
       output_dir, 'image_metadata.csv'
   )
 
-  num_images = len(all_images)
   with tf.io.gfile.GFile(image_metadata_csv, 'w') as f:
     f.write(
         'id,int64_id,example_id,image,image_source_path,tfrecord_source_path\n'
@@ -389,7 +413,13 @@ def create_labeling_images(
           f'{int64_id},{int64_id},{example_id},'
           + f'file://{image_path},{image_path},{tfrecord_source_path}\n'
       )
-  return num_images, image_metadata_csv
+
+  import_file_csv = os.path.join(output_dir, 'import_file.csv')
+  with tf.io.gfile.GFile(import_file_csv, 'w') as f:
+    for _, _, image_path, _ in all_images:
+      f.write(f'{image_path}\n')
+
+  return len(all_images)
 
 
 def create_buffered_tfrecords(
@@ -459,11 +489,11 @@ def _process_example_files(
     max_processes: int,
     allowed_example_ids: set[str],
     processing_function: Callable[[str, str, set[str]], list[Any]],
-) -> list[tuple[int, str, str, str]]:
-  """Process TFrecords.
+) -> list[Any]:
+  """Run a processing function on a list of files.
 
-  This processing done using either multiprocessing or a sequential single
-  process.
+  Supports processing the files in parallel using multi-processing or
+  sequentially.
 
   Args:
     example_files: List of input TFRecords.
@@ -478,7 +508,7 @@ def _process_example_files(
     processing_function: Function to be executed.
 
   Returns:
-    Tuple of number of images written, and labeling service agnostic import
+    Concatenated list of results from running the processing function on each
     file.
   """
   all_results = []

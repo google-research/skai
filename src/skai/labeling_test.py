@@ -221,14 +221,29 @@ class LabelingTest(absltest.TestCase):
           78.0,
       )
 
-      df_labeling_images = pd.read_csv(f'{output_dir}/image_metadata.csv')
       self.assertCountEqual(
-          df_labeling_images['example_id'],
+          os.listdir(f'{output_dir}/'),
+          [
+              'a.png',
+              'b.png',
+              'e.png',
+              'image_metadata.csv',
+              'import_file.csv',
+          ],
+      )
+
+      image_metadata = pd.read_csv(f'{output_dir}/image_metadata.csv')
+      self.assertCountEqual(
+          image_metadata['example_id'],
           allowed_example_ids,
       )
+
+      import_file_df = pd.read_csv(
+          f'{output_dir}/import_file.csv', names=['path']
+      )
       self.assertCountEqual(
-          set(os.listdir(f'{output_dir}/')),
-          set(['a.png', 'b.png', 'e.png', 'image_metadata.csv']),
+          import_file_df['path'].values,
+          [f'{output_dir}/a.png', f'{output_dir}/b.png', f'{output_dir}/e.png'],
       )
 
   def testCreateLabeledExamplesFromLabelFile(self):

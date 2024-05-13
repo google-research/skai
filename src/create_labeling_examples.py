@@ -144,7 +144,7 @@ def main(unused_argv):
       FLAGS.score_bins_to_sample_fraction
   )
 
-  num_images, images_to_label_import_csv_path = labeling.create_labeling_images(
+  num_images = labeling.create_labeling_images(
       FLAGS.examples_pattern,
       FLAGS.max_images,
       FLAGS.allowed_example_ids_path,
@@ -163,9 +163,6 @@ def main(unused_argv):
     return
 
   logging.info('Wrote %d labeling images.', num_images)
-  logging.info(
-      'Wrote images to label import file %s.', images_to_label_import_csv_path
-  )
 
 if __name__ == '__main__':
   app.run(main)
