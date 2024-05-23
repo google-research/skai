@@ -48,14 +48,17 @@ flags.DEFINE_string(
 flags.DEFINE_string(
     'output_dir', None, 'Directory to write images to.', required=True
 )
-flags.DEFINE_list('exclude_import_file_patterns', [],
-                  'File patterns for import files listing images not to '
-                  'generate.')
+flags.DEFINE_list(
+    'exclude_import_file_patterns',
+    [],
+    'File patterns for import files listing images not to generate.',
+)
 flags.DEFINE_integer('max_images', 1000, 'Maximum number of images to label.')
 flags.DEFINE_string(
     'allowed_example_ids_path',
     None,
-    'If specified, only allow example ids found in this text file.')
+    'If specified, only allow example ids found in this text file.',
+)
 flags.DEFINE_bool(
     'use_multiprocessing',
     True,
@@ -90,6 +93,14 @@ flags.DEFINE_string(
     ' should be drawn from each bin. The value should be a string representing'
     ' a literal Python dict of tuples (low score, high score) to a fraction'
     ' from 0 - 1.0. The fractions should sum to 1.0.',
+)
+
+flags.DEFINE_string(
+    'filter_by_column',
+    None,
+    'If specified, the name of the column in the scores CSV file to use as a'
+    ' filter. The column must contain binary values, either true/false or 0/1.'
+    ' Rows with positive values in this column are then filtered out.',
 )
 
 
@@ -156,6 +167,7 @@ def main(unused_argv):
       FLAGS.buffered_sampling_radius,
       score_bins_to_sample_fraction,
       FLAGS.scores_path,
+      FLAGS.filter_by_column,
   )
 
   if num_images == 0:
@@ -163,6 +175,7 @@ def main(unused_argv):
     return
 
   logging.info('Wrote %d labeling images.', num_images)
+
 
 if __name__ == '__main__':
   app.run(main)

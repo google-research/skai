@@ -219,6 +219,7 @@ class LabelingTest(absltest.TestCase):
           None,
           4,
           78.0,
+          None,
       )
 
       self.assertCountEqual(

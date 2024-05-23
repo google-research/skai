@@ -278,10 +278,9 @@ def create_labeling_images(
     multiprocessing_context: Any,
     max_processes: int,
     buffered_sampling_radius: float,
-    score_bins_to_sample_fraction: Optional[
-        dict[tuple[float, float], float]
-    ] = None,
+    score_bins_to_sample_fraction: dict[tuple[float, float], float],
     scores_path: Optional[str] = None,
+    filter_by_column: Optional[str] = None,
 ) -> int:
   """Samples labeling examples and creates PNG images for the labeling task.
 
@@ -336,6 +335,10 @@ def create_labeling_images(
     score_bins_to_sample_fraction: Dictionary of bins for selecting labeling
       examples.
     scores_path: File containing scores obtained from pre-trained models.
+    filter_by_column: If specified, the name of the column in the scores CSV
+      file to use as a filter. The column must contain binary values, either
+      true/false or 0/1. Rows with positive values in this column are then
+      filtered out.
 
   Returns:
     Number of images written.
@@ -367,21 +370,33 @@ def create_labeling_images(
     allowed_example_ids = []
     with tf.io.gfile.GFile(scores_path, 'r') as f:
       scores_df = pd.read_csv(f)
+      if 'damage_score' not in scores_df.columns:
+        raise ValueError(f'damage_score column not found in {scores_path}')
       scores_df = scores_df[~scores_df['example_id'].isin(excluded_example_ids)]
 
     num_total_images = min(max_images, len(scores_df))
-    if score_bins_to_sample_fraction:
-      for (
-          low,
-          high,
-      ), percentage_examples in score_bins_to_sample_fraction.items():
-        num_examples = int(percentage_examples * num_total_images)
-        df_example_ids = scores_df[
-            (scores_df['score'] >= low) & (scores_df['score'] < high)
-        ]
-        example_ids = list(df_example_ids['example_id'])
-        random.shuffle(example_ids)
-        allowed_example_ids.extend(example_ids[:num_examples])
+    for (
+        low,
+        high,
+    ), percentage_examples in score_bins_to_sample_fraction.items():
+      num_examples = int(percentage_examples * num_total_images)
+      df_example_ids = scores_df[
+          (scores_df['damage_score'] >= low)
+          & (scores_df['damage_score'] < high)
+      ]
+      example_ids = list(df_example_ids['example_id'])
+      random.shuffle(example_ids)
+      allowed_example_ids.extend(example_ids[:num_examples])
+    if filter_by_column:
+      if filter_by_column not in scores_df.columns:
+        raise ValueError(
+            f'{filter_by_column} column not found in {scores_path}'
+        )
+      filtered_df = scores_df[scores_df[filter_by_column] == 0]
+      allowed_example_ids.extend(
+          list(filtered_df['example_id'])
+      )
+
   else:
     allowed_example_ids = get_buffered_example_ids(
         examples_pattern,
