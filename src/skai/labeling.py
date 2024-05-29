@@ -372,6 +372,12 @@ def create_labeling_images(
       scores_df = pd.read_csv(f)
       if 'damage_score' not in scores_df.columns:
         raise ValueError(f'damage_score column not found in {scores_path}')
+      if filter_by_column:
+        if filter_by_column not in scores_df.columns:
+          raise ValueError(
+              f'{filter_by_column} column not found in {scores_path}'
+          )
+        scores_df = scores_df[scores_df[filter_by_column] == 0]
       scores_df = scores_df[~scores_df['example_id'].isin(excluded_example_ids)]
 
     num_total_images = min(max_images, len(scores_df))
@@ -387,15 +393,6 @@ def create_labeling_images(
       example_ids = list(df_example_ids['example_id'])
       random.shuffle(example_ids)
       allowed_example_ids.extend(example_ids[:num_examples])
-    if filter_by_column:
-      if filter_by_column not in scores_df.columns:
-        raise ValueError(
-            f'{filter_by_column} column not found in {scores_path}'
-        )
-      filtered_df = scores_df[scores_df[filter_by_column] == 0]
-      allowed_example_ids.extend(
-          list(filtered_df['example_id'])
-      )
 
   else:
     allowed_example_ids = get_buffered_example_ids(
