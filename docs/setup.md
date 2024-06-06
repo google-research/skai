@@ -22,6 +22,7 @@ SKAI uses the following Cloud services, so they must be [enabled](https://cloud.
 *   [Dataflow](https://console.cloud.google.com/apis/library/dataflow.googleapis.com) - Needed for pre-processing data.
 *   [Vertex AI](https://console.cloud.google.com/apis/library/aiplatform.googleapis.com) - Needed for example labeling, model training, and model inference.
 *   [Compute Engine](https://console.cloud.google.com/apis/library/compute.googleapis.com) - Needed for running virtual machines.
+*   [Cloud Build](https://console.developers.google.com/apis/api/cloudbuild.googleapis.com) - Needed for building containers for model training.
 
 
 ### Enable Google Private Access in Subnets

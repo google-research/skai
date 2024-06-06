@@ -16,6 +16,7 @@ Before starting the assessment, please set a few environment variables to stream
 $ export PROJECT=<your cloud project>
 $ export LOCATION=<cloud location, e.g. us-central1>
 $ export SERVICE_ACCOUNT=<service account email>
+$ export PYTHONPATH=<skai source directory>:$PYTHONPATH
 ```
 
 
@@ -219,157 +220,90 @@ $ python create_labeled_dataset.py \
   --cloud_location=$LOCATION \
   --cloud_dataset_ids=<id>
   --cloud_temp_dir=gs://$BUCKET/temp \
-  --examples_pattern=gs://$BUCKET/examples/test_run/examples/unlabeled/*.tfrecord \
+  --examples_pattern=gs://$BUCKET/examples/test_run/examples/unlabeled-large/*.tfrecord \
   --train_output_path=gs://$BUCKET/examples/labeled_train_examples.tfrecord \
   --test_output_path=gs://$BUCKET/examples/labeled_test_examples.tfrecord
 ```
 
 
-This will generate two TFRecord files, one containing examples for training and one containing examples for testing. By default, 20% of labeled examples are put into the test set, and the rest go into the training set. This can be changed with the `--test_fraction` flag in the above command.
+This will generate two TFRecord files, one containing examples for training and
+one containing examples for testing. By default, 20% of labeled examples are put
+into the test set, and the rest go into the training set. This can be changed
+with the `--test_fraction` flag in the above command.
 
 
 ## Step 8: Train the Model
 
-**Create a Tensorboard resource instance**:
-
-
-```
-$ gcloud ai tensorboards create –display-name <Tensorboard name>
-
-Using endpoint [https://us-central1-aiplatform.googleapis.com/]
-Waiting for operation [999391182737489573628]...done.
-Created Vertex AI Tensorboard: projects/123456789012/locations/us-central1/tensorboards/874419473951.
-```
-
-
-The last line of the output is the tensorboard resource name. Pass this value into the flag `--tensorboard_resource_name `flag in the commands below.
-
 **Start the training job:**
 
-Give this experiment a name by passing it through the `--dataset_name `flag and replacing `train_dir_name` in the `--train_dir `flag.
-
-
-```
-$ python launch_vertex_job.py \
---project=$PROJECT \
---location=$LOCATION \
---job_type=train \
---display_name=train_job \
---train_docker_image_uri_path=gcr.io/disaster-assessment/ssl-train-uri \
---tensorboard_resource_name=<tensorboard resource name> \
---service_account=$SERVICE_ACCOUNT \
---dataset_name=dataset_name \
---train_dir=gs://$BUCKET/models/train_dir_name \
---train_label_examples=gs://$BUCKET/examples/labeled_train_examples.tfrecord \
---train_unlabel_examples=gs://$BUCKET/examples/test_run/examples/unlabeled/*.tfrecord \
---test_examples=gs://$BUCKET/examples/labeled_test_examples.tfrecord
-```
-
-
-**Start the eval job:**
-
-This job will continuously evaluate the model on the test dataset and visualize the metrics in the tensorboard.
-
+Run the following command to start the training job.
+Please edit the flag values as appropriate for your setup.
 
 ```
-$ python launch_vertex_job.py \
---project=$PROJECT \
---location=$LOCATION \
---job_type=eval \
---display_name=eval_job \
---eval_docker_image_uri_path=gcr.io/disaster-assessment/ssl-eval-uri \
---service_account=$SERVICE_ACCOUNT \
---dataset_name=dataset_name \
---train_dir=gs://$BUCKET/models/train_dir_name \
---train_label_examples=gs://$BUCKET/examples/labeled_train_examples.tfrecord \
---train_unlabel_examples=gs://$BUCKET/examples/test_run/examples/unlabeled/*.tfrecord \
---test_examples=gs://$BUCKET/examples/labeled_test_examples.tfrecord
+$ xmanager launch src/skai/model/xm_launch_single_model_vertex.py -- \
+  --config=src/skai/model/configs/skai_two_tower_config.py \
+  --config.data.adhoc_config_name=my_dataset \
+  --config.data.labeled_train_pattern=gs://$BUCKET/examples/labeled_train_examples.tfrecord \
+  --config.data.unlabeled_train_pattern=gs://$BUCKET/examples/labeled_train_examples.tfrecord \
+  --config.data.validation_pattern=gs://$BUCKET/examples/labeled_test_examples.tfrecord \
+  --config.output_dir=gs://$BUCKET/models/train_dir \
+  --config.training.num_epochs=50 \
+  --experiment_name=skai_model_training \
+  --cloud_location=$LOCATION \
+  --project_path"=$(pwd)"
 ```
 
-Once you see the evaluation job running, you can monitor the training progress on Tensorboard.
+If you wish to use GPU accelerators for training (recommended), add the
+following two flags to the end of the command:
 
-Point your web browser to the [Vertex AI custom training jobs console](https://console.cloud.google.com/vertex-ai/training/custom-jobs). You should see your job listed here. Click on the job, then click the “Open Tensorboard” button at the top.
+`--accelerator=T4 --accelerator_count=1`
 
-![Open Tensorboard Screenshot](https://storage.googleapis.com/skai-public/documentation_images/open_tensorboard.png "Open Tensorboard")
+Other possible GPU accelerators are: `P100`, `V100`, `P4`, `T4`, `A100`.
 
-**Note:** Tensorboards cost money to maintain. See [this page](https://cloud.google.com/vertex-ai/pricing) under the section "Vertex AI TensorBoard" for the actual cost. To save on Cloud billing, you should remove old Tensorboard instances once the model is trained. Tensorboard instances can be found and deleted on this [Cloud console page](https://console.cloud.google.com/vertex-ai/experiments/tensorboard-instances).
+If you wish to use TPU accelerators for training, add the following two flags to
+the end of the command.
 
+`--accelerator=TPU_V2 --accelerator_count=8`
+
+Once this command completes, point your web browser to the Vertex AI custom
+training jobs
+[console](https://console.cloud.google.com/vertex-ai/training/custom-jobs).
+You should see your job listed here.
 
 ## Step 9: Generate damage assessment file
 
 Run inference to get the model’s predictions on all buildings in the area of interest.
 
-
 ```
-$ python3 launch_vertex_job.py \
-  --project=$PROJECT \
-  --location=$LOCATION \
-  --job_type=eval \
-  --display_name=inference \
-  --eval_docker_image_uri_path=gcr.io/disaster-assessment/ssl-eval-uri \
-  --service_account=$SERVICE_ACCOUNT \
-  --dataset_name=dataset_name \
-  --train_dir=gs://$BUCKET/models/train_dir_name \
-  --test_examples=gs://$BUCKET/examples/labeled_test_examples.tfrecord \
-  --inference_mode=True \
-  --save_predictions=True
+$ python skai/model/inference.py \
+  --examples_pattern=gs://$BUCKET/examples/test_run/examples/unlabeled/*.tfrecord \
+  --output_path=gs://$BUCKET/model_output.csv \
+  --model_dir=gs://$BUCKET/models/train_dir/epoch-50-aucpr-0.812 \
+  --use_dataflow \
+  --cloud_project=$PROJECT \
+  --cloud_region=$LOCATION \
+  --dataflow_temp_dir='gs://$BUCKET/dataflow-temp' \
+  --worker_service_account=$SERVICE_ACCOUNT
 ```
 
+**Please note that you will need to change the model_dir flag to the appropriate path based on the contents of your output directory.**
 
-**Note:** If you would like to run inference using a specific checkpoint, use the `--eval_ckpt `flag. Example: `--eval_ckpt=gs://$BUCKET/models/train_dir_name/checkpoints/model.ckpt-00851968`. Do NOT include the extension, e.g. ‘.meta’, ‘.data’, or ‘.index’, and only use the prefix.
+This will launch a DataFlow job that runs model inference.
+You can see the job in the [Cloud console](https://console.cloud.google.com/dataflow/jobs).
 
-The predictions will be saved in a directory called `gs://$BUCKET/models/train_dir_name/predictions `as GeoJSON files. The number in each filename refers to the epoch of the checkpoint.
+If you wish to use GPU accelerators to run inference, add the following flags
+to the above command.
 
+```
+  --max_dataflow_workers=4 \
+  --worker_machine_type=n1-highmem-8 \
+  --accelerator=nvidia-tesla-t4 \
+  --accelerator_count=1
+```
+
+TPUs are currently not available for inference as they are not supported by
+Dataflow.
 
 ## Feedback
 
 If you have any feedback on these instructions or SKAI in general, we'd love to hear from you. Please reach out to the developers at skai-developers@googlegroups.com, or create an issue in the Github issue tracker.
-
-
-## Appendix: Build Docker containers for training and eval jobs
-
-In the command for step 8, we used SKAI's default Docker containers for the training and eval jobs. If you make any changes to the training code, such as the model architecture, you must build and push your own Docker containers to the Container Registry, and then launch your training and eval jobs with those containers.
-
-After you have modified the SKAI model source code, use this command to build a local custom container and launch a local training job with it to ensure that it works:
-
-
-```
-$ cd skai/src  # Make sure you're in the SKAI src directory.
-$ gcloud beta ai custom-jobs local-run \
---base-image=gcr.io/deeplearning-platform-release/tf2-gpu.2-6 \
---python-module=ssl_train \
---requirements=tensorflow-probability==0.12.2 \
---work-dir=. \
---output-image-uri=gcr.io/$PROJECT/ssl-train-uri \
--- --dataset_name=dataset_name \
---train_dir=gs://$BUCKET/models/train_dir_name \
---train_label_examples=gs://$BUCKET/examples/train_labeled_examples*.tfrecord \
---train_unlabel_examples=gs://$BUCKET/examples/train_unlabeled_examples*.tfrecord \
---test_examples=gs://$BUCKET/examples/test_examples*.tfrecord \
---augmentation_strategy=CTA \
---shuffle_seed=1 \
---num_parallel_calls=2 \
---keep_ckpt=0 \
---train_nimg=0
-```
-
-
-If the previous command doesn't return any errors, use the following command to push the newly built container to the registry:
-
-
-```
-$ docker push gcr.io/$PROJECT/ssl-train-uri
-```
-
-
-Then build the evaluation Docker container, and push it to the registry.
-
-
-```
-$ docker build ./ -f SslEvalDockerfile -t ssl-eval-uri
-$ docker tag ssl-eval-uri:latest gcr.io/$PROJECT/ssl-eval-uri
-$ docker push gcr.io/$PROJECT/ssl-eval-uri
-```
-
-
-Now you can launch the training and eval jobs on Cloud using the new containers by setting the `--train_docker_image_uri_path` and `--eval_docker_image_uri_path` flags.
