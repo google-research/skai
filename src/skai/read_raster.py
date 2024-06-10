@@ -17,7 +17,7 @@ import dataclasses
 import functools
 import logging
 import time
-from typing import Dict, Iterable, List, Tuple
+from typing import Iterable, Sequence
 
 import affine
 import apache_beam as beam
@@ -32,13 +32,17 @@ import shapely.geometry
 from skai import buildings
 from skai import utils
 
-from tqdm import tqdm
-
 Metrics = beam.metrics.Metrics
 Polygon = shapely.geometry.Polygon
 
 # Maximum size of a single patch read.
 _MAX_PATCH_SIZE = 2048
+
+# When splitting coordinates into bins for grouping, this is the number of
+# degrees in longitude and latitude each bin spans. Since 1 degree ~ 111km,
+# and we expect image resolutions around 0.5m, this means approximately 22K
+# pixels per bin.
+_BIN_SIZE_DEGREES = 0.1
 
 
 @dataclasses.dataclass(order=True, frozen=True)
@@ -84,7 +88,7 @@ class _Window:
     y2 = max(self.row + self.height, other.row + other.height)
     return _Window('', x1, y1, x2 - x1, y2 - y1)
 
-  def extents(self) -> Tuple[int, int, int, int]:
+  def extents(self) -> tuple[int, int, int, int]:
     """Return the extents of the window.
 
     Returns:
@@ -112,6 +116,38 @@ class _Window:
         resampling=rasterio.warp.Resampling.bilinear,
     )
     return target_image
+
+
+@dataclasses.dataclass(frozen=True)
+class _RasterBin:
+  """A bin in a raster image.
+
+  Each raster image is split into a number of bins to increase parallelism.
+  Essentially, we overlay a grid over the raster where each cell spans
+  _BIN_SIZE_DEGREES degrees in both the longitude and latitude axes. All windows
+  falling into the same bin are grouped and processed sequentially, while the
+  bins are processed in parallel.
+  """
+
+  raster_path: str
+  x_bin_index: int
+  y_bin_index: int
+
+
+@dataclasses.dataclass(frozen=True)
+class _RasterPoint:
+  """A point in a raster image.
+  """
+  raster_path: str
+  longitude: float
+  latitude: float
+
+  def get_bin(self) -> _RasterBin:
+    return _RasterBin(
+        self.raster_path,
+        int(self.longitude // _BIN_SIZE_DEGREES),
+        int(self.latitude // _BIN_SIZE_DEGREES),
+    )
 
 
 class _WindowGroup:
@@ -144,24 +180,6 @@ class _WindowGroup:
 def _get_transformer(source_crs, target_crs) -> pyproj.Transformer:
   """Returns a cached Transformer object to optimize runtime."""
   return pyproj.Transformer.from_crs(source_crs, target_crs, always_xy=True)
-
-
-def _in_bounds(longitude: float, latitude: float, raster) -> bool:
-  """Checks if a longitude, latitude point is in the raster's bounds.
-
-  Args:
-    longitude: Longitude of the point.
-    latitude: Latitude of the point.
-    raster: The raster.
-
-  Returns:
-    True iff (longitude, latitude) lies in the bounds of raster.
-  """
-  transformer = _get_transformer('EPSG:4326', raster.crs)
-  # Map longitude, latitude into the raster's native CRS.
-  x, y = transformer.transform(longitude, latitude, errcheck=True)
-  return ((raster.bounds.left <= x <= raster.bounds.right) and
-          (raster.bounds.bottom <= y <= raster.bounds.top))
 
 
 def _compute_window(
@@ -290,32 +308,9 @@ def _compute_window(
   )
 
 
-def _get_windows(
-    raster,
-    window_size: int,
-    resolution: float,
-    coordinates: Iterable[Tuple[str, float, float]]) -> List[_Window]:
-  """Computes windows in pixel coordinates for a raster.
-
-  Args:
-    raster: Input raster.
-    window_size: Size of windows to generate. Windows are always square.
-    resolution: Desired resolution of generated images.
-    coordinates: Longitude, latitude centroids of windows.
-
-  Returns:
-    List of windows.
-  """
-  return [
-      _compute_window(
-          raster, example_id, longitude, latitude, window_size, resolution
-      )
-      for example_id, longitude, latitude in tqdm(coordinates)
-      if _in_bounds(longitude, latitude, raster)
-  ]
-
-
-def _group_windows(windows: list[_Window]) -> Iterable[_WindowGroup]:
+def _group_windows(
+    raster_and_windows: tuple[_RasterBin, Sequence[_Window]],
+) -> Iterable[tuple[str, _WindowGroup]]:
   """Groups overlapping windows to minimize data read from raster.
 
   The current implementation uses a greedy approach. It repeatedly chooses an
@@ -324,12 +319,12 @@ def _group_windows(windows: list[_Window]) -> Iterable[_WindowGroup]:
   is positive. The process ends when all windows have been grouped.
 
   Args:
-    windows: A list of windows to group.
+    raster_and_windows: Raster path + list of all windows in that raster.
 
   Yields:
     Grouped windows.
   """
-
+  windows = list(raster_and_windows[1])
   ungrouped = set(range(len(windows)))
   index = rtree.index.Index()
   for i, w in enumerate(windows):
@@ -353,7 +348,8 @@ def _group_windows(windows: list[_Window]) -> Iterable[_WindowGroup]:
           group.add_window(other)
           ungrouped.remove(i)
           changed = True
-    yield group
+    Metrics.counter('skai', 'num_window_groups_created').inc()
+    yield (raster_and_windows[0].raster_path, group)
 
 
 def _convert_to_uint8(image: np.ndarray) -> np.ndarray:
@@ -379,51 +375,103 @@ def _convert_to_uint8(image: np.ndarray) -> np.ndarray:
   return image.astype(np.uint8)
 
 
-def _buildings_to_groups(
-    raster_path: str,
-    buildings_path: str,
-    patch_size: int,
-    resolution: float,
-    gdal_env: Dict[str, str]) -> Iterable[Tuple[str, _WindowGroup]]:
-  """Converts building centroids into pixel windows and then groups them.
+def _generate_raster_points(
+    raster_path: str, buildings_path: str
+) -> Iterable[_RasterPoint]:
+  """Generates raster x building centroids.
+
+  This function will filter out buildings whose centroids are not in the bounds
+  of the image.
 
   Args:
     raster_path: Path to raster image.
-    buildings_path: Path to buildings file.
-    patch_size: Size of patches to extract.
-    resolution: Resolution of patches to extract.
-    gdal_env: GDAL environment configuration.
+    buildings_path: Path to buildings file (usually a parquet file).
 
   Yields:
-    Tuples of raster path and grouped windows.
+    A _RasterPoint for each building centroid in the bounds of the image.
   """
   coords_df = buildings.read_building_coordinates(buildings_path)
-  coords_with_ids = [
-      (utils.encode_coordinates(lng, lat), lng, lat)
-      for lng, lat in zip(coords_df.longitude, coords_df.latitude)
-  ]
-  with rasterio.Env(**gdal_env):
-    raster = rasterio.open(raster_path)
-    windows = _get_windows(raster, patch_size, resolution, coords_with_ids)
-  Metrics.counter('skai', 'num_windows_created').inc(len(windows))
-  for group in _group_windows(windows):
-    Metrics.counter('skai', 'num_window_groups_created').inc()
-    yield raster_path, group
+  raster = rasterio.open(raster_path)
+  transformer = _get_transformer(raster.crs, 'EPSG:4326')
+  left, top = transformer.transform(
+      raster.bounds.left, raster.bounds.top, errcheck=True
+  )
+  right, bottom = transformer.transform(
+      raster.bounds.right, raster.bounds.bottom, errcheck=True
+  )
+  for _, row in coords_df.iterrows():
+    longitude = row['longitude']
+    latitude = row['latitude']
+    if (left <= longitude <= right) and (bottom <= latitude <= top):
+      Metrics.counter('skai', 'num_raster_coords_pairs').inc()
+      yield _RasterPoint(raster_path, longitude, latitude)
+
+
+class MakeWindow(beam.DoFn):
+  """Beam function for creating a window from a raster and coordinates.
+
+  Attributes:
+    _rasters: Mapping from raster paths to raster handles.
+    _target_patch_size: Size of target window in pixels.
+    _target_resolution: Desired resolution of target window.
+    _gdal_env: GDAL environment configuration.
+  """
+
+  def __init__(
+      self,
+      target_patch_size: int,
+      target_resolution: float,
+      gdal_env: dict[str, str],
+  ):
+    self._rasters = {}
+    self._target_patch_size = target_patch_size
+    self._target_resolution = target_resolution
+    self._gdal_env = gdal_env
+
+  def setup(self):
+    self._rasterio_env = rasterio.Env(**self._gdal_env)
+
+  def process(
+      self, raster_point: _RasterPoint
+  ) -> Iterable[tuple[_RasterBin, _Window]]:
+    """Creates a window from a raster point.
+
+    Args:
+      raster_point: The input point.
+
+    Yields:
+      Tuples of (_RasterBin, _Window). The _RasterBin key value is needed for
+      grouping by key in the next step of the beam pipeline.
+    """
+    with self._rasterio_env:
+      if (raster := self._rasters.get(raster_point.raster_path)) is None:
+        raster = rasterio.open(raster_point.raster_path)
+        self._rasters[raster_point.raster_path] = raster
+
+      window = _compute_window(
+          raster,
+          utils.encode_coordinates(
+              raster_point.longitude, raster_point.latitude
+          ),
+          raster_point.longitude,
+          raster_point.latitude,
+          self._target_patch_size,
+          self._target_resolution,
+      )
+      Metrics.counter('skai', 'num_windows_created').inc()
+      yield (raster_point.get_bin(), window)
 
 
 class ReadRasterWindowGroupFn(beam.DoFn):
   """A beam function that reads window groups from a raster image.
 
   Attributes:
-    _raster_path: Path to raster.
-    _raster: Reference to the raster.
-    _target_patch_size: Desired size of output patches.
+    _rasters: Mapping from raster paths to raster handles.
     _gdal_env: GDAL environment configuration.
   """
 
-  def __init__(self, target_patch_size: int, gdal_env: Dict[str, str]):
+  def __init__(self, gdal_env: dict[str, str]):
     self._rasters = {}
-    self._target_patch_size = target_patch_size
     self._gdal_env = gdal_env
 
     self._num_groups_read = Metrics.counter('skai', 'num_groups_read')
@@ -432,8 +480,8 @@ class ReadRasterWindowGroupFn(beam.DoFn):
     self._read_time = Metrics.distribution('skai', 'raster_read_time_msec')
 
   def process(
-      self, raster_and_group: Tuple[str, _WindowGroup]
-  ) -> Iterable[Tuple[str, Tuple[str, np.ndarray]]]:
+      self, raster_and_group: tuple[str, _WindowGroup]
+  ) -> Iterable[tuple[str, tuple[str, np.ndarray]]]:
     raster_path = raster_and_group[0]
     group = raster_and_group[1]
 
@@ -477,10 +525,10 @@ class ReadRasterWindowGroupFn(beam.DoFn):
 def extract_patches_from_rasters(
     pipeline: beam.Pipeline,
     buildings_path: str,
-    raster_paths: List[str],
+    raster_paths: list[str],
     patch_size: int,
     resolution: float,
-    gdal_env: Dict[str, str],
+    gdal_env: dict[str, str],
     stage_prefix: str) -> beam.PCollection:
   """Extracts patches from rasters.
 
@@ -496,21 +544,25 @@ def extract_patches_from_rasters(
   Returns:
     A collection whose elements are (id, (image path, window data)).
   """
-  return (pipeline
-          | stage_prefix + '_encode_raster_paths' >> beam.Create(raster_paths)
-          | stage_prefix + '_make_window_groups' >> beam.FlatMap(
-              _buildings_to_groups,
-              buildings_path=buildings_path,
-              patch_size=patch_size,
-              resolution=resolution,
-              gdal_env=gdal_env)
-          | stage_prefix + '_reshuffle' >> beam.Reshuffle()
-          | stage_prefix + '_read_window_groups' >> beam.ParDo(
-              ReadRasterWindowGroupFn(patch_size, gdal_env)))
+
+  return (
+      pipeline
+      | stage_prefix + '_encode_raster_paths' >> beam.Create(raster_paths)
+      | stage_prefix + '_generate_raster_points'
+      >> beam.FlatMap(_generate_raster_points, buildings_path)
+      | stage_prefix + '_make_windows'
+      >> beam.ParDo(MakeWindow(patch_size, resolution, gdal_env))
+      | stage_prefix + '_group_by_raster_bin' >> beam.GroupByKey()
+      | stage_prefix + '_group_windows'
+      >> beam.FlatMap(_group_windows)
+      | stage_prefix + '_reshuffle' >> beam.Reshuffle()
+      | stage_prefix + '_read_window_groups'
+      >> beam.ParDo(ReadRasterWindowGroupFn(gdal_env))
+  )
 
 
 def get_raster_bounds(
-    raster_path: str, gdal_env: Dict[str, str]) -> Polygon:
+    raster_path: str, gdal_env: dict[str, str]) -> Polygon:
   """Returns raster bounds as a shapely Polygon.
 
   Args:
