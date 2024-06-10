@@ -1,6 +1,6 @@
 # SKAI Damage Assessment Instructions
 
-Last update: July 14, 2023
+Last update: June 6, 2024
 
 Before running these instructions, please make sure that your Google Cloud
 project and Linux environment have been set up by following these
@@ -72,8 +72,8 @@ The custom AOI should be recorded in a GIS file format, such as [GeoJSON](https:
 ## Step 4: Generate Unlabeled Examples
 
 The next step is to extract examples of buildings in the AOI from the before and
-after images, and save them in SKAI's training example format. Run the following command to do that. Simultaneously, the command will also create a Cloud example labeling task
-
+after images, and save them in SKAI's training example format. Run the following
+command to do that.
 
 ```
 $ python generate_examples_main.py \
@@ -119,6 +119,53 @@ are larger (by default, 256x256). These examples will be used for labeling. The
 images in the "unlabeled" file set are smaller (by default, 64x64), and will be
 used for model training and inference.
 
+### Example Generation Configuration File
+
+In addition to specifying input parameters using command line flags, the
+`generate_examples_main.py` script can also read a configuration file. The
+configuration file is more convenient when running SKAI on many images at a
+time, and also makes pipelines more reproducible.
+
+The configuration file uses
+[JSON](https://www.w3schools.com/js/js_json_syntax.asp) format. The options
+have the same names as the command line flags.
+
+An example configuration files:
+
+```
+{
+  "dataset_name": "<dataset name>",
+  "aoi_path": "<aoi-path>",
+  "output_dir": "gs://my-bucket/test_run",
+  "buildings_method": "file",
+  "buildings_file": "gs://my-bucket/buildings.csv",
+  "use_dataflow": true,
+  "cloud_project": "<cloud project>",
+  "cloud_region": "<cloud region>",
+  "worker_service_account": "<service account>",
+  "max_dataflow_workers": 100,
+  "output_shards": 100,
+  "output_metadata_file": true,
+  "before_image_patterns": [
+    "<before image 1 pattern>",
+    "<before image 2 pattern>",
+    "<before image 3 pattern>"
+  ],
+  "after_image_patterns": [
+    "<after image 1 pattern>",
+    "<after image 2 pattern>",
+    "<after image 3 pattern>"
+  ]
+}
+```
+
+Create a text file like the above and store it on your workstation. Then, to run
+example generation, you only need to type:
+
+```
+$ python generate_examples_main.py --configuration_path=<path to config file>
+```
+
 ### Building Detection
 
 SKAI can ingest building centroids from the following open source databases:
@@ -144,92 +191,66 @@ be set to the path of the CSV file that contains the building centroids.
 ## Step 5: Create example labeling task
 
 To train a SKAI model, a small number of examples generated in the previous step
-must be manually labeled. We use the
-[Vertex AI labeling tool](https://cloud.google.com/vertex-ai/docs/datasets/data-labeling-job)
-to do this. Run this command to create a labeling task in Vertex AI, and assign
-the task to a number of human labelers.
-
+must be manually labeled. Run this command to collect a sample for labeling,
+and generate PNG images suitable for use in the labeling task.
 
 ```
-$ python create_cloud_labeling_task.py \
-  --cloud_project=$PROJECT \
-  --cloud_location=$LOCATION \
-  --dataset_name=<dataset name> \
+$ python create_labeling_examples.py \
   --examples_pattern=<examples pattern> \
-  --images_dir=<images dir> \
-  --cloud_labeler_emails=<labeler emails>
+  --output_dir=<output dir> \
+  --max_images=2000
 ```
-
-`<dataset name>` is a name you assign to the dataset to identify it.
 
 `<examples pattern>` is the file pattern matching the TFRecord containing
 *large* unlabeled examples generated in the previous step. It should look
 something like
 `gs://$BUCKET/test_run/examples/unlabeled-large/unlabeled-*.tfrecord`.
 
-`<images dir>` is a temporary directory to write labeling images to. This can be
+`<output dir>` is the directory to write labeling images to. This can be
 set to any Google Cloud Storage path. For example,
 `gs://$BUCKET/test_run/examples/labeling_images`. After the command is finished,
 you can see the images generated for labeling in this directory.
 
-`<labeler-emails>` is a comma-delimited list of the emails of people who will be
-labeling example images. They must be Google email accounts, such as GMail or
-GSuite email accounts.
-
-An example labeling task will also be created in Vertex AI, and instructions for
-how to label examples will be sent to all email accounts provided in the `--cloud_labeler_emails` flag.
-
-**Note:** It takes a while for VertexAI to send the out email containing the
-link to the labeling interface. Please be patient.
+This command will also generate a CSV file called `image_metadata.csv` in the
+output directory. This CSV contains information about each example in the
+labeling sample, including the path of the labeling image and other metadata.
+This CSV can be used by labeling tools to create labeling tasks.
 
 ## Step 6: Label examples
 
-All labelers should follow the [labeling instructions](https://storage.googleapis.com/skai-public/labeling_instructions_v2.pdf) in their emails to manually label a number of building examples. Labeling at least 250 examples each of damaged/destroyed and undamaged buildings should be sufficient. Labeling more examples may improve model accuracy.
+Use [this colab notebook](https://colab.research.google.com/drive/11RmU0h_-ehnsi2aSK7fl6P5__uwzBN_q?usp=sharing) to label the examples.
 
-**Note:** The labeling task is currently configured with 5 choices for each example:
-
-*   no\_damage
-*   minor\_damage
-*   major\_damage
-*   destroyed
-*   bad\_example
-
-These text labels are mapped into a binary label, 0 or 1, when generating examples.
-The mapping is as follows:
-
-*   no\_damage, bad\_example --> 0
-*   minor\_damage, major\_damage, destroyed --> 1
-
-Future versions of the SKAI model will have a separate class for bad examples,
-resulting in 3 classes total.
+Note: This is a temporary solution until we develop a more featureful labeling
+tool.
 
 ## Step 7: Merge Labels into Dataset
 
-When a sufficient number of examples are labeled, the labels need to be downloaded and merged into the TFRecords we are training on.
-
-Find the `cloud_dataset_id `of your newly labeled dataset by visiting the
-[Vertex AI datasets console](https://console.cloud.google.com/vertex-ai/datasets), and looking at
-the "ID" column of your recently created dataset.
-
-![Dataset ID screenshot](https://storage.googleapis.com/skai-public/documentation_images/dataset_id.png "Find dataset ID")
-
+When a sufficient number of examples are labeled, the labels need to be
+downloaded to a CSV file and then merged into the TFRecords we are training on.
 
 ```
 $ python create_labeled_dataset.py \
-  --cloud_project=$PROJECT \
-  --cloud_location=$LOCATION \
-  --cloud_dataset_ids=<id>
-  --cloud_temp_dir=gs://$BUCKET/temp \
   --examples_pattern=gs://$BUCKET/examples/test_run/examples/unlabeled-large/*.tfrecord \
+  --label_file_paths=gs://$BUCKET/examples/test_run/labels.csv \
+  --string_to_numeric_labels='bad_example=0,no_damage=0,minor_damage=1,major_damage=1,destroyed=1' \
   --train_output_path=gs://$BUCKET/examples/labeled_train_examples.tfrecord \
   --test_output_path=gs://$BUCKET/examples/labeled_test_examples.tfrecord
 ```
 
+The `--label_file_paths` flag should point to CSV files with two columns:
+"example_id" and "string_label". This file maps labels to examples.
 
-This will generate two TFRecord files, one containing examples for training and
-one containing examples for testing. By default, 20% of labeled examples are put
-into the test set, and the rest go into the training set. This can be changed
-with the `--test_fraction` flag in the above command.
+The flag `--string_to_numeric_labels` controls how string label values such as
+"no\_damage" and "destroyed" are mapped to numeric label values (either 0 or 1).
+The default mapping is:
+
+*   no\_damage, bad\_example --> 0
+*   minor\_damage, major\_damage, destroyed --> 1
+
+This command will output two TFRecord files, one containing examples for
+training and one containing examples for testing. By default, 20% of labeled
+examples are put into the test set, and the rest go into the training set. This
+can be changed with the `--test_fraction` flag in the above command.
 
 
 ## Step 8: Train the Model
