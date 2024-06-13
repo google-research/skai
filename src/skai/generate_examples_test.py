@@ -283,14 +283,14 @@ class GenerateExamplesTest(parameterized.TestCase):
     )
 
     with test_pipeline.TestPipeline() as pipeline:
-      large_examples, small_examples = generate_examples._generate_examples(
+      examples = generate_examples._generate_examples(
           pipeline, [self.test_image_path], [self.test_image_path],
           self.buildings_path, 62, 32, 0.5, {}, 'unlabeled')
 
       # Example at second input coordinate should be dropped because its patch
       # falls mostly outside the before and after image bounds.
       test_util.assert_that(
-          large_examples,
+          examples,
           _check_examples(
               self.test_image_path,
               self.test_image_path,
@@ -302,22 +302,7 @@ class GenerateExamplesTest(parameterized.TestCase):
               False,
               True,
           ),
-          label='assert_large_examples',
-      )
-      test_util.assert_that(
-          small_examples,
-          _check_examples(
-              self.test_image_path,
-              self.test_image_path,
-              32,
-              62,
-              [(178.482925, -16.632893, -1.0)],
-              [''],
-              ['5VMW9F8M+R5V8F4'],
-              False,
-              False,
-          ),
-          label='assert_small_examples',
+          label='assert_examples',
       )
 
   def testGenerateExamplesFnLabeled(self):
@@ -332,12 +317,12 @@ class GenerateExamplesTest(parameterized.TestCase):
     )
 
     with test_pipeline.TestPipeline() as pipeline:
-      large_examples, small_examples = generate_examples._generate_examples(
+      examples = generate_examples._generate_examples(
           pipeline, [self.test_image_path], [self.test_image_path],
           self.buildings_path, 62, 32, 0.5, {}, 'labeled')
 
       test_util.assert_that(
-          large_examples,
+          examples,
           _check_examples(
               self.test_image_path,
               self.test_image_path,
@@ -349,23 +334,7 @@ class GenerateExamplesTest(parameterized.TestCase):
               False,
               True,
           ),
-          label='assert_large_examples',
-      )
-
-      test_util.assert_that(
-          small_examples,
-          _check_examples(
-              self.test_image_path,
-              self.test_image_path,
-              32,
-              62,
-              [(178.482925, -16.632893, 0.0), (178.482924, -16.632894, 1.0)],
-              ['no_damage', 'destroyed'],
-              ['5VMW9F8M+R5V8F4', '5VMW9F8M+R5V872'],
-              False,
-              False,
-          ),
-          label='assert_small_examples',
+          label='assert_examples',
       )
 
   def testGenerateExamplesFnWithPlusCodes(self):
@@ -377,14 +346,14 @@ class GenerateExamplesTest(parameterized.TestCase):
     )
 
     with test_pipeline.TestPipeline() as pipeline:
-      large_examples, small_examples = generate_examples._generate_examples(
+      examples = generate_examples._generate_examples(
           pipeline, [self.test_image_path], [self.test_image_path],
           self.buildings_path, 62, 32, 0.5, {}, 'unlabeled')
 
       # Example at second input coordinate should be dropped because its patch
       # falls mostly outside the before and after image bounds.
       test_util.assert_that(
-          large_examples,
+          examples,
           _check_examples(
               self.test_image_path,
               self.test_image_path,
@@ -396,22 +365,7 @@ class GenerateExamplesTest(parameterized.TestCase):
               False,
               True,
           ),
-          label='assert_large_examples',
-      )
-      test_util.assert_that(
-          small_examples,
-          _check_examples(
-              self.test_image_path,
-              self.test_image_path,
-              32,
-              62,
-              [(178.482925, -16.632893, -1.0)],
-              [''],
-              ['abc'],
-              False,
-              False,
-          ),
-          label='assert_small_examples',
+          label='assert_examples',
       )
 
   def testGenerateExamplesFnNoBefore(self):
@@ -423,14 +377,14 @@ class GenerateExamplesTest(parameterized.TestCase):
     )
 
     with test_pipeline.TestPipeline() as pipeline:
-      large_examples, small_examples = generate_examples._generate_examples(
+      examples = generate_examples._generate_examples(
           pipeline, [], [self.test_image_path], self.buildings_path, 62, 32,
           0.5, {}, 'unlabeled')
 
       # Example at second input coordinate should be dropped because its patch
       # falls mostly outside the before and after image bounds.
       test_util.assert_that(
-          large_examples,
+          examples,
           _check_examples(
               '',
               self.test_image_path,
@@ -442,23 +396,7 @@ class GenerateExamplesTest(parameterized.TestCase):
               True,
               True,
           ),
-          label='assert_large_examples',
-      )
-
-      test_util.assert_that(
-          small_examples,
-          _check_examples(
-              '',
-              self.test_image_path,
-              32,
-              62,
-              [(178.482925, -16.632893, -1.0)],
-              [''],
-              ['5VMW9F8M+R5V8F4'],
-              True,
-              False,
-          ),
-          label='assert_small_examples',
+          label='assert_examples',
       )
 
   def testGenerateExampleFnPathPattern(self):
@@ -469,28 +407,19 @@ class GenerateExamplesTest(parameterized.TestCase):
 
     with test_pipeline.TestPipeline() as pipeline:
       # The path patterns specify two before images.
-      large_examples, small_examples = generate_examples._generate_examples(
+      examples = generate_examples._generate_examples(
           pipeline, [self.test_image_path_patterns],
           [self.test_image_path], self.buildings_path, 62, 32, 0.5,
           {}, 'unlabeled')
 
-      small_examples_before_ids = (
-          small_examples | 'Map small examples to before image ids' >>
-          beam.Map(_get_before_image_id))
-      large_examples_before_ids = (
-          large_examples | 'Map large examples to before image ids' >>
+      examples_before_ids = (
+          examples | 'Map large examples to before image ids' >>
           beam.Map(_get_before_image_id))
 
       test_util.assert_that(
-          small_examples_before_ids,
+          examples_before_ids,
           test_util.equal_to(expected_before_image_ids),
-          'check small examples before image ids',
-      )
-
-      test_util.assert_that(
-          large_examples_before_ids,
-          test_util.equal_to(expected_before_image_ids),
-          'check large examples before image ids',
+          'check examples before image ids',
       )
 
   def testGenerateExamplesPipeline(self):
@@ -520,7 +449,9 @@ class GenerateExamplesTest(parameterized.TestCase):
         cloud_detector_model_path=None,
         output_metadata_file=False)
 
-    tfrecords = os.listdir(os.path.join(output_dir, 'examples', 'unlabeled'))
+    tfrecords = os.listdir(
+        os.path.join(output_dir, 'examples', 'unlabeled-large')
+    )
     self.assertSameElements(tfrecords, ['unlabeled-00000-of-00001.tfrecord'])
 
   def testGenerateExamplesWithOutputMetaDataFile(self):
@@ -551,7 +482,9 @@ class GenerateExamplesTest(parameterized.TestCase):
         output_metadata_file=True,
     )
 
-    tfrecords = os.listdir(os.path.join(output_dir, 'examples', 'unlabeled'))
+    tfrecords = os.listdir(
+        os.path.join(output_dir, 'examples', 'unlabeled-large')
+    )
     df_metadata_contents = pd.read_csv(
         os.path.join(output_dir, 'examples', 'metadata_examples.csv')
     )

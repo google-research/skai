@@ -675,7 +675,7 @@ def _generate_examples(
           lambda key, value: (key, _FeatureUnion(after_image=value))))
   input_collections.append(after_image_features)
 
-  large_examples = (
+  examples = (
       input_collections
       | stage_prefix + '_merge_features' >> beam.Flatten()
       | stage_prefix + '_group_by_example_id' >> beam.GroupByKey()
@@ -690,12 +690,7 @@ def _generate_examples(
       )
   )
 
-  small_examples = (
-      large_examples
-      | stage_prefix + '_generate_small_example' >> beam.Map(
-          _remove_large_images))
-
-  return large_examples, small_examples
+  return examples
 
 
 def read_labels_file(
@@ -845,36 +840,24 @@ def generate_examples_pipeline(
   )
 
   if buildings_labeled:
-    small_examples_output_prefix = (
-        os.path.join(output_dir, 'examples', 'labeled', 'labeled'))
-    large_examples_output_prefix = (
+    examples_output_prefix = (
         os.path.join(output_dir, 'examples', 'labeled-large', 'labeled'))
   else:
-    small_examples_output_prefix = (
-        os.path.join(output_dir, 'examples', 'unlabeled', 'unlabeled'))
-    large_examples_output_prefix = (
+    examples_output_prefix = (
         os.path.join(output_dir, 'examples', 'unlabeled-large', 'unlabeled'))
 
   pipeline = beam.Pipeline(options=pipeline_options)
-  large_examples, small_examples = _generate_examples(
+  examples = _generate_examples(
       pipeline, before_image_patterns, after_image_patterns, buildings_path,
       large_patch_size, example_patch_size, resolution, gdal_env,
       'generate_examples', cloud_detector_model_path)
 
   _ = (
-      small_examples
-      | 'serialize_small_examples' >> beam.Map(
-          lambda e: e.SerializeToString())
-      | 'write_small_examples' >> beam.io.tfrecordio.WriteToTFRecord(
-          small_examples_output_prefix,
-          file_name_suffix='.tfrecord',
-          num_shards=num_output_shards))
-  _ = (
-      large_examples
+      examples
       | 'serialize_large_examples' >> beam.Map(
           lambda e: e.SerializeToString())
       | 'write_large_examples' >> beam.io.tfrecordio.WriteToTFRecord(
-          large_examples_output_prefix,
+          examples_output_prefix,
           file_name_suffix='.tfrecord',
           num_shards=num_output_shards))
 
@@ -889,7 +872,7 @@ def generate_examples_pipeline(
         'plus_code',
     ]
     _ = (
-        large_examples
+        examples
         | 'convert_metadata_examples_to_dict' >> beam.Map(_get_example_metadata)
         | 'combine_to_list' >> beam.combiners.ToList()
         | 'write_metadata_to_file'
