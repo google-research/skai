@@ -31,7 +31,7 @@ import ee
 ShapelyGeometry = shapely.geometry.base.BaseGeometry
 
 
-def _shapely_to_ee_feature(shapely_geometry: ShapelyGeometry) -> ee.Feature:
+def _shapely_to_ee_feature(shapely_geometry: ShapelyGeometry) -> ee.Geometry:
   """Converts shapely geometry into Earth Engine Feature."""
   geojson = json.loads(gpd.GeoSeries([shapely_geometry]).to_json())
   return ee.Feature(geojson['features'][0]['geometry']).geometry()
