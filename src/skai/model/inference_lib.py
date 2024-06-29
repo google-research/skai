@@ -629,7 +629,7 @@ def postprocess(
     output_dir, output_file = os.path.split(output_path)
     gpkg_path = os.path.join(output_dir, f'{output_file}.gpkg')
     with tf.io.gfile.GFile(gpkg_path, 'wb') as f:
-      gdf.to_file(f, driver='GPKG')
+      gdf.to_file(f, driver='GPKG', engine='fiona')
 
 
 def _do_batch(labels: list[str], batch_size: int) -> list[list[str]]:
