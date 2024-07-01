@@ -16,14 +16,14 @@
 import pathlib
 import tempfile
 from absl.testing import absltest
-
 import affine
 import apache_beam as beam
 from apache_beam.testing import test_pipeline
 import apache_beam.testing.util as test_util
 import geopandas as gpd
+import numpy as np
 import rasterio
-
+from rasterio.enums import ColorInterp
 from skai import buildings
 from skai import read_raster
 
@@ -33,6 +33,31 @@ _RasterBin = read_raster._RasterBin
 _RasterPoint = read_raster._RasterPoint
 _Window = read_raster._Window
 _WindowGroup = read_raster._WindowGroup
+
+
+def _create_test_image_tiff_file(colorinterps: list[ColorInterp]):
+
+  num_channels = len(colorinterps)
+  image = np.random.randint(0, 256, (100, 100, num_channels), dtype=np.uint8)
+
+  profile = {
+      'driver': 'GTiff',
+      'height': 100,
+      'width': 100,
+      'count': num_channels,
+      'dtype': 'uint8',
+      'crs': '+proj=latlong',
+      'transform': rasterio.transform.from_origin(0, 0, 1, 1),
+      'colorinterp': colorinterps,
+  }
+  _, image_path = tempfile.mkstemp(
+      dir=absltest.TEST_TMPDIR.value, suffix='.tiff'
+  )
+  with rasterio.open(image_path, 'w', **profile) as dst:
+    for i in range(num_channels):
+      dst.write(image[..., i], i + 1)
+    dst.colorinterp = profile['colorinterp']
+  return image_path
 
 
 def _create_buildings_file(
@@ -204,6 +229,66 @@ class ReadRasterTest(absltest.TestCase):
     bounds = read_raster.get_raster_bounds(self.test_image_path, {})
     self.assertSequenceAlmostEqual(
         bounds.bounds, [178.4822663, -16.6334717, 178.4836138, -16.6322581])
+
+  def test_get_rgb_indices_grb_image(self):
+    image_path = _create_test_image_tiff_file(
+        [ColorInterp.green, ColorInterp.red, ColorInterp.blue]
+    )
+    dataset = rasterio.open(image_path)
+    indices = read_raster._get_rgb_indices(dataset)
+    self.assertSequenceEqual(indices, [2, 1, 3])
+
+  def test_get_rgb_indices_bgr_image(self):
+    image_path = _create_test_image_tiff_file(
+        [ColorInterp.blue, ColorInterp.green, ColorInterp.red]
+    )
+    dataset = rasterio.open(image_path)
+    indices = read_raster._get_rgb_indices(dataset)
+    self.assertSequenceEqual(indices, [3, 2, 1])
+
+  def test_get_rgb_indices_argb_image(self):
+    image_path = _create_test_image_tiff_file([
+        ColorInterp.alpha,
+        ColorInterp.red,
+        ColorInterp.green,
+        ColorInterp.blue,
+    ])
+    dataset = rasterio.open(image_path)
+    indices = read_raster._get_rgb_indices(dataset)
+    self.assertSequenceEqual(indices, [2, 3, 4])
+
+  def test_get_rgb_indices_missing_red(self):
+    image_path = _create_test_image_tiff_file([
+        ColorInterp.green,
+        ColorInterp.blue,
+    ])
+    dataset = rasterio.open(image_path)
+    with self.assertRaisesRegex(
+        ValueError, 'Raster does not have a red channel.'
+    ):
+      read_raster._get_rgb_indices(dataset)
+
+  def test_get_rgb_indices_missing_green(self):
+    image_path = _create_test_image_tiff_file([
+        ColorInterp.red,
+        ColorInterp.blue,
+    ])
+    dataset = rasterio.open(image_path)
+    with self.assertRaisesRegex(
+        ValueError, 'Raster does not have a green channel.'
+    ):
+      read_raster._get_rgb_indices(dataset)
+
+  def test_get_rgb_indices_missing_blue(self):
+    image_path = _create_test_image_tiff_file([
+        ColorInterp.red,
+        ColorInterp.green,
+    ])
+    dataset = rasterio.open(image_path)
+    with self.assertRaisesRegex(
+        ValueError, 'Raster does not have a blue channel.'
+    ):
+      read_raster._get_rgb_indices(dataset)
 
 
 if __name__ == '__main__':
