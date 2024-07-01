@@ -235,7 +235,7 @@ class ReadRasterTest(absltest.TestCase):
         [ColorInterp.green, ColorInterp.red, ColorInterp.blue]
     )
     dataset = rasterio.open(image_path)
-    indices = read_raster._get_rgb_indices(dataset)
+    indices = read_raster.get_rgb_indices(dataset)
     self.assertSequenceEqual(indices, [2, 1, 3])
 
   def test_get_rgb_indices_bgr_image(self):
@@ -243,7 +243,7 @@ class ReadRasterTest(absltest.TestCase):
         [ColorInterp.blue, ColorInterp.green, ColorInterp.red]
     )
     dataset = rasterio.open(image_path)
-    indices = read_raster._get_rgb_indices(dataset)
+    indices = read_raster.get_rgb_indices(dataset)
     self.assertSequenceEqual(indices, [3, 2, 1])
 
   def test_get_rgb_indices_argb_image(self):
@@ -254,7 +254,7 @@ class ReadRasterTest(absltest.TestCase):
         ColorInterp.blue,
     ])
     dataset = rasterio.open(image_path)
-    indices = read_raster._get_rgb_indices(dataset)
+    indices = read_raster.get_rgb_indices(dataset)
     self.assertSequenceEqual(indices, [2, 3, 4])
 
   def test_get_rgb_indices_missing_red(self):
@@ -266,7 +266,7 @@ class ReadRasterTest(absltest.TestCase):
     with self.assertRaisesRegex(
         ValueError, 'Raster does not have a red channel.'
     ):
-      read_raster._get_rgb_indices(dataset)
+      read_raster.get_rgb_indices(dataset)
 
   def test_get_rgb_indices_missing_green(self):
     image_path = _create_test_image_tiff_file([
@@ -277,7 +277,7 @@ class ReadRasterTest(absltest.TestCase):
     with self.assertRaisesRegex(
         ValueError, 'Raster does not have a green channel.'
     ):
-      read_raster._get_rgb_indices(dataset)
+      read_raster.get_rgb_indices(dataset)
 
   def test_get_rgb_indices_missing_blue(self):
     image_path = _create_test_image_tiff_file([
@@ -288,7 +288,7 @@ class ReadRasterTest(absltest.TestCase):
     with self.assertRaisesRegex(
         ValueError, 'Raster does not have a blue channel.'
     ):
-      read_raster._get_rgb_indices(dataset)
+      read_raster.get_rgb_indices(dataset)
 
 
 if __name__ == '__main__':

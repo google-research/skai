@@ -407,7 +407,7 @@ def _generate_raster_points(
       yield _RasterPoint(raster_path, longitude, latitude)
 
 
-def _get_rgb_indices(raster: rasterio.io.DatasetReader) -> list[int]:
+def get_rgb_indices(raster: rasterio.io.DatasetReader) -> list[int]:
   """Returns the indices of the RGB channels in the raster."""
   index_by_color = {}
   for i, colorinterp in enumerate(raster.colorinterp):
@@ -511,7 +511,7 @@ class ReadRasterWindowGroupFn(beam.DoFn):
         raster = rasterio.open(raster_path)
       self._rasters[raster_path] = raster
 
-    rgb_indices = _get_rgb_indices(raster)
+    rgb_indices = get_rgb_indices(raster)
     raster_window = rasterio.windows.Window(
         group.window.column,
         group.window.row,
