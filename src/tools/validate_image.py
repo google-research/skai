@@ -39,22 +39,11 @@ def validate_image(image_path: str) -> bool:
   """
   valid = True
   r = rasterio.open(image_path)
-  if len(r.block_shapes) != 3:
-    print(f'Image should have 3 bands, but has {len(r.block_shapes)}.')
-    valid = False
-  else:
-    print('Image has 3 bands')
   if not r.is_tiled:
     print('Image is not tiled.')
     valid = False
   else:
     print('Image is tiled')
-  for i, s in enumerate(r.block_shapes):
-    if s[0] > 512 or s[1] > 512:
-      print(f'Band {i} has shape {s}. Tiles should be at most 512x512')
-      valid = False
-    else:
-      print(f'Band {i} is tiled and the tile size is {s[0]}x{s[1]}')
 
   try:
     rgb_bands = read_raster.get_rgb_indices(r)
@@ -64,16 +53,23 @@ def validate_image(image_path: str) -> bool:
     rgb_bands = None
 
   if rgb_bands:
-    for i, band in enumerate('RGB'):
-      print(f'{band} channel is band {i}')
-
-  for i in range(3):
-    if r.dtypes[i] != 'uint8':
-      print(f'Band {i + 1} should have data type "uint8", but is {r.dtypes[i]}')
-      valid = False
-    else:
-      print(f'Datatype for band {i + 1} is uint8')
-  print('Image is valid' if valid else 'Image is not valid')
+    for band, color in zip(rgb_bands, 'RGB'):
+      print(f'{color} channel is band {band}')
+      if r.dtypes[band - 1] != 'uint8':
+        print(
+            f'Band {band} should have data type "uint8", but is'
+            f' {r.dtypes[band - 1]}'
+        )
+        valid = False
+      else:
+        print(f'Datatype for {color} band ({band}) is uint8')
+      shape = r.block_shapes[band - 1]
+      if shape[0] > 512 or shape[1] > 512:
+        print(f'Band {band} has shape {shape}. Tiles should be at most 512x512')
+        valid = False
+      else:
+        print(f'Band {band} is tiled with tile size {shape[0]}x{shape[1]}')
+  print('Image is valid' if valid else 'Image is NOT valid')
   return valid
 
 
