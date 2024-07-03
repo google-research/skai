@@ -69,6 +69,12 @@ _MODEL_VARIANT = flags.DEFINE_string(
 
 _IMAGE_SIZE = flags.DEFINE_integer('image_size', 224, 'Image size.')
 
+_POSTPROCESS_CLOUDS = flags.DEFINE_bool(
+    'postprocess_clouds',
+    True,
+    'If true, run postprocessing heuristics for identifying cloudy examples.',
+)
+
 
 def _check_example_patterns(patterns: list[str]) -> None:
   if not patterns:
@@ -108,7 +114,8 @@ def main(argv: Sequence[str]) -> None:
       _EXAMPLE_PATTERNS.value,
       _IMAGE_FEATURE.value,
       _BATCH_SIZE.value,
-      _OUTPUT_DIR.value
+      _OUTPUT_DIR.value,
+      _POSTPROCESS_CLOUDS.value,
   )
 
 

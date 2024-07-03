@@ -17,8 +17,8 @@ import jax
 import ml_collections
 import numpy as np
 import pandas as pd
+from skai.model import cloud_postprocess_lib
 import tensorflow as tf
-
 
 OUTPUT_FEATURES = [
     'building_id',
@@ -29,6 +29,8 @@ OUTPUT_FEATURES = [
 ]
 
 DAMAGE_THRESHOLD = 0.85
+
+_CLOUD_DISTANCE_THRESHOLD_METERS = 500
 
 
 def _batch_array(
@@ -289,6 +291,7 @@ def generate_zero_shot_assessment(
     image_feature: str,
     batch_size: int,
     output_dir: str,
+    postprocess_clouds: bool,
 ):
   """Generate zero shot assessment.
 
@@ -309,6 +312,8 @@ def generate_zero_shot_assessment(
     image_feature: Example feature to use as input image.
     batch_size: The size of the batch.
     output_dir: The output directory.
+    postprocess_clouds: If true, run postprocessing heuristics for
+      identifying cloudy examples.
   """
 
   label_file_paths = [
@@ -365,6 +370,11 @@ def generate_zero_shot_assessment(
     for column in output_df.columns:
       if output_df[column].dtype == np.object_:
         output_df[column] = output_df[column].str.decode('utf-8')
+    if postprocess_clouds:
+      output_df = cloud_postprocess_lib.identify_clouds(
+          output_df, _CLOUD_DISTANCE_THRESHOLD_METERS
+      )
+
     with tf.io.gfile.GFile(
         f'{output_dir}/{dataset_name}_output.csv', 'w'
     ) as output_csv_file:
