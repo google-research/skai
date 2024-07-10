@@ -22,7 +22,7 @@ output a semantic sementation of the image.
 import os
 import shutil
 import tempfile
-from typing import Any, Iterable, Iterator, List, Set, Tuple, Optional, Dict
+from typing import Any, Iterable, Iterator, List, Optional, Set, Tuple
 
 import affine
 import apache_beam as beam
@@ -39,6 +39,9 @@ from skai import detect_buildings_constants
 from skai import extract_tiles_constants
 from skai import utils
 import tensorflow as tf
+import tensorflow_addons.image as tfa_image
+
+_ = tfa_image.connected_components(tf.ones((10, 10), tf.uint8))
 
 Example = tf.train.Example
 Metrics = beam.metrics.Metrics
