@@ -456,7 +456,7 @@ def create_labeling_images(
       ),
   )
   with tf.io.gfile.GFile(image_metadata_csv, 'w') as f:
-    image_metadata_df.to_csv(f)
+    image_metadata_df.to_csv(f, index=False)
 
   import_file_csv = os.path.join(output_dir, 'import_file.csv')
   with tf.io.gfile.GFile(import_file_csv, 'w') as f:
