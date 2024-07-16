@@ -34,7 +34,7 @@ gfile = tf2.io.gfile
 
 def _create_building_mask(tile_height: int, tile_width: int,
                           indices: List[Tuple[int, int]]) -> SparseTensor:
-  values = np.ones((len(indices),), dtype=np.int8)
+  values = np.ones((len(indices),), dtype=np.int32)
   return SparseTensor(
       indices=indices, values=values, dense_shape=[tile_height, tile_width])
 
@@ -75,56 +75,93 @@ def _get_float_feature(example: Example, feature_name: str) -> List[float]:
   return list(example.features.feature[feature_name].float_list.value)
 
 
-def _create_fake_module() -> tf.Module:
+def _create_fake_module(empty_detection: bool = False) -> tf.Module:
   """Creates a mock segmentation model.
+
+  Args:
+    empty_detection: If true, the model will return an empty detection;
+      otherwise it will return detections equivalent to the mmeka model.
 
   Returns:
     A simple model that will always return a tensor with the same size as the
     input image, but with two channels for the building, background classes.
   """
 
-  def _call_func(image, is_training):
-    if is_training:
-      raise ValueError(
-          'Fake Segmentation Model should be called with is_training=False')
-    else:
-      # Add 3 channels to first dimension to represent 3 building detections.
-      # So output should have a shape of [3, H, W, 2] where 2 is the number of
-      # classes (building, background).
+  def _call_func_empty_detection(_):
+    return {
+        'num_detections': tf.zeros([1]),  # Zero detections.
+        'detection_outer_boxes': tf.zeros([1, 100, 4]),
+        'detection_masks': tf.zeros([1, 100, 128, 128]),
+        'detection_scores': tf.zeros([1, 100]),
+    }
 
-      # Here we create a building in the center of the image.
-      tile_shape = tf2.shape(image)
+  def _call_func(serialized_example):
+    # Add 3 channels to first dimension to represent 3 building detections.
+    # So output should have a shape of [3, H, W, 2] where 2 is the number of
+    # classes (building, background).
 
-      building = tf2.constant(.75, shape=(10, 10))
-      background = tf2.constant(.25, shape=(10, 10))
-      confidence_mask = tf2.stack([background, building], axis=-1)
-      pad_diff = (tile_shape[1] - tf2.shape(building)[0]) // 2
-      remainder = (tile_shape[1] - tf2.shape(building)[0]) % 2
-      padding = [[pad_diff, pad_diff + remainder],
-                 [pad_diff, pad_diff + remainder], [0, 0]]
-      building_mask = tf2.pad(
-          confidence_mask, padding, 'constant', constant_values=0)
+    # Here we create a building in the center of the image.
+    example = tf.io.parse_single_example(
+        serialized_example[0], extract_tiles_constants.FEATURES
+    )
+    image = tf.io.decode_image(
+        example[extract_tiles_constants.IMAGE_ENCODED], dtype=tf.float32
+    )
+    tile_shape = tf2.shape(image)
 
-      return tf2.stack([building_mask for i in range(3)])
+    building = tf2.constant(0.75, shape=(10, 10))
+    background = tf2.constant(0.25, shape=(10, 10))
+    confidence_mask = tf2.stack([background, building], axis=-1)
+    pad_diff = (tile_shape[1] - tf2.shape(building)[0]) // 2
+    remainder = (tile_shape[1] - tf2.shape(building)[0]) % 2
+    padding = [
+        [pad_diff, pad_diff + remainder],
+        [pad_diff, pad_diff + remainder],
+        [0, 0],
+    ]
+
+    building_mask = tf2.pad(
+        confidence_mask, padding, 'constant', constant_values=0
+    )
+    building_mask = tf.math.sigmoid(building_mask)
+
+    bboxes = tf2.constant([[
+        [5, 5, 70, 70],
+    ]])
+
+    saved_model_output = {
+        'num_detections': tf.constant([1]),
+        'detection_outer_boxes': bboxes,
+        'detection_masks': tf.expand_dims(building_mask, 0),
+        'detection_scores': tf.ones([1, 100]),
+    }
+    return saved_model_output
 
   module = tf.Module()
-  module.__call__ = tf.function(_call_func)
+  if empty_detection:
+    module.__call__ = tf.function(_call_func_empty_detection)
+  else:
+    module.__call__ = tf.function(_call_func)
   module.__call__.get_concrete_function(
-      tf.TensorSpec(shape=[None, None, None, 3], dtype=tf.float32),
-      is_training=False)
+      tf.TensorSpec(shape=[1], dtype=tf.string)
+  )
   return module
 
 
-def _create_test_model_checkpoint(test_dir: str) -> str:
+def _create_test_model_checkpoint(
+    test_dir: str, empty_detection: bool = False
+) -> str:
   """Creates a dummy model for testing.
 
   Args:
     test_dir: Temporary test specific directory.
+    empty_detection: If true, the model will return an empty detection;
+      otherwise it will return detections equivalent to the mmeka model.
 
   Returns:
     Path to serialized model on local disk.
   """
-  module = _create_fake_module()
+  module = _create_fake_module(empty_detection)
   model_path = test_dir + '/model/'
 
   tf2.saved_model.save(module, model_path)
@@ -141,10 +178,15 @@ def _create_fake_tile_example() -> tf.train.Example:
   utils.add_int64_feature(extract_tiles_constants.IMAGE_HEIGHT, 126, example)
   utils.add_int64_feature(extract_tiles_constants.X_OFFSET, 0, example)
   utils.add_int64_feature(extract_tiles_constants.Y_OFFSET, 0, example)
-  utils.add_bytes_feature(extract_tiles_constants.IMAGE_FORMAT, b'jpeg',
-                          example)
-  utils.add_bytes_feature(extract_tiles_constants.IMAGE_ENCODED,
-                          utils.serialize_image(image_data, 'jpeg'), example)
+  utils.add_int64_feature(extract_tiles_constants.MARGIN_SIZE, 0, example)
+  utils.add_int64_feature(extract_tiles_constants.TILE_ROW, 0, example)
+  utils.add_int64_feature(extract_tiles_constants.TILE_COL, 0, example)
+  utils.add_bytes_feature(extract_tiles_constants.IMAGE_FORMAT, b'png', example)
+  utils.add_bytes_feature(
+      extract_tiles_constants.IMAGE_ENCODED,
+      tf.io.encode_png(image_data).numpy(),
+      example,
+  )
   utils.add_bytes_feature(extract_tiles_constants.CRS, b'epsg:4326', example)
   utils.add_float_list_feature(extract_tiles_constants.AFFINE_TRANSFORM,
                                [1., 0., 0., 0., 1., 0.], example)
@@ -153,36 +195,98 @@ def _create_fake_tile_example() -> tf.train.Example:
 
 class DetectBuildingsTest(tf.test.TestCase):
 
-  def test_building_detection(self):
-    """Tests the Detect Buildings stage outputs correct building instances."""
+  def test_building_detection_empty_model_res(self):
+    """Tests the Detect Buildings stage outputs zero building instances because the model returns empty detection."""
 
-    example_tiles = [
-        _create_fake_tile_example().SerializeToString() for x in range(3)
-    ]
+    example_tiles = [_create_fake_tile_example() for x in range(3)]
 
     def _check_results(results):
-      for instance in results:
-        # Average building confidence must be > .5 or otherwise it would have
-        # been classified as background.
-        self.assertGreater(
-            instance.features.feature[
-                detect_buildings_constants.CONFIDENCE].float_list.value[0], .5)
-        sparse_mask = tf.deserialize_many_sparse([
-            instance.features.feature[
-                detect_buildings_constants.MASK].bytes_list.value
-        ], tf.int8)
-        dense_mask = tf.sparse.to_dense(sparse_mask)
-        dense_mask = tf.squeeze(dense_mask)
-        self.assertAllEqual(dense_mask.shape, [126, 126])
+      self.assertEmpty(results)
 
     with test_pipeline.TestPipeline() as pipeline:
       result = (
           pipeline
           | 'CreateInput' >> beam.Create(example_tiles)
-          | 'Inference' >> beam.ParDo(
+          | 'Inference'
+          >> beam.ParDo(
               detect_buildings.DetectBuildingsFn(
                   _create_test_model_checkpoint(
-                      self.create_tempdir().full_path))))
+                      self.create_tempdir().full_path, empty_detection=True
+                  ),
+                  detection_confidence_threshold=0.2,
+              )
+          )
+      )
+
+      util.assert_that(result, _check_results)
+
+  def test_building_detection_empty_high_confidence_threshold(self):
+    """Tests the Detect Buildings stage outputs zero building instances because the confidence threshold is too high."""
+
+    example_tiles = [_create_fake_tile_example() for x in range(3)]
+
+    def _check_results(results):
+      self.assertEmpty(results)
+
+    with test_pipeline.TestPipeline() as pipeline:
+      result = (
+          pipeline
+          | 'CreateInput' >> beam.Create(example_tiles)
+          | 'Inference'
+          >> beam.ParDo(
+              detect_buildings.DetectBuildingsFn(
+                  _create_test_model_checkpoint(
+                      self.create_tempdir().full_path, empty_detection=False
+                  ),
+                  detection_confidence_threshold=1000.0,
+              )
+          )
+      )
+
+      util.assert_that(result, _check_results)
+
+  def test_building_detection(self):
+    """Tests the Detect Buildings stage outputs correct building instances."""
+
+    example_tiles = [_create_fake_tile_example() for x in range(3)]
+
+    def _check_results(results):
+      self.assertNotEmpty(results)
+      for instance in results:
+        # Average building confidence must be > .5 or otherwise it would have
+        # been classified as background.
+        self.assertGreater(
+            instance.features.feature[
+                detect_buildings_constants.CONFIDENCE
+            ].float_list.value[0],
+            0.5,
+        )
+        sparse_mask = tf.deserialize_many_sparse(
+            [
+                instance.features.feature[
+                    detect_buildings_constants.MASK
+                ].bytes_list.value
+            ],
+            tf.int32,
+        )
+        dense_mask = tf.sparse.to_dense(sparse_mask)
+        dense_mask = tf.squeeze(dense_mask)
+        self.assertAllEqual(dense_mask.shape, [128, 128])
+
+    with test_pipeline.TestPipeline() as pipeline:
+      result = (
+          pipeline
+          | 'CreateInput' >> beam.Create(example_tiles)
+          | 'Inference'
+          >> beam.ParDo(
+              detect_buildings.DetectBuildingsFn(
+                  _create_test_model_checkpoint(
+                      self.create_tempdir().full_path, empty_detection=False
+                  ),
+                  detection_confidence_threshold=0.2,
+              )
+          )
+      )
 
       util.assert_that(result, _check_results)
 
@@ -318,7 +422,9 @@ class DetectBuildingsTest(tf.test.TestCase):
         dense_shape=[2, 2])
     example = tf.train.Example()
     detect_buildings._encode_sparse_tensor(sparse_tensor, example, 'feature')
-    decoded = detect_buildings._decode_sparse_tensor(example, 'feature')
+    decoded = detect_buildings._decode_sparse_tensor(
+        example, 'feature', dtype=tf.int8
+    )
     self.assertAllEqual(sparse_tensor.indices, decoded.indices)
     self.assertAllEqual(sparse_tensor.values, decoded.values)
     self.assertAllEqual(sparse_tensor.dense_shape, decoded.dense_shape)

@@ -37,7 +37,7 @@ def _deserialize_image(serialized_image: bytes) -> np.ndarray:
   return tf.io.decode_image(serialized_image).numpy()
 
 
-def _check_serialized_examples(expected_tiles: List[Tile]):
+def _check_examples(expected_tiles: List[Tile]):
   """Validates examples generated from beam pipeline.
 
   Args:
@@ -47,11 +47,9 @@ def _check_serialized_examples(expected_tiles: List[Tile]):
     Function for validating examples based on expected extents.
   """
 
-  def _check_examples(actual_serialized_examples):
+  def _check_actual_examples(actual_examples):
     actual_tiles = set()
-    for serialized in actual_serialized_examples:
-      example = tf.train.Example()
-      example.ParseFromString(serialized)
+    for example in actual_examples:
       feature_names = set(example.features.feature.keys())
       assert feature_names == set([
           'image/width', 'image/height', 'image/format', 'image/encoded', 'x',
@@ -91,7 +89,7 @@ def _check_serialized_examples(expected_tiles: List[Tile]):
 
     assert set(expected_tiles) == actual_tiles
 
-  return _check_examples
+  return _check_actual_examples
 
 
 class ExtractTilesTest(absltest.TestCase):
@@ -162,7 +160,7 @@ class ExtractTilesTest(absltest.TestCase):
           | beam.ParDo(extract_tiles.ExtractTilesAsExamplesFn(
               self.test_image_path, {})))
 
-      assert_that(result, _check_serialized_examples(tiles))
+      assert_that(result, _check_examples(tiles))
 
 
 if __name__ == '__main__':

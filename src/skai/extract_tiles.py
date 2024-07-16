@@ -203,7 +203,7 @@ class ExtractTilesAsExamplesFn(beam.DoFn):
       self._crs = self._input_file.crs.to_string()
       self._affine_transform = self._input_file.transform
 
-  def process(self, tile: Tile) -> Iterable[bytes]:
+  def process(self, tile: Tile) -> Iterable[Example]:
     """Extract a tile from the source image and encode it as an Example.
 
     Args:
@@ -231,4 +231,4 @@ class ExtractTilesAsExamplesFn(beam.DoFn):
 
     example = _create_tile_example(window_data, tile, self._crs,
                                    self._affine_transform)
-    yield example.SerializeToString()
+    yield example
