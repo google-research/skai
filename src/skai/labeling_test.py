@@ -226,10 +226,17 @@ class LabelingTest(absltest.TestCase):
           os.listdir(f'{output_dir}/'),
           [
               'a.png',
+              'a_pre.png',
+              'a_post.png',
               'b.png',
+              'b_pre.png',
+              'b_post.png',
               'e.png',
+              'e_pre.png',
+              'e_post.png',
               'image_metadata.csv',
               'import_file.csv',
+              'labeling_examples.tfrecord',
           ],
       )
 
@@ -246,6 +253,10 @@ class LabelingTest(absltest.TestCase):
           import_file_df['path'].values,
           [f'{output_dir}/a.png', f'{output_dir}/b.png', f'{output_dir}/e.png'],
       )
+
+      ds = tf.data.TFRecordDataset([f'{output_dir}/labeling_examples.tfrecord'])
+      num_examples = sum([1 for _ in ds])
+      self.assertEqual(num_examples, 3)
 
   def testCreateLabeledExamplesFromLabelFile(self):
     # Create unlabeled examples.
@@ -390,4 +401,5 @@ class LabelingTest(absltest.TestCase):
     )
 
 if __name__ == '__main__':
+  tf.compat.v1.enable_eager_execution()
   absltest.main()

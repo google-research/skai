@@ -407,6 +407,24 @@ def _generate_raster_points(
       yield _RasterPoint(raster_path, longitude, latitude)
 
 
+def get_rgb_indices(raster: rasterio.io.DatasetReader) -> list[int]:
+  """Returns the indices of the RGB channels in the raster."""
+  index_by_color = {}
+  for i, colorinterp in enumerate(raster.colorinterp):
+    index_by_color[colorinterp] = i + 1
+  if rasterio.enums.ColorInterp.red not in index_by_color:
+    raise ValueError('Raster does not have a red channel.')
+  if rasterio.enums.ColorInterp.green not in index_by_color:
+    raise ValueError('Raster does not have a green channel.')
+  if rasterio.enums.ColorInterp.blue not in index_by_color:
+    raise ValueError('Raster does not have a blue channel.')
+  return [
+      index_by_color[rasterio.enums.ColorInterp.red],
+      index_by_color[rasterio.enums.ColorInterp.green],
+      index_by_color[rasterio.enums.ColorInterp.blue],
+  ]
+
+
 class MakeWindow(beam.DoFn):
   """Beam function for creating a window from a raster and coordinates.
 
@@ -493,6 +511,7 @@ class ReadRasterWindowGroupFn(beam.DoFn):
         raster = rasterio.open(raster_path)
       self._rasters[raster_path] = raster
 
+    rgb_indices = get_rgb_indices(raster)
     raster_window = rasterio.windows.Window(
         group.window.column,
         group.window.row,
@@ -503,8 +522,11 @@ class ReadRasterWindowGroupFn(beam.DoFn):
       # Currently assumes that bands [1, 2, 3] of the input image are the RGB
       # channels.
       window_data = raster.read(
-          indexes=[1, 2, 3], window=raster_window, boundless=True,
-          fill_value=-1)
+          indexes=rgb_indices,
+          window=raster_window,
+          boundless=True,
+          fill_value=-1,
+      )
     except (rasterio.errors.RasterioError, rasterio.errors.RasterioIOError):
       logging.exception('Raster read error')
       self._num_errors.inc()
