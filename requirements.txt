@@ -4,7 +4,7 @@ earthengine-api
 gcsfs
 geopandas>=0.8
 google_apitools
-google-cloud-aiplatform>=1.35.0
+google-cloud-aiplatform>=1.48.0
 ml-collections
 numpy
 opencv-python

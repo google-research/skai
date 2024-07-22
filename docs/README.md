@@ -17,7 +17,7 @@ For more information, please refer to our [NeurIPS workshop paper](https://arxiv
 
 ## Setup
 
-SKAI requires a Linux workstation with a recent version of Python (>=3.7). SKAI was designed to run on Google Cloud, so you need to have a Google Cloud project set up as well.
+SKAI requires a Linux workstation with a recent version of Python (>=3.9). SKAI was designed to run on Google Cloud, so you need to have a Google Cloud project set up as well.
 
 Please see detailed setup instructions [here](setup.md).
 
