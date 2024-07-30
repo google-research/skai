@@ -207,7 +207,7 @@ class ReadRasterTest(absltest.TestCase):
           | beam.Create(
               [(self.test_image_path, group1), (self.test_image_path, group2)]
           )
-          | beam.ParDo(read_raster.ReadRasterWindowGroupFn({}))
+          | beam.ParDo(read_raster.ReadRasterWindowGroupFn([], {}))
       )
 
       expected_image_path = self.test_image_path
@@ -235,7 +235,7 @@ class ReadRasterTest(absltest.TestCase):
         [ColorInterp.green, ColorInterp.red, ColorInterp.blue]
     )
     dataset = rasterio.open(image_path)
-    indices = read_raster.get_rgb_indices(dataset)
+    indices = read_raster._get_rgb_indices(dataset)
     self.assertSequenceEqual(indices, [2, 1, 3])
 
   def test_get_rgb_indices_bgr_image(self):
@@ -243,7 +243,7 @@ class ReadRasterTest(absltest.TestCase):
         [ColorInterp.blue, ColorInterp.green, ColorInterp.red]
     )
     dataset = rasterio.open(image_path)
-    indices = read_raster.get_rgb_indices(dataset)
+    indices = read_raster._get_rgb_indices(dataset)
     self.assertSequenceEqual(indices, [3, 2, 1])
 
   def test_get_rgb_indices_argb_image(self):
@@ -254,7 +254,7 @@ class ReadRasterTest(absltest.TestCase):
         ColorInterp.blue,
     ])
     dataset = rasterio.open(image_path)
-    indices = read_raster.get_rgb_indices(dataset)
+    indices = read_raster._get_rgb_indices(dataset)
     self.assertSequenceEqual(indices, [2, 3, 4])
 
   def test_get_rgb_indices_missing_red(self):
@@ -266,7 +266,7 @@ class ReadRasterTest(absltest.TestCase):
     with self.assertRaisesRegex(
         ValueError, 'Raster does not have a red channel.'
     ):
-      read_raster.get_rgb_indices(dataset)
+      read_raster._get_rgb_indices(dataset)
 
   def test_get_rgb_indices_missing_green(self):
     image_path = _create_test_image_tiff_file([
@@ -277,7 +277,7 @@ class ReadRasterTest(absltest.TestCase):
     with self.assertRaisesRegex(
         ValueError, 'Raster does not have a green channel.'
     ):
-      read_raster.get_rgb_indices(dataset)
+      read_raster._get_rgb_indices(dataset)
 
   def test_get_rgb_indices_missing_blue(self):
     image_path = _create_test_image_tiff_file([
@@ -288,7 +288,19 @@ class ReadRasterTest(absltest.TestCase):
     with self.assertRaisesRegex(
         ValueError, 'Raster does not have a blue channel.'
     ):
-      read_raster.get_rgb_indices(dataset)
+      read_raster._get_rgb_indices(dataset)
+
+  def test_convert_image_to_uint8(self):
+    band = np.diag([4095, 2047, 1023, 511]).astype(np.uint16)
+    image = np.stack([band, band, band], axis=2)
+    self.assertSequenceEqual(image.shape, (4, 4, 3))
+    converted = read_raster._convert_image_to_uint8(image, 12)
+    self.assertEqual(converted.dtype, np.uint8)
+    self.assertSequenceEqual(converted.shape, [4, 4, 3])
+    np.testing.assert_equal(converted[0, 0, :], [255, 255, 255])
+    np.testing.assert_equal(converted[1, 1, :], [127, 127, 127])
+    np.testing.assert_equal(converted[2, 2, :], [63, 63, 63])
+    np.testing.assert_equal(converted[3, 3, :], [31, 31, 31])
 
 
 if __name__ == '__main__':

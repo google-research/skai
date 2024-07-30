@@ -36,18 +36,9 @@ python generate_examples_main.py \
   --cloud_region=us-west1
 """
 
-import os
-import time
-from typing import List
-
 from absl import app
 from absl import flags
-from absl import logging
-import shapely.geometry
-from skai import buildings
 from skai import generate_examples
-from skai import read_raster
-import tensorflow as tf
 
 FLAGS = flags.FLAGS
 
@@ -174,20 +165,10 @@ flags.DEFINE_bool(
     'Wait for dataflow job to finish before finishing execution.',
 )
 
-Polygon = shapely.geometry.polygon.Polygon
-
-BUILDINGS_FILE_NAME = 'processed_buildings.parquet'
-
-
-def _read_image_config(path: str) -> List[str]:
-  with tf.io.gfile.GFile(path, 'r') as f:
-    return [line.strip() for line in f.readlines()]
-
 
 def main(args):
   del args  # unused
 
-  config = None
   if FLAGS.configuration_path:
     config = generate_examples.ExamplesGenerationConfig.init_from_json_path(
         FLAGS.configuration_path
@@ -195,80 +176,7 @@ def main(args):
   else:
     config = generate_examples.ExamplesGenerationConfig.init_from_flags(FLAGS)
 
-  timestamp = time.strftime('%Y%m%d-%H%M%S')
-  timestamped_dataset = f'{config.dataset_name}-{timestamp}'
-
-  gdal_env = generate_examples.parse_gdal_env(config.gdal_env)
-  if config.before_image_patterns:
-    before_image_patterns = config.before_image_patterns
-  elif config.before_image_config:
-    before_image_patterns = _read_image_config(config.before_image_config)
-  else:
-    before_image_patterns = []
-
-  if config.after_image_patterns:
-    after_image_patterns = config.after_image_patterns
-  elif config.after_image_config:
-    after_image_patterns = _read_image_config(config.after_image_config)
-  else:
-    after_image_patterns = []
-
-  # Validate before_image_patterns and after_image_patterns
-  generate_examples.validate_image_patterns(before_image_patterns, False)
-  generate_examples.validate_image_patterns(after_image_patterns, True)
-
-  if not config.labels_file and config.buildings_method == 'none':
-    raise ValueError('At least labels_file (for labeled examples extraction) '
-                     'or buildings_method != none (for unlabeled data) should '
-                     'be specified.')
-
-  buildings_path = os.path.join(config.output_dir, BUILDINGS_FILE_NAME)
-  if config.labels_file:
-    generate_examples.read_labels_file(
-        config.labels_file,
-        config.label_property,
-        config.labels_to_classes,
-        config.num_keep_labeled_examples,
-        buildings_path
-    )
-    buildings_labeled = True
-  else:
-    if config.aoi_path:
-      aois = buildings.read_aois(config.aoi_path)
-    else:
-      aois = [read_raster.get_raster_bounds(path, gdal_env)
-              for path in after_image_patterns]
-    try:
-      generate_examples.download_building_footprints(
-          config, aois, buildings_path
-      )
-    except generate_examples.NotInitializedEarthEngineError:
-      logging.fatal('Could not initialize Earth Engine.', exc_info=True)
-    except generate_examples.NoBuildingFoundError:
-      logging.fatal('No building is found.', exc_info=True)
-    buildings_labeled = False
-
-  generate_examples.generate_examples_pipeline(
-      before_image_patterns,
-      after_image_patterns,
-      config.large_patch_size,
-      config.example_patch_size,
-      config.resolution,
-      config.output_dir,
-      config.output_shards,
-      buildings_path,
-      buildings_labeled,
-      config.use_dataflow,
-      gdal_env,
-      timestamped_dataset,
-      config.cloud_project,
-      config.cloud_region,
-      config.worker_service_account,
-      config.max_dataflow_workers,
-      FLAGS.wait_for_dataflow,
-      config.cloud_detector_model_path,
-      config.output_metadata_file
-  )
+  generate_examples.run_example_generation(config, FLAGS.wait_for_dataflow)
 
 
 if __name__ == '__main__':
