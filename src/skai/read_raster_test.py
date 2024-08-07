@@ -122,7 +122,7 @@ class ReadRasterTest(absltest.TestCase):
       def _check_windows(windows):
         self.assertLen(windows, 2)
         for key, window in windows:
-          self.assertEqual(key, _RasterBin(self.test_image_path, 1784, -167))
+          self.assertEqual(key, _RasterBin(self.test_image_path, 17848, -1664))
           self.assertEqual(window.source_crs, rasterio.crs.CRS.from_epsg(3857))
           self.assertEqual(window.target_crs, rasterio.crs.CRS.from_epsg(32760))
           if window.window_id == 'A17B32432A1085C1':

@@ -40,9 +40,9 @@ _MAX_PATCH_SIZE = 2048
 
 # When splitting coordinates into bins for grouping, this is the number of
 # degrees in longitude and latitude each bin spans. Since 1 degree ~ 111km,
-# and we expect image resolutions around 0.5m, this means approximately 22K
-# pixels per bin.
-_BIN_SIZE_DEGREES = 0.1
+# and we expect image resolutions around 0.5m, this means each bin will be
+# approximately 2220 x 2220 pixels.
+_BIN_SIZE_DEGREES = 0.01
 
 
 @dataclasses.dataclass(order=True, frozen=True)
