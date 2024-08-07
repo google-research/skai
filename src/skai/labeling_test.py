@@ -245,6 +245,21 @@ class LabelingTest(absltest.TestCase):
           image_metadata['example_id'],
           allowed_example_ids,
       )
+      self.assertCountEqual(
+          image_metadata.columns,
+          [
+              'id',
+              'int64_id',
+              'example_id',
+              'image',
+              'image_source_path',
+              'pre_image_path',
+              'post_image_path',
+              'tfrecord_source_path',
+              'longitude',
+              'latitude',
+          ],
+      )
 
       import_file_df = pd.read_csv(
           f'{output_dir}/import_file.csv', names=['path']

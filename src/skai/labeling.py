@@ -59,6 +59,8 @@ class LabelingExample:
   combined_image_path: str
   tfrecord_path: str
   serialized_example: bytes
+  longitude: float
+  latitude: float
 
 
 def _annotate_image(image: Image, caption: str) -> Image:
@@ -441,6 +443,8 @@ def create_labeling_images(
               i.pre_image_path,
               i.post_image_path,
               i.tfrecord_path,
+              i.longitude,
+              i.latitude,
           )
           for i in labeling_examples
       ],
@@ -453,6 +457,8 @@ def create_labeling_images(
           'pre_image_path',
           'post_image_path',
           'tfrecord_source_path',
+          'longitude',
+          'latitude',
       ),
   )
   with tf.io.gfile.GFile(image_metadata_csv, 'w') as f:
@@ -656,6 +662,9 @@ def _create_labeling_assets_from_example_file(
           .decode()
       )
 
+    if example_id not in allowed_example_ids:
+      continue
+
     try:
       int64_id = utils.get_int64_feature(example, 'int64_id')[0]
     except IndexError as error:
@@ -668,8 +677,9 @@ def _create_labeling_assets_from_example_file(
     else:
       plus_code = 'unknown'
 
-    if example_id not in allowed_example_ids:
-      continue
+    longitude, latitude = example.features.feature[
+        'coordinates'
+    ].float_list.value
 
     before_image = utils.deserialize_image(
         example.features.feature['pre_image_png_large'].bytes_list.value[0],
@@ -697,14 +707,19 @@ def _create_labeling_assets_from_example_file(
     with tf.io.gfile.GFile(combined_image_path, 'wb') as f:
       f.write(utils.serialize_image(combined_image, 'png'))
 
-    labeling_examples.append(LabelingExample(
-        int64_id=int64_id,
-        example_id=str(example_id),
-        pre_image_path=pre_image_path,
-        post_image_path=post_image_path,
-        combined_image_path=combined_image_path,
-        tfrecord_path=example_file,
-        serialized_example=example.SerializeToString()))
+    labeling_examples.append(
+        LabelingExample(
+            int64_id=int64_id,
+            example_id=str(example_id),
+            pre_image_path=pre_image_path,
+            post_image_path=post_image_path,
+            combined_image_path=combined_image_path,
+            tfrecord_path=example_file,
+            serialized_example=example.SerializeToString(),
+            longitude=longitude,
+            latitude=latitude,
+        )
+    )
 
   return labeling_examples
 
