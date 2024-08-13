@@ -456,6 +456,7 @@ class GenerateExamplesFn(beam.DoFn):
     _example_patch_size: Size in pixels of the smaller before and after image
       patches used in TF Examples. This is typically 64.
     _use_before_image: Whether to include before images in the examples.
+    _use_after_image: Whether to include after images in the examples.
   """
 
   def __init__(
@@ -463,12 +464,14 @@ class GenerateExamplesFn(beam.DoFn):
       large_patch_size: int,
       example_patch_size: int,
       use_before_image: bool,
+      use_after_image: bool,
       cloud_detector_model_path: Optional[str] = None,
   ) -> None:
     self._cloud_detector_model_path = cloud_detector_model_path
     self._large_patch_size = large_patch_size
     self._example_patch_size = example_patch_size
     self._use_before_image = use_before_image
+    self._use_after_image = use_after_image
 
     self._example_count = Metrics.counter('skai', 'generated_examples_count')
     self._bad_example_count = Metrics.counter('skai', 'rejected_examples_count')
@@ -507,7 +510,7 @@ class GenerateExamplesFn(beam.DoFn):
     Returns:
       Tensorflow Example.
     """
-    if self._use_before_image:
+    if self._use_before_image and self._use_after_image:
       after_image = align_after_image(before_image, after_image)
     before_crop = _center_crop(before_image, self._example_patch_size)
     if self._use_before_image and _mostly_blank(before_crop):
@@ -515,7 +518,7 @@ class GenerateExamplesFn(beam.DoFn):
       self._bad_example_count.inc()
       return None
     after_crop = _center_crop(after_image, self._example_patch_size)
-    if _mostly_blank(after_crop):
+    if self._use_after_image and _mostly_blank(after_crop):
       self._after_patch_blank_count.inc()
       self._bad_example_count.inc()
       return None
@@ -602,10 +605,15 @@ class GenerateExamplesFn(beam.DoFn):
       elif feature.after_image:
         after_images.append(feature.after_image)
 
-    if not after_images:
-      self._after_patch_blank_count.inc()
-      self._bad_example_count.inc()
-      return
+    if self._use_after_image:
+      if not after_images:
+        self._after_patch_blank_count.inc()
+        self._bad_example_count.inc()
+        return
+    else:
+      after_image = np.zeros(
+          (self._large_patch_size, self._large_patch_size, 3), dtype=np.uint8)
+      after_images = [('', after_image)]
 
     if self._use_before_image:
       if not before_images:
@@ -768,20 +776,22 @@ def _generate_examples(
             lambda key, value: (key, _FeatureUnion(before_image=value))))
     input_collections.append(before_image_features)
 
-  after_patches = read_raster.extract_patches_from_rasters(
-      pipeline,
-      buildings_path,
-      after_image_info,
-      after_image_size,
-      resolution,
-      gdal_env,
-      'after',
-  )
-  after_image_features = (
-      after_patches
-      | stage_prefix + '_after_to_feature' >> beam.MapTuple(
-          lambda key, value: (key, _FeatureUnion(after_image=value))))
-  input_collections.append(after_image_features)
+  use_after_image = bool(after_image_info)
+  if use_after_image:
+    after_patches = read_raster.extract_patches_from_rasters(
+        pipeline,
+        buildings_path,
+        after_image_info,
+        after_image_size,
+        resolution,
+        gdal_env,
+        'after',
+    )
+    after_image_features = (
+        after_patches
+        | stage_prefix + '_after_to_feature' >> beam.MapTuple(
+            lambda key, value: (key, _FeatureUnion(after_image=value))))
+    input_collections.append(after_image_features)
 
   examples = (
       input_collections
@@ -793,6 +803,7 @@ def _generate_examples(
               large_patch_size,
               example_patch_size,
               use_before_image,
+              use_after_image,
               cloud_detector_model_path,
           )
       )
@@ -1046,9 +1057,8 @@ def _get_image_infos_from_config(
         for p in after_image_paths
     ]
   else:
-    raise ValueError(
-        'At least one post-disaster image is required, but none were specified.'
-    )
+    after_image_info = []
+
   return before_image_info, after_image_info
 
 
