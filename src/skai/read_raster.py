@@ -17,7 +17,7 @@ import dataclasses
 import functools
 import logging
 import time
-from typing import Iterable, Sequence
+from typing import Any, Iterable, Sequence
 
 import affine
 import apache_beam as beam
@@ -40,9 +40,9 @@ _MAX_PATCH_SIZE = 2048
 
 # When splitting coordinates into bins for grouping, this is the number of
 # degrees in longitude and latitude each bin spans. Since 1 degree ~ 111km,
-# and we expect image resolutions around 0.5m, this means approximately 22K
-# pixels per bin.
-_BIN_SIZE_DEGREES = 0.1
+# and we expect image resolutions around 0.5m, this means each bin will be
+# approximately 2220 x 2220 pixels.
+_BIN_SIZE_DEGREES = 0.01
 
 
 @dataclasses.dataclass(order=True, frozen=True)
@@ -174,6 +174,45 @@ class _WindowGroup:
         raise ValueError('Member window exceeds group window bounds.')
       source_image = group_data[:, row_start:row_end, column_start:column_end]
       yield member.window_id, member.reproject(source_image)
+
+
+@dataclasses.dataclass(order=True)
+class RasterInfo:
+  """Information needed to read raster pixels.
+
+  There is huge variation in satellite image formats. If you don't provide RGB
+  band and bit depth information here, the example generation pipeline will try
+  to guess the appropriate values based on image metadata. This will work if
+  your images contain only 3 bands in RGB order and the pixel values are bytes
+  (uint8). In other cases, the pipeline may fail to guess the correct bands and
+  pixel depths and throw an error, or guess incorrectly and produce garbled
+  output images.
+
+  Attributes:
+    path: Path to raster.
+    rgb_bands: Tuple of red, green, and blue band indexes.
+    bit_depth: Bit depth of the pixels of the RGB bands.
+  """
+  path: str
+  rgb_bands: tuple[int, int, int] | None
+  bit_depth: int | None
+
+  @staticmethod
+  def parse_json(json_dict: dict[str, Any]):
+    path = json_dict.get('path')
+    if path is None:
+      raise KeyError('RasterInfo JSON config must contain key "path"')
+    rgb_bands = json_dict.get('rgb_bands')
+    bit_depth = json_dict.get('bit_depth')
+    return RasterInfo(path, rgb_bands, bit_depth)
+
+  @staticmethod
+  def detect_raster_info(raster_path: str, gdal_env: dict[str, str]):
+    with rasterio.Env(**gdal_env):
+      raster = rasterio.open(raster_path)
+      rgb_bands = _get_rgb_indices(raster)
+      bit_depth = 8
+      return RasterInfo(raster_path, rgb_bands, bit_depth)
 
 
 @functools.cache
@@ -352,15 +391,14 @@ def _group_windows(
     yield (raster_and_windows[0].raster_path, group)
 
 
-def _convert_to_uint8(image: np.ndarray) -> np.ndarray:
-  """Converts an image to uint8.
-
-  This function currently only handles converting from various integer types to
-  uint8, with range checks to make sure the casting is safe. If needed, this
-  function can be adapted to handle float types.
+def _convert_image_to_uint8(image: np.ndarray, bit_depth: int) -> np.ndarray:
+  """Rescales the pixel vaules in an image and converts to uint8.
 
   Args:
     image: Input image array.
+    bit_depth: The number of bits each pixel value uses. This is often not the
+      full size of the data structure. For example, Pleiades images are uint16
+      but have a bit depth of 12.
 
   Returns:
     uint8 array.
@@ -368,11 +406,12 @@ def _convert_to_uint8(image: np.ndarray) -> np.ndarray:
   """
   if not np.issubdtype(image.dtype, np.integer):
     raise TypeError(f'Image type {image.dtype} not supported.')
-  if np.min(image) < 0 or np.max(image) > 255:
+  max_value = 2 ** bit_depth - 1
+  if np.min(image) < 0 or np.max(image) > max_value:
     raise ValueError(
         f'Pixel values have a range of {np.min(image)}-{np.max(image)}. '
-        'Only 0-255 is supported.')
-  return image.astype(np.uint8)
+        f'Should be in the range 0-{max_value}.')
+  return ((image / max_value) * 255).astype(np.uint8)
 
 
 def _generate_raster_points(
@@ -405,6 +444,32 @@ def _generate_raster_points(
     if (left <= longitude <= right) and (bottom <= latitude <= top):
       Metrics.counter('skai', 'num_raster_coords_pairs').inc()
       yield _RasterPoint(raster_path, longitude, latitude)
+
+
+def _get_rgb_indices(raster: rasterio.io.DatasetReader) -> tuple[int, int, int]:
+  """Returns the indices of the RGB channels in the raster."""
+  index_by_color = {}
+  for i, colorinterp in enumerate(raster.colorinterp):
+    index_by_color[colorinterp] = i + 1
+  if index_by_color:
+    if rasterio.enums.ColorInterp.red not in index_by_color:
+      raise ValueError('Raster does not have a red channel.')
+    if rasterio.enums.ColorInterp.green not in index_by_color:
+      raise ValueError('Raster does not have a green channel.')
+    if rasterio.enums.ColorInterp.blue not in index_by_color:
+      raise ValueError('Raster does not have a blue channel.')
+    return (
+        index_by_color[rasterio.enums.ColorInterp.red],
+        index_by_color[rasterio.enums.ColorInterp.green],
+        index_by_color[rasterio.enums.ColorInterp.blue],
+    )
+
+  # If the image has no ColorInterp metadata, but it has exactly 3 bands, then
+  # assume they are RGB, to maintain prior behavior.
+  if len(raster.indexes) == 3:
+    return (1, 2, 3)
+
+  raise ValueError('RGB indexes cannot be determined.')
 
 
 class MakeWindow(beam.DoFn):
@@ -470,14 +535,33 @@ class ReadRasterWindowGroupFn(beam.DoFn):
     _gdal_env: GDAL environment configuration.
   """
 
-  def __init__(self, gdal_env: dict[str, str]):
+  def __init__(
+      self,
+      raster_info: list[RasterInfo],
+      gdal_env: dict[str, str]):
     self._rasters = {}
+    self._raster_info = {r.path: r for r in raster_info}
     self._gdal_env = gdal_env
 
     self._num_groups_read = Metrics.counter('skai', 'num_groups_read')
     self._num_windows_read = Metrics.counter('skai', 'num_windows_read')
     self._num_errors = Metrics.counter('skai', 'rasterio_error')
     self._read_time = Metrics.distribution('skai', 'raster_read_time_msec')
+
+  def _init_raster(self, raster_path: str) -> None:
+    with rasterio.Env(**self._gdal_env):
+      raster = rasterio.open(raster_path)
+    self._rasters[raster_path] = raster
+    if raster_path not in self._raster_info:
+      raster_info = RasterInfo(raster_path, None, None)
+      self._raster_info[raster_path] = raster_info
+    else:
+      raster_info = self._raster_info[raster_path]
+    if raster_info.rgb_bands is None:
+      raster_info.rgb_bands = _get_rgb_indices(raster)
+    if raster_info.bit_depth is None:
+      raster_info.bit_depth = 8  # TODO(jzxu): Try to auto-detect bit depth.
+    return raster
 
   def process(
       self, raster_and_group: tuple[str, _WindowGroup]
@@ -489,10 +573,9 @@ class ReadRasterWindowGroupFn(beam.DoFn):
     if raster_path in self._rasters:
       raster = self._rasters[raster_path]
     else:
-      with rasterio.Env(**self._gdal_env):
-        raster = rasterio.open(raster_path)
-      self._rasters[raster_path] = raster
+      raster = self._init_raster(raster_path)
 
+    raster_info = self._raster_info[raster_path]
     raster_window = rasterio.windows.Window(
         group.window.column,
         group.window.row,
@@ -500,11 +583,12 @@ class ReadRasterWindowGroupFn(beam.DoFn):
         group.window.height,
     )
     try:
-      # Currently assumes that bands [1, 2, 3] of the input image are the RGB
-      # channels.
       window_data = raster.read(
-          indexes=[1, 2, 3], window=raster_window, boundless=True,
-          fill_value=-1)
+          indexes=raster_info.rgb_bands,
+          window=raster_window,
+          boundless=True,
+          fill_value=-1,
+      )
     except (rasterio.errors.RasterioError, rasterio.errors.RasterioIOError):
       logging.exception('Raster read error')
       self._num_errors.inc()
@@ -516,7 +600,7 @@ class ReadRasterWindowGroupFn(beam.DoFn):
     self._num_groups_read.inc()
 
     window_data = np.clip(window_data, 0, None)
-    window_data = _convert_to_uint8(window_data)
+    window_data = _convert_image_to_uint8(window_data, raster_info.bit_depth)
     for window_id, channel_first_image in group.extract_images(window_data):
       image = rasterio.plot.reshape_as_image(channel_first_image)
       yield (window_id, (raster_path, image))
@@ -525,7 +609,7 @@ class ReadRasterWindowGroupFn(beam.DoFn):
 def extract_patches_from_rasters(
     pipeline: beam.Pipeline,
     buildings_path: str,
-    raster_paths: list[str],
+    raster_info: list[RasterInfo],
     patch_size: int,
     resolution: float,
     gdal_env: dict[str, str],
@@ -535,7 +619,7 @@ def extract_patches_from_rasters(
   Args:
     pipeline: Beam pipeline.
     buildings_path: Path to building footprints file.
-    raster_paths: Raster paths.
+    raster_info: Dictionary mapping raster paths to information about them.
     patch_size: Desired size of output patches.
     resolution: Desired resolution of output patches.
     gdal_env: GDAL environment variables.
@@ -547,17 +631,17 @@ def extract_patches_from_rasters(
 
   return (
       pipeline
-      | stage_prefix + '_encode_raster_paths' >> beam.Create(raster_paths)
+      | stage_prefix + '_encode_raster_paths'
+      >> beam.Create([r.path for r in raster_info])
       | stage_prefix + '_generate_raster_points'
       >> beam.FlatMap(_generate_raster_points, buildings_path)
       | stage_prefix + '_make_windows'
       >> beam.ParDo(MakeWindow(patch_size, resolution, gdal_env))
       | stage_prefix + '_group_by_raster_bin' >> beam.GroupByKey()
-      | stage_prefix + '_group_windows'
-      >> beam.FlatMap(_group_windows)
+      | stage_prefix + '_group_windows' >> beam.FlatMap(_group_windows)
       | stage_prefix + '_reshuffle' >> beam.Reshuffle()
       | stage_prefix + '_read_window_groups'
-      >> beam.ParDo(ReadRasterWindowGroupFn(gdal_env))
+      >> beam.ParDo(ReadRasterWindowGroupFn(raster_info, gdal_env))
   )
 
 

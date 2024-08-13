@@ -1,0 +1,47 @@
+{
+  "dataset_name":"dummy dataset name",
+  "before_image_info": [
+    {
+      "path": "before/image/1.tif",
+      "rgb_bands": [4, 3, 2],
+      "bit_depth": 12
+    },
+    {
+      "path": "before/image/2.tif",
+      "rgb_bands": [1, 2, 3],
+      "bit_depth": 8
+    },
+    {
+      "path": "before/image/3.tif",
+      "bit_depth": 8
+    },
+    {
+      "path": "before/image/4.tif",
+      "rgb_bands": [3, 2, 1]
+    }
+  ],
+  "after_image_info": [
+    {
+      "path": "after/image/1.tif",
+      "rgb_bands": [4, 3, 2],
+      "bit_depth": 12
+    },
+    {
+      "path": "after/image/2.tif",
+      "rgb_bands": [1, 2, 3],
+      "bit_depth": 8
+    },
+    {
+      "path": "after/image/3.tif"
+    }
+  ],
+  "output_dir": "path/to/output_dir",
+  "buildings_method": "file",
+  "buildings_file": "path/to/building_file",
+  "resolution": 0.3,
+  "use_dataflow": true,
+  "cloud_project": "project name",
+  "cloud_region": "region",
+  "worker_service_account": "account",
+  "max_dataflow_workers": 100
+}

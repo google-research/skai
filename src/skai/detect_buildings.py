@@ -19,10 +19,11 @@ output a semantic sementation of the image.
 
 """
 
+import functools
 import os
 import shutil
 import tempfile
-from typing import Any, Iterable, Iterator, List, Set, Tuple, Optional, Dict
+from typing import Any, Iterable, Iterator, List, Optional, Set, Tuple
 
 import affine
 import apache_beam as beam
@@ -39,6 +40,9 @@ from skai import detect_buildings_constants
 from skai import extract_tiles_constants
 from skai import utils
 import tensorflow as tf
+import tensorflow_addons.image as tfa_image
+
+_ = tfa_image.connected_components(tf.ones((10, 10), tf.uint8))
 
 Example = tf.train.Example
 Metrics = beam.metrics.Metrics
@@ -53,6 +57,9 @@ _SEGMENTATION_IMAGE_MULTIPLE = 64
 
 _BUILDINGS_TO_DEDUP = 'buildings_to_dedup'
 _PASSTHROUGH_BUILDINGS = 'passthrough_buildings'
+
+_MASK_BINARIZATION_THRESHOLD = 0.4
+_MASK_TENSOR_AS_LOGITS = False
 
 
 def _recursively_copy_directory(src_dir: str,
@@ -305,47 +312,68 @@ def _get_mask_bounds(sparse_mask) -> Tuple[int, int, int, int]:
 
 
 def _construct_output_examples(
-    instance_masks_batch: tf.Tensor, instance_scores_batch: tf.Tensor,
-    input_example: tf.train.Example) -> Iterable[tf.train.Example]:
+    instance_masks: tf.Tensor,
+    instance_scores: tf.Tensor,
+    input_example: Example,
+) -> Iterable[Example]:
   """Packages instance data into final output example.
 
   Args:
-    instance_masks_batch: A tensor of shape [1, num instances, height, width,
-      1].
-    instance_scores_batch: A tensor of shape [0, num instances].
+    instance_masks: A tensor of shape [num instances, height, width, 1].
+    instance_scores: A tensor of shape [num instances].
     input_example: The example passed to the stage containing information that
       we want to preserve in the ouptut.
 
   Yields:
     An example for each building instance.
   """
-  pixel_x_offset = input_example[extract_tiles_constants.X_OFFSET].numpy()
-  pixel_y_offset = input_example[extract_tiles_constants.Y_OFFSET].numpy()
-  margin_size = input_example[extract_tiles_constants.MARGIN_SIZE].numpy()
-  tile_row = input_example[extract_tiles_constants.TILE_ROW].numpy()
-  tile_col = input_example[extract_tiles_constants.TILE_COL].numpy()
-  crs = input_example[extract_tiles_constants.CRS].numpy().decode()
-  affine_transform = input_example[
-      extract_tiles_constants.AFFINE_TRANSFORM].numpy()
-  for i in range(instance_masks_batch.shape[1]):
+  num_detections = instance_masks.shape[0]
+  if num_detections == 0:
+    return
+
+  pixel_x_offset = utils.get_int64_feature(
+      input_example, extract_tiles_constants.X_OFFSET
+  )[0]
+  pixel_y_offset = utils.get_int64_feature(
+      input_example, extract_tiles_constants.Y_OFFSET
+  )[0]
+  margin_size = utils.get_int64_feature(
+      input_example, extract_tiles_constants.MARGIN_SIZE
+  )[0]
+  tile_row = utils.get_int64_feature(
+      input_example, extract_tiles_constants.TILE_ROW
+  )[0]
+  tile_col = utils.get_int64_feature(
+      input_example, extract_tiles_constants.TILE_COL
+  )[0]
+  crs_bytes = utils.get_bytes_feature(
+      input_example, extract_tiles_constants.CRS
+  )[0]
+  crs_str = crs_bytes.decode()
+  affine_transform = input_example.features.feature[
+      extract_tiles_constants.AFFINE_TRANSFORM
+  ].float_list.value
+  for i in range(num_detections):
     # ss_to_connected_components returns masks with shape
     # [1, num instances, h, w, 1]
     # Here we collapse the final dimensions of the instance mask to
     # [h, w]
-    instance_mask = tf.squeeze(instance_masks_batch[0, i, :, :, 0])
+    instance_mask = tf.squeeze(instance_masks[i, :, :, 0])
     # Collapse the instance score to a single element.
-    instance_score = tf.squeeze(instance_scores_batch[0, i])
+    instance_score = tf.squeeze(instance_scores[i])
     output_example = tf.train.Example()
     sparse_instance_mask = tf.sparse.from_dense(instance_mask)
 
     mask_image = tf.expand_dims(tf.cast(instance_mask, tf.uint8), -1) * 255
     mask_png = tf.io.encode_png(mask_image).numpy()
 
-    mask_poly_wkt = _get_mask_polygon(sparse_instance_mask,
-                                      pixel_x_offset,
-                                      pixel_y_offset,
-                                      crs,
-                                      affine_transform)
+    mask_poly_wkt = _get_mask_polygon(
+        sparse_instance_mask,
+        pixel_x_offset,
+        pixel_y_offset,
+        crs_str,
+        affine_transform,
+    )
 
     # Compute mask centroid.
     min_x, min_y, max_x, max_y = _get_mask_bounds(sparse_instance_mask)
@@ -353,8 +381,10 @@ def _construct_output_examples(
     centroid_y = (min_y + max_y) // 2
     longitude, latitude = _pixel_xy_to_long_lat(
         [pixel_x_offset + centroid_x],
-        [pixel_y_offset + centroid_y], crs,
-        affine_transform)[0]
+        [pixel_y_offset + centroid_y],
+        crs_str,
+        affine_transform,
+    )[0]
 
     # Compute "area".
     area = len(sparse_instance_mask.indices)
@@ -397,31 +427,123 @@ def _construct_output_examples(
                             output_example)
     utils.add_int64_feature(detect_buildings_constants.MARGIN_SIZE,
                             margin_size, output_example)
-    utils.add_bytes_feature(detect_buildings_constants.CRS, crs.encode(),
-                            output_example)
+    utils.add_bytes_feature(
+        detect_buildings_constants.CRS, crs_bytes, output_example
+    )
     utils.add_float_list_feature(detect_buildings_constants.AFFINE_TRANSFORM,
                                  affine_transform, output_example)
 
     yield output_example
 
 
+def _extract_confidence_masks(
+    image_height: int,
+    image_width: int,
+    input_tuple: Tuple[tf.Tensor, tf.Tensor],
+) -> tf.Tensor:
+  """Extracts instance confidence masks.
+
+  The raw instance confidence masks represent cropped out to bounding box and
+  then scaled masks, therefore we need to reverse that transformation to get
+  masks that span the whole image.
+
+  Args:
+    image_height: The input image height.
+    image_width: The input image width.
+    input_tuple: A tuple of unnormalized bounding box and raw instance
+      confidence masks.
+
+  Returns:
+    Properly scaled instance confidence masks.
+  """
+  bbox, raw_confidence_mask = input_tuple
+  bbox = tf.cast(tf.math.round(bbox), tf.int32)
+  ymin, xmin, ymax, xmax = bbox[0], bbox[1], bbox[2], bbox[3]
+  raw_confidence_mask = tf.expand_dims(raw_confidence_mask, axis=-1)
+  cropped_confidence_mask = tf.image.resize(
+      raw_confidence_mask, [ymax - ymin + 1, xmax - xmin + 1]
+  )
+  confidence_mask = tf.pad(
+      cropped_confidence_mask,
+      [[ymin, image_height - 1 - ymax], [xmin, image_width - 1 - xmax], [0, 0]],
+  )
+  return tf.image.resize(confidence_mask, (image_height, image_width))
+
+
+def _extract_masks_and_scores(
+    model_output: dict[str, tf.Tensor],
+    image_height: int,
+    image_width: int,
+    detection_confidence_threshold: float,
+) -> Tuple[tf.Tensor, tf.Tensor]:
+  """Extracts instance confidence masks and scores from the model output.
+
+  Args:
+    model_output: The output of the building detection model.
+    image_height: Width of the input image.
+    image_width: Height of the input image.
+    detection_confidence_threshold: All instances below this detection score
+      will be dropped.
+
+  Returns:
+      A tuple of instance confidence masks and scores.
+  """
+  num_detections = tf.cast(model_output['num_detections'][0], tf.int32)
+
+  raw_bboxes = model_output['detection_outer_boxes'][0, :num_detections]
+
+  # Extract instance confidence masks.
+  raw_confidence_masks = model_output['detection_masks'][0, :num_detections]
+  if _MASK_TENSOR_AS_LOGITS:
+    raw_confidence_masks = tf.math.sigmoid(raw_confidence_masks)
+
+  extract_fn = functools.partial(
+      _extract_confidence_masks,
+      image_height,
+      image_width,
+  )
+  if num_detections > 0:
+    confidence_masks = tf.map_fn(
+        extract_fn,
+        (raw_bboxes, raw_confidence_masks),
+        fn_output_signature=tf.float32,
+    )
+  else:
+    # confidence_masks after map_fn with 0 detections had wrong shape
+    confidence_masks = tf.zeros([0, image_height, image_width, 1])
+
+  scores = model_output['detection_scores'][0, :num_detections]
+
+  # Binarize confidence masks.
+  masks = tf.cast(confidence_masks >= _MASK_BINARIZATION_THRESHOLD, tf.int32)
+  # Filter out low confidence detections.
+  is_high_confidence = scores >= detection_confidence_threshold
+  masks = masks[is_high_confidence]
+  scores = scores[is_high_confidence]
+
+  return masks, scores
+
+
 @typehints.with_output_types(tf.train.Example)
 class DetectBuildingsFn(beam.DoFn):
   """Detects buildings within the given tiles and returns as discrete confidence masks."""
 
-  def __init__(self, detection_model_path: str) -> None:
+  def __init__(
+      self, detection_model_path: str, detection_confidence_threshold: float
+  ) -> None:
     self._detection_model_path = detection_model_path
+    self._detection_confidence_threshold = detection_confidence_threshold
     self._num_detected_buildings = Metrics.counter('skai',
                                                    'num_detected_buildings')
 
   def setup(self) -> None:
     self._model = _load_tf_model(self._detection_model_path)
 
-  def process(self, serialized_example: bytes) -> Iterator[tf.train.Example]:
+  def process(self, example: Example) -> Iterator[Example]:
     """Runs building detection model on a single tile, encoded as a tf.Example.
 
     Args:
-      serialized_example: Image tile stored as serialized tf.Example.
+      example: Image tile stored as a tf.Example.
 
     Yields:
       Example containing the following features:
@@ -433,36 +555,36 @@ class DetectBuildingsFn(beam.DoFn):
         - The mapping from pixel to coordinates represented as a affine
           transformation matrix.
     """
-    example = tf.io.parse_single_example(serialized_example,
-                                         extract_tiles_constants.FEATURES)
-    image = tf.io.decode_image(example[extract_tiles_constants.IMAGE_ENCODED],
-                               dtype=tf.float32).numpy()
+    image = tf.io.decode_image(
+        utils.get_bytes_feature(example, extract_tiles_constants.IMAGE_ENCODED)[
+            0
+        ],
+        dtype=tf.uint8,
+    ).numpy()
 
     # Current segmentation model expects images that are a multiple of 64.
     padded_image = _pad_to_square_multiple_of(
         image, _SEGMENTATION_IMAGE_MULTIPLE)
 
-    # Pass in padded, 3 channel, float32 image with an extra batch dimension.
-    # Model output will have shape [batch (kept to 1 here), tile height, tile
-    # width, 2 (number of predicted classes)]
-    logits = self._model(
-        tf.expand_dims(padded_image, axis=0), is_training=False)
-    logits = _recrop_mask(logits, image.shape[0], image.shape[1])
+    padded_image_bytes = tf.io.encode_png(padded_image).numpy()
+    example.features.feature[
+        extract_tiles_constants.IMAGE_ENCODED
+    ].bytes_list.value[0] = padded_image_bytes
 
-    confidence_masks = tf.nn.softmax(logits)
-    segmentation_masks = tf.math.argmax(
-        confidence_masks, axis=-1, output_type=tf.int32)
+    serialized_example = tf.constant([example.SerializeToString()])
 
-    batch_instances = []
-    # Iterates over batch dimension.
-    for i in range(logits.shape[0]):
-      connected_components_output = ss_to_is_connected_components(
-          segmentation_masks[tf.newaxis, i, :, :, tf.newaxis],
-          confidence_masks[tf.newaxis, i, :, :, :])
-      instance_masks_batch, instance_scores_batch, instance_labels = connected_components_output
-      self._num_detected_buildings.inc(instance_masks_batch.shape[1])
-      yield from _construct_output_examples(instance_masks_batch,
-                                            instance_scores_batch, example)
+    model_output = self._model(serialized_example)
+
+    instance_masks, instance_scores = _extract_masks_and_scores(
+        model_output,
+        padded_image.shape[0],
+        padded_image.shape[1],
+        self._detection_confidence_threshold,
+    )
+
+    yield from _construct_output_examples(
+        instance_masks, instance_scores, example
+    )
 
 
 def _overlaps_rows(sparse_tensor: SparseTensor, start_row: int,
@@ -519,14 +641,6 @@ def _get_regions_overlapped(mask: SparseTensor, margin_size: int) -> List[bool]:
   return overlaps
 
 
-def _get_int_feature(example: Example, feature_name: str) -> int:
-  return example.features.feature[feature_name].int64_list.value[0]
-
-
-def _get_float_feature(example: Example, feature_name: str) -> float:
-  return example.features.feature[feature_name].float_list.value[0]
-
-
 def _encode_sparse_tensor(sparse_tensor: SparseTensor, example: Example,
                           feature_name: str) -> None:
   """Encodes a SparseTensor into a TF Example.
@@ -540,19 +654,22 @@ def _encode_sparse_tensor(sparse_tensor: SparseTensor, example: Example,
     utils.add_bytes_feature(feature_name, sparse_data.numpy(), example)
 
 
-def _decode_sparse_tensor(example: Example, feature_name: str) -> SparseTensor:
+def _decode_sparse_tensor(
+    example: Example, feature_name: str, dtype: tf.DType
+) -> SparseTensor:
   """Decodes a SparseTensor stored in a TF Example.
 
   Args:
     example: TF Example to decode.
     feature_name: Feature name of bytes feature encoding the SparseTensor.
+    dtype: Data type of the SparseTensor to decode.
 
   Returns:
     Decoded SparseTensor.
   """
   t = tf.io.deserialize_many_sparse(
-      [example.features.feature[feature_name].bytes_list.value],
-      tf.int8)
+      [example.features.feature[feature_name].bytes_list.value], dtype
+  )
   # This introduces an extra batch dimension to the encoded SparseTensor. Get
   # rid of it.
   u = tf.sparse.reshape(t, t.dense_shape[1:])
@@ -621,8 +738,12 @@ def augment_overlap_region(building: Example) -> Example:
   """
   stage_to_regions = {0: [0, 2, 6, 8], 1: [3, 5], 2: [1, 7], 3: [4]}
 
-  tile_row = _get_int_feature(building, detect_buildings_constants.TILE_ROW)
-  tile_col = _get_int_feature(building, detect_buildings_constants.TILE_COL)
+  tile_row = utils.get_int64_feature(
+      building, detect_buildings_constants.TILE_ROW
+  )[0]
+  tile_col = utils.get_int64_feature(
+      building, detect_buildings_constants.TILE_COL
+  )[0]
 
   region_coords = {
       0: (tile_row - 0.5, tile_col - 0.5),
@@ -636,9 +757,12 @@ def augment_overlap_region(building: Example) -> Example:
       8: (tile_row + 0.5, tile_col + 0.5),
   }
 
-  margin_size = _get_int_feature(building,
-                                 detect_buildings_constants.MARGIN_SIZE)
-  mask = _decode_sparse_tensor(building, detect_buildings_constants.MASK)
+  margin_size = utils.get_int64_feature(
+      building, detect_buildings_constants.MARGIN_SIZE
+  )[0]
+  mask = _decode_sparse_tensor(
+      building, detect_buildings_constants.MASK, dtype=tf.int32
+  )
   overlaps = _get_regions_overlapped(mask, margin_size)
   for stage in range(4):
     feature = f'dedup_stage_{stage}_region'
@@ -723,12 +847,16 @@ def _get_global_mask(building: Example) -> Set[Tuple[int, int]]:
   Returns:
     Building mask as a set of global (row, col) tuples.
   """
-  mask_tensor = _decode_sparse_tensor(building, detect_buildings_constants.MASK)
+  mask_tensor = _decode_sparse_tensor(
+      building, detect_buildings_constants.MASK, dtype=tf.int32
+  )
   indices = mask_tensor.indices.numpy()
-  indices[:, 0] += _get_int_feature(building,
-                                    detect_buildings_constants.TILE_PIXEL_ROW)
-  indices[:, 1] += _get_int_feature(building,
-                                    detect_buildings_constants.TILE_PIXEL_COL)
+  indices[:, 0] += utils.get_int64_feature(
+      building, detect_buildings_constants.TILE_PIXEL_ROW
+  )[0]
+  indices[:, 1] += utils.get_int64_feature(
+      building, detect_buildings_constants.TILE_PIXEL_COL
+  )[0]
   return set(tuple(i) for i in indices)
 
 
@@ -758,7 +886,7 @@ def non_max_suppression(
   buildings = list(region_buildings)
   masks = [_get_global_mask(b) for b in buildings]
   confidences = [
-      _get_float_feature(b, detect_buildings_constants.CONFIDENCE)
+      utils.get_float_feature(b, detect_buildings_constants.CONFIDENCE)[0]
       for b in buildings
   ]
   indexes = list(np.argsort(confidences))

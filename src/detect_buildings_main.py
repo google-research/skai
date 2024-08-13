@@ -77,6 +77,16 @@ if __name__ == '__main__':
       default='',
       help='Path to building segmentation model\'s SavedModel directory.')
 
+  parser.add_argument(
+      '--detection_confidence_threshold',
+      type=float,
+      default=0.2,
+      help=(
+          'Confidence threshold for building detection. All instances below'
+          ' this detection score will be dropped.'
+      ),
+  )
+
   args, pipeline_args = parser.parse_known_args()
 
   pipeline_options = PipelineOptions(pipeline_args)
@@ -91,10 +101,17 @@ if __name__ == '__main__':
     buildings = (
         pipeline
         | 'CreateTiles' >> beam.Create(tiles)
-        | 'ExtractTiles' >> beam.ParDo(
-            extract_tiles.ExtractTilesAsExamplesFn(args.input_path, {}))
-        | 'DetectBuildings' >> beam.ParDo(
-            detect_buildings.DetectBuildingsFn(args.model_path)))
+        | 'ExtractTiles'
+        >> beam.ParDo(
+            extract_tiles.ExtractTilesAsExamplesFn(args.input_path, {})
+        )
+        | 'DetectBuildings'
+        >> beam.ParDo(
+            detect_buildings.DetectBuildingsFn(
+                args.model_path, args.detection_confidence_threshold
+            )
+        )
+    )
 
     detect_buildings.write_buildings(
         buildings, args.output_prefix, args.output_shards, 'Buildings')

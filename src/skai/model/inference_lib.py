@@ -605,6 +605,14 @@ def postprocess(
   df = pd.concat(shards, ignore_index=True)
   with tf.io.gfile.GFile(output_path, 'w') as f:
     df.to_csv(f, index=False)
+  if 'footprint_wkt' in df.columns:
+    # Also output a version of the CSV with no footprints. The footprints_wkt
+    # column is the most memory intensive and sometimes prevents the CSV from
+    # being loaded by QGIS if there are too many examples.
+    df_no_footprints = df.drop(columns=['footprint_wkt'])
+    output_path_no_footprints = output_path + '.no_footprints'
+    with tf.io.gfile.GFile(output_path_no_footprints, 'w') as f:
+      df_no_footprints.to_csv(f, index=False)
 
   # Delete all temp files.
   for path in temp_files:
@@ -629,7 +637,7 @@ def postprocess(
     output_dir, output_file = os.path.split(output_path)
     gpkg_path = os.path.join(output_dir, f'{output_file}.gpkg')
     with tf.io.gfile.GFile(gpkg_path, 'wb') as f:
-      gdf.to_file(f, driver='GPKG')
+      gdf.to_file(f, driver='GPKG', engine='fiona')
 
 
 def _do_batch(labels: list[str], batch_size: int) -> list[list[str]]:

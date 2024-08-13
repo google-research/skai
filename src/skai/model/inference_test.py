@@ -487,6 +487,24 @@ class InferenceTest(absltest.TestCase):
     )
     self.assertLen(df, 6)
 
+    df_no_footprints = pd.read_csv(f'{output_path}.no_footprints')
+    self.assertSameElements(
+        df_no_footprints.columns,
+        [
+            'example_id',
+            'building_id',
+            'longitude',
+            'latitude',
+            'score',
+            'plus_code',
+            'area_in_meters',
+            'damaged',
+            'damaged_high_precision',
+            'damaged_high_recall',
+        ],
+    )
+    self.assertLen(df_no_footprints, 6)
+
     if 'GPKG' in fiona.supported_drivers:
       gdf = gp.read_file(f'{output_path}.gpkg')
       self.assertSameElements(

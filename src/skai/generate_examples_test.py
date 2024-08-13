@@ -14,7 +14,6 @@
 
 """Tests for generate_examples.py."""
 
-import glob
 import os
 import pathlib
 import tempfile
@@ -22,7 +21,6 @@ from typing import Any
 
 from absl.testing import absltest
 from absl.testing import parameterized
-import apache_beam as beam
 from apache_beam.testing import test_pipeline
 import apache_beam.testing.util as test_util
 import geopandas as gpd
@@ -31,6 +29,7 @@ import pandas as pd
 import shapely.geometry
 from skai import buildings
 from skai import generate_examples
+from skai import read_raster
 import tensorflow as tf
 
 
@@ -40,6 +39,13 @@ TEST_MISSING_DATASET_NAME_CONFIG_PATH = (
     'test_data/missing_dataset_name_config.json'
 )
 TEST_MISSING_OUPTUT_DIR_CONFIG_PATH = 'test_data/missing_output_dir_config.json'
+TEST_CONFIG_WITH_IMAGE_INFO_PATH = 'test_data/config_with_image_info.json'
+
+RasterInfo = read_raster.RasterInfo
+
+
+def _get_test_file_path(file_name: str) -> str:
+  return str(pathlib.Path(__file__).parent / file_name)
 
 
 def _get_before_image_id(example):
@@ -262,16 +268,17 @@ class GenerateExamplesTest(parameterized.TestCase):
 
   def setUp(self):
     super().setUp()
-    current_dir = pathlib.Path(__file__).parent
-    self.test_image_path = str(current_dir / TEST_IMAGE_PATH)
-    self.buildings_path = str(current_dir / 'buildings')
-    self.test_image_path_patterns = str(current_dir / 'test_data/country_*.tif')
-    self.test_config_path = str(current_dir / TEST_CONFIG_PATH)
-    self.test_missing_dataset_name_config_path = str(
-        current_dir / TEST_MISSING_DATASET_NAME_CONFIG_PATH
+    self.test_image_path = _get_test_file_path(TEST_IMAGE_PATH)
+    self.buildings_path = _get_test_file_path('buildings')
+    self.test_image_path_patterns = _get_test_file_path(
+        'test_data/country_*.tif'
     )
-    self.test_missing_output_dir_config_path = str(
-        current_dir / TEST_MISSING_OUPTUT_DIR_CONFIG_PATH
+    self.test_config_path = _get_test_file_path(TEST_CONFIG_PATH)
+    self.test_missing_dataset_name_config_path = _get_test_file_path(
+        TEST_MISSING_DATASET_NAME_CONFIG_PATH
+    )
+    self.test_missing_output_dir_config_path = _get_test_file_path(
+        TEST_MISSING_OUPTUT_DIR_CONFIG_PATH
     )
 
   def testGenerateExamplesFn(self):
@@ -282,10 +289,24 @@ class GenerateExamplesTest(parameterized.TestCase):
         self.buildings_path,
     )
 
+    before_image_info = [
+        RasterInfo(self.test_image_path, None, None)
+    ]
+    after_image_info = [
+        RasterInfo(self.test_image_path, None, None)
+    ]
     with test_pipeline.TestPipeline() as pipeline:
       examples = generate_examples._generate_examples(
-          pipeline, [self.test_image_path], [self.test_image_path],
-          self.buildings_path, 62, 32, 0.5, {}, 'unlabeled')
+          pipeline,
+          before_image_info,
+          after_image_info,
+          self.buildings_path,
+          62,
+          32,
+          0.5,
+          {},
+          'unlabeled',
+      )
 
       # Example at second input coordinate should be dropped because its patch
       # falls mostly outside the before and after image bounds.
@@ -315,11 +336,25 @@ class GenerateExamplesTest(parameterized.TestCase):
         ],
         self.buildings_path,
     )
+    before_image_info = [
+        RasterInfo(self.test_image_path, None, None)
+    ]
+    after_image_info = [
+        RasterInfo(self.test_image_path, None, None)
+    ]
 
     with test_pipeline.TestPipeline() as pipeline:
       examples = generate_examples._generate_examples(
-          pipeline, [self.test_image_path], [self.test_image_path],
-          self.buildings_path, 62, 32, 0.5, {}, 'labeled')
+          pipeline,
+          before_image_info,
+          after_image_info,
+          self.buildings_path,
+          62,
+          32,
+          0.5,
+          {},
+          'labeled',
+      )
 
       test_util.assert_that(
           examples,
@@ -344,11 +379,24 @@ class GenerateExamplesTest(parameterized.TestCase):
         [(178.482925, -16.632893), (178.482283, -16.632279)],
         self.buildings_path,
     )
-
+    before_image_info = [
+        RasterInfo(self.test_image_path, None, None)
+    ]
+    after_image_info = [
+        RasterInfo(self.test_image_path, None, None)
+    ]
     with test_pipeline.TestPipeline() as pipeline:
       examples = generate_examples._generate_examples(
-          pipeline, [self.test_image_path], [self.test_image_path],
-          self.buildings_path, 62, 32, 0.5, {}, 'unlabeled')
+          pipeline,
+          before_image_info,
+          after_image_info,
+          self.buildings_path,
+          62,
+          32,
+          0.5,
+          {},
+          'unlabeled',
+      )
 
       # Example at second input coordinate should be dropped because its patch
       # falls mostly outside the before and after image bounds.
@@ -375,10 +423,12 @@ class GenerateExamplesTest(parameterized.TestCase):
         [(178.482925, -16.632893), (178.482283, -16.632279)],
         self.buildings_path,
     )
-
+    after_image_info = [
+        RasterInfo(self.test_image_path, None, None)
+    ]
     with test_pipeline.TestPipeline() as pipeline:
       examples = generate_examples._generate_examples(
-          pipeline, [], [self.test_image_path], self.buildings_path, 62, 32,
+          pipeline, [], after_image_info, self.buildings_path, 62, 32,
           0.5, {}, 'unlabeled')
 
       # Example at second input coordinate should be dropped because its patch
@@ -399,38 +449,21 @@ class GenerateExamplesTest(parameterized.TestCase):
           label='assert_examples',
       )
 
-  def testGenerateExampleFnPathPattern(self):
-    """Test GenerateExampleFn class with a path pattern."""
-    _create_buildings_file([(178.482925, -16.632893)], self.buildings_path)
-
-    expected_before_image_ids = glob.glob(self.test_image_path_patterns)
-
-    with test_pipeline.TestPipeline() as pipeline:
-      # The path patterns specify two before images.
-      examples = generate_examples._generate_examples(
-          pipeline, [self.test_image_path_patterns],
-          [self.test_image_path], self.buildings_path, 62, 32, 0.5,
-          {}, 'unlabeled')
-
-      examples_before_ids = (
-          examples | 'Map large examples to before image ids' >>
-          beam.Map(_get_before_image_id))
-
-      test_util.assert_that(
-          examples_before_ids,
-          test_util.equal_to(expected_before_image_ids),
-          'check examples before image ids',
-      )
-
   def testGenerateExamplesPipeline(self):
     output_dir = tempfile.mkdtemp(dir=absltest.TEST_TMPDIR.value)
     _create_buildings_file(
         [(178.482925, -16.632893), (178.482283, -16.632279)],
         self.buildings_path,
     )
-    generate_examples.generate_examples_pipeline(
-        before_image_patterns=[self.test_image_path],
-        after_image_patterns=[self.test_image_path],
+    before_image_info = [
+        RasterInfo(self.test_image_path, None, None)
+    ]
+    after_image_info = [
+        RasterInfo(self.test_image_path, None, None)
+    ]
+    generate_examples._generate_examples_pipeline(
+        before_image_info=before_image_info,
+        after_image_info=after_image_info,
         large_patch_size=32,
         example_patch_size=32,
         resolution=0.5,
@@ -460,9 +493,15 @@ class GenerateExamplesTest(parameterized.TestCase):
         [(178.482925, -16.632893), (178.482283, -16.632279)],
         self.buildings_path,
     )
-    generate_examples.generate_examples_pipeline(
-        before_image_patterns=[self.test_image_path],
-        after_image_patterns=[self.test_image_path],
+    before_image_info = [
+        RasterInfo(self.test_image_path, None, None)
+    ]
+    after_image_info = [
+        RasterInfo(self.test_image_path, None, None)
+    ]
+    generate_examples._generate_examples_pipeline(
+        before_image_info=before_image_info,
+        after_image_info=after_image_info,
         large_patch_size=32,
         example_patch_size=32,
         resolution=0.5,
@@ -563,64 +602,72 @@ class GenerateExamplesTest(parameterized.TestCase):
           self.test_missing_output_dir_config_path
       )
 
-  @parameterized.named_parameters(
-      dict(
-          testcase_name='empty_before_and_after_image_patterns',
-          before_image_patterns=[],
-          after_image_patterns=[],
-      ),
-      dict(
-          testcase_name='empty_after_image_patterns',
-          before_image_patterns=['pattern_a', 'pattern_b'],
-          after_image_patterns=[],
-      ),
-      dict(
-          testcase_name='duplicate_after_image_patterns',
-          before_image_patterns=['pattern_a', 'pattern_b'],
-          after_image_patterns=[
-              'pattern_c',
-              'pattern_d',
-              'pattern_c',
-              'pattern_c',
-              'pattern_d',
-              'pattern_e'
-          ],
-      ),
-      dict(
-          testcase_name='duplicate_before_image_patterns',
-          before_image_patterns=['pattern_a', 'pattern_b', 'pattern_a'],
-          after_image_patterns=['pattern_c'],
-      ),
-      dict(
-          testcase_name='duplicate_before_and_empty_after_image_patterns',
-          before_image_patterns=['pattern_a', 'pattern_b', 'pattern_a'],
-          after_image_patterns=[],
-      ),
-  )
-  def testValidateImagePatternsRaises(
-      self, before_image_patterns, after_image_patterns
-  ):
-    with self.assertRaises(ValueError):
-      generate_examples.validate_image_patterns(before_image_patterns, False)
-      generate_examples.validate_image_patterns(after_image_patterns, True)
+  def testConfigWithImageInfo(self):
+    config = generate_examples.ExamplesGenerationConfig.init_from_json_path(
+        _get_test_file_path(TEST_CONFIG_WITH_IMAGE_INFO_PATH)
+    )
+    # Passed values.
+    self.assertEqual(config.dataset_name, 'dummy dataset name')
+    self.assertEqual(config.output_dir, 'path/to/output_dir')
+    self.assertSameElements(
+        config.before_image_info,
+        [
+            RasterInfo('before/image/1.tif', [4, 3, 2], 12),
+            RasterInfo('before/image/2.tif', [1, 2, 3], 8),
+            RasterInfo('before/image/3.tif', None, 8),
+            RasterInfo('before/image/4.tif', [3, 2, 1], None),
+        ],
+    )
+    self.assertSameElements(
+        config.after_image_info,
+        [
+            RasterInfo('after/image/1.tif', [4, 3, 2], 12),
+            RasterInfo('after/image/2.tif', [1, 2, 3], 8),
+            RasterInfo('after/image/3.tif', None, None),
+        ],
+    )
 
   @parameterized.named_parameters(
       dict(
-          testcase_name='empty_before_image_patterns',
-          before_image_patterns=[],
-          after_image_patterns=['pattern_a', 'pattern_b'],
+          testcase_name='empty_pattern',
+          files=[],
+          patterns=[],
       ),
       dict(
-          testcase_name='no_empty_before_and_after_image_patterns',
-          before_image_patterns=['pattern_a', 'pattern_b'],
-          after_image_patterns=['pattern_c'],
+          testcase_name='no_match',
+          files=['a.tif', 'b.tif'],
+          patterns=['*.tif', 'c.tif'],
+      ),
+      dict(
+          testcase_name='duplicate_matches',
+          files=['a.tif', 'b.tif'],
+          patterns=['*.tif', 'a.*'],
       ),
   )
-  def testValidateImagePatternsNoRaises(
-      self, before_image_patterns, after_image_patterns
-  ):
-    generate_examples.validate_image_patterns(before_image_patterns, False)
-    generate_examples.validate_image_patterns(after_image_patterns, True)
+  def testExpandPatternsRaises(self, files, patterns):
+    temp_dir = pathlib.Path(tempfile.mkdtemp(dir=absltest.TEST_TMPDIR.value))
+    patterns_with_dir = [str(temp_dir / p) for p in patterns]
+    for f in files:
+      (temp_dir / f).touch()
+    with self.assertRaises(ValueError):
+      generate_examples._expand_patterns(patterns_with_dir)
+
+  @parameterized.named_parameters(
+      dict(
+          testcase_name='match',
+          files=['a.tif', 'b.tif', 'c.jpg'],
+          patterns=['*.tif'],
+          expected_matches=['a.tif', 'b.tif'],
+      ),
+  )
+  def testExpandPatternsNoRaises(self, files, patterns, expected_matches):
+    temp_dir = pathlib.Path(tempfile.mkdtemp(dir=absltest.TEST_TMPDIR.value))
+    patterns_with_dir = [str(temp_dir / p) for p in patterns]
+    expected_matches_with_dir = [str(temp_dir / f) for f in expected_matches]
+    for f in files:
+      (pathlib.Path(temp_dir) / f).touch()
+    matches = generate_examples._expand_patterns(patterns_with_dir)
+    self.assertSameElements(expected_matches_with_dir, matches)
 
   def test_read_labels_file(self):
     label_property = 'damage'
@@ -653,6 +700,82 @@ class GenerateExamplesTest(parameterized.TestCase):
         [
             shapely.geometry.Point(37.0, -122.0),
             shapely.geometry.Point(38.0, -123.0),
+        ],
+    )
+
+  def test_get_image_infos_from_image_patterns(self):
+    config = generate_examples.ExamplesGenerationConfig(
+        dataset_name='test',
+        output_dir='test',
+        before_image_patterns=[self.test_image_path],
+        after_image_patterns=[self.test_image_path],
+    )
+    before_image_info, after_image_info = (
+        generate_examples._get_image_infos_from_config(config, {})
+    )
+    self.assertSameElements(
+        before_image_info,
+        [read_raster.RasterInfo(self.test_image_path, (1, 2, 3), 8)],
+    )
+    self.assertSameElements(
+        after_image_info,
+        [read_raster.RasterInfo(self.test_image_path, (1, 2, 3), 8)],
+    )
+
+  def test_get_image_infos_from_image_configs(self):
+    temp_dir = pathlib.Path(tempfile.mkdtemp(dir=absltest.TEST_TMPDIR.value))
+    before_image_config = str(temp_dir / 'before_image_config.txt')
+    with open(before_image_config, 'w') as f:
+      f.write(f'{self.test_image_path}\n')
+    after_image_config = str(temp_dir / 'after_image_config.txt')
+    with open(after_image_config, 'w') as f:
+      f.write(f'{self.test_image_path}\n')
+    config = generate_examples.ExamplesGenerationConfig(
+        dataset_name='test',
+        output_dir='test',
+        before_image_config=before_image_config,
+        after_image_config=after_image_config,
+    )
+    before_image_info, after_image_info = (
+        generate_examples._get_image_infos_from_config(config, {})
+    )
+    self.assertSameElements(
+        before_image_info,
+        [read_raster.RasterInfo(self.test_image_path, (1, 2, 3), 8)],
+    )
+    self.assertSameElements(
+        after_image_info,
+        [read_raster.RasterInfo(self.test_image_path, (1, 2, 3), 8)],
+    )
+
+  def test_get_image_infos_from_image_infos(self):
+    config = generate_examples.ExamplesGenerationConfig(
+        dataset_name='test',
+        output_dir='test',
+        before_image_info=[
+            read_raster.RasterInfo('a.tif', (1, 2, 3), 8),
+            read_raster.RasterInfo('b.tif', (2, 3, 4), 12),
+        ],
+        after_image_info=[
+            read_raster.RasterInfo('c.tif', (1, 2, 3), 8),
+            read_raster.RasterInfo('d.tif', (2, 3, 4), 12),
+        ],
+    )
+    before_image_info, after_image_info = (
+        generate_examples._get_image_infos_from_config(config, {})
+    )
+    self.assertSameElements(
+        before_image_info,
+        [
+            read_raster.RasterInfo('a.tif', (1, 2, 3), 8),
+            read_raster.RasterInfo('b.tif', (2, 3, 4), 12),
+        ],
+    )
+    self.assertSameElements(
+        after_image_info,
+        [
+            read_raster.RasterInfo('c.tif', (1, 2, 3), 8),
+            read_raster.RasterInfo('d.tif', (2, 3, 4), 12),
         ],
     )
 

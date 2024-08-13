@@ -15,6 +15,7 @@
 """Functions for performing data labeling."""
 
 import collections
+import dataclasses
 import functools
 import multiprocessing
 import os
@@ -45,6 +46,21 @@ RETICULE_HALF_LEN = 32
 
 Example = tf.train.Example
 Image = PIL.Image.Image
+
+
+@dataclasses.dataclass(frozen=True)
+class LabelingExample:
+  """Information about an example chosen for labeling.
+  """
+  int64_id: int
+  example_id: str
+  pre_image_path: str
+  post_image_path: str
+  combined_image_path: str
+  tfrecord_path: str
+  serialized_example: bytes
+  longitude: float
+  latitude: float
 
 
 def _annotate_image(image: Image, caption: str) -> Image:
@@ -402,36 +418,62 @@ def create_labeling_images(
         max_images,
     )
 
-  all_images = _process_example_files(
+  labeling_examples = _process_example_files(
       example_files,
       output_dir,
       use_multiprocessing,
       multiprocessing_context,
       max_processes,
       allowed_example_ids,
-      _create_labeling_images_from_example_file,
+      _create_labeling_assets_from_example_file,
   )
 
   image_metadata_csv = os.path.join(
       output_dir, 'image_metadata.csv'
   )
 
+  image_metadata_df = pd.DataFrame(
+      [
+          (
+              i.int64_id,
+              i.int64_id,
+              i.example_id,
+              f'file://{i.combined_image_path.replace("gs://", "/bigstore/")}',
+              i.combined_image_path,
+              i.pre_image_path,
+              i.post_image_path,
+              i.tfrecord_path,
+              i.longitude,
+              i.latitude,
+          )
+          for i in labeling_examples
+      ],
+      columns=(
+          'id',
+          'int64_id',
+          'example_id',
+          'image',
+          'image_source_path',
+          'pre_image_path',
+          'post_image_path',
+          'tfrecord_source_path',
+          'longitude',
+          'latitude',
+      ),
+  )
   with tf.io.gfile.GFile(image_metadata_csv, 'w') as f:
-    f.write(
-        'id,int64_id,example_id,image,image_source_path,tfrecord_source_path\n'
-    )
-    for int64_id, example_id, image_path, tfrecord_source_path in all_images:
-      f.write(
-          f'{int64_id},{int64_id},{example_id},'
-          + f'file://{image_path},{image_path},{tfrecord_source_path}\n'
-      )
+    image_metadata_df.to_csv(f, index=False)
 
   import_file_csv = os.path.join(output_dir, 'import_file.csv')
   with tf.io.gfile.GFile(import_file_csv, 'w') as f:
-    for _, _, image_path, _ in all_images:
-      f.write(f'{image_path}\n')
+    f.write('\n'.join([e.combined_image_path for e in labeling_examples]))
 
-  return len(all_images)
+  tfrecord_path = os.path.join(output_dir, 'labeling_examples.tfrecord')
+  with tf.io.TFRecordWriter(tfrecord_path) as writer:
+    for labeling_example in labeling_examples:
+      writer.write(labeling_example.serialized_example)
+
+  return len(labeling_examples)
 
 
 def create_buffered_tfrecords(
@@ -583,26 +625,26 @@ def _tfrecord_iterator(path: str) -> Example:
         yield example
 
 
-def _create_labeling_images_from_example_file(
+def _create_labeling_assets_from_example_file(
     example_file: str,
     output_dir: str,
     allowed_example_ids: set[str],
-) -> list[tuple[int, str, str, str]]:
-  """Creates PNGs used for labeling from TFRecords for a single example_file.
+) -> list[LabelingExample]:
+  """Creates assets needed for a labeling task from TFRecords.
 
-  Also writes an import file in CSV format that is used to upload the images
-  into the VertexAI labeling tool.
+  Creates combined and separate pre/post PNGs used by labeling tools. Also
+  writes metadata CSV files needed by labeling tools to create labeling tasks.
 
   Args:
     example_file: Path to file containing TF records.
-    output_dir: Output directory.
+    output_dir: Directory to write assets to.
     allowed_example_ids: Set of example_id from which a subset will be used in
       creating labeling task.
 
   Returns:
-    List of tuples of int64_id, example_id, image path, example path.
+    List of LabelingExamples containing information about the created assets.
   """
-  images = []
+  labeling_examples = []
   for example in _tfrecord_iterator(example_file):
     if 'example_id' in example.features.feature:
       example_id = (
@@ -620,6 +662,9 @@ def _create_labeling_images_from_example_file(
           .decode()
       )
 
+    if example_id not in allowed_example_ids:
+      continue
+
     try:
       int64_id = utils.get_int64_feature(example, 'int64_id')[0]
     except IndexError as error:
@@ -632,8 +677,9 @@ def _create_labeling_images_from_example_file(
     else:
       plus_code = 'unknown'
 
-    if example_id not in allowed_example_ids:
-      continue
+    longitude, latitude = example.features.feature[
+        'coordinates'
+    ].float_list.value
 
     before_image = utils.deserialize_image(
         example.features.feature['pre_image_png_large'].bytes_list.value[0],
@@ -643,17 +689,39 @@ def _create_labeling_images_from_example_file(
         example.features.feature['post_image_png_large'].bytes_list.value[0],
         'png',
     )
-    labeling_image = create_labeling_image(
+    combined_image = create_labeling_image(
         before_image, after_image, example_id, plus_code
     )
-    labeling_image_bytes = utils.serialize_image(labeling_image, 'png')
-    path = os.path.join(output_dir, f'{example_id}.png')
 
-    with tf.io.gfile.GFile(path, 'wb') as writer:
-      writer.write(labeling_image_bytes)
-    images.append((int64_id, str(example_id), path, example_file))
+    pre_image_path = os.path.join(output_dir, f'{example_id}_pre.png')
+    with tf.io.gfile.GFile(pre_image_path, 'wb') as f:
+      f.write(
+          example.features.feature['pre_image_png_large'].bytes_list.value[0]
+      )
+    post_image_path = os.path.join(output_dir, f'{example_id}_post.png')
+    with tf.io.gfile.GFile(post_image_path, 'wb') as f:
+      f.write(
+          example.features.feature['post_image_png_large'].bytes_list.value[0]
+      )
+    combined_image_path = os.path.join(output_dir, f'{example_id}.png')
+    with tf.io.gfile.GFile(combined_image_path, 'wb') as f:
+      f.write(utils.serialize_image(combined_image, 'png'))
 
-  return images
+    labeling_examples.append(
+        LabelingExample(
+            int64_id=int64_id,
+            example_id=str(example_id),
+            pre_image_path=pre_image_path,
+            post_image_path=post_image_path,
+            combined_image_path=combined_image_path,
+            tfrecord_path=example_file,
+            serialized_example=example.SerializeToString(),
+            longitude=longitude,
+            latitude=latitude,
+        )
+    )
+
+  return labeling_examples
 
 
 def _write_tfrecord(examples: Iterable[Example], path: str) -> None:
