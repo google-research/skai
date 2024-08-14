@@ -40,13 +40,16 @@ python detect_buildings_main.py \
   --sdk_container_image=$IMAGE \
   --setup_file "$(pwd)/setup.py"
 """
+
 import argparse
 import logging
+
 import apache_beam as beam
 import geopandas as gpd
-
-from skai import extract_tiles
 from skai import detect_buildings
+from skai import extract_tiles
+import tensorflow as tf
+
 
 PipelineOptions = beam.options.pipeline_options.PipelineOptions
 
@@ -91,7 +94,8 @@ if __name__ == '__main__':
 
   pipeline_options = PipelineOptions(pipeline_args)
 
-  gdf = gpd.read_file(args.aoi_path)
+  with tf.io.gfile.GFile(args.aoi_path, mode='rb') as f:
+    gdf = gpd.read_file(f)
   aoi = gdf.geometry.values[0]
   tiles = list(extract_tiles.get_tiles_for_aoi(
       args.input_path, aoi, args.tile_size, args.margin, {}))
