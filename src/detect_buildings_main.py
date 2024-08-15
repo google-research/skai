@@ -41,64 +41,88 @@ python detect_buildings_main.py \
   --setup_file "$(pwd)/setup.py"
 """
 
-import argparse
+import datetime
 import logging
+import os
+
+from absl import app
+from absl import flags
 
 import apache_beam as beam
 import geopandas as gpd
+from skai import beam_utils
 from skai import detect_buildings
 from skai import extract_tiles
+
 import tensorflow as tf
 
+FLAGS = flags.FLAGS
+
+flags.DEFINE_string('cloud_project', None, 'GCP project name.')
+flags.DEFINE_string('cloud_region', None, 'GCP region, e.g. us-central1.')
+flags.DEFINE_bool('use_dataflow', None, 'If true, run pipeline on Dataflow.')
+flags.DEFINE_string(
+    'worker_service_account', None,
+    'Service account that will launch Dataflow workers. If unset, workers will '
+    'run with the project\'s default Compute Engine service account.')
+flags.DEFINE_integer(
+    'max_dataflow_workers', None, 'Maximum number of dataflow workers'
+)
 
 PipelineOptions = beam.options.pipeline_options.PipelineOptions
 
-if __name__ == '__main__':
+
+flags.DEFINE_string('input_path', None, 'Path of input GeoTIFF.', required=True)
+flags.DEFINE_string('aoi_path', None, 'Path of AOI GeoJSON.', required=True)
+flags.DEFINE_string(
+    'model_path',
+    None,
+    "Path to building segmentation model's SavedModel directory.",
+)
+flags.DEFINE_string(
+    'output_prefix', None, 'Path prefix for output TFRecords.', required=True
+)
+flags.DEFINE_integer('output_shards', 20, 'Number of output shards.')
+# By default, use a tile size of 540 and a margin size of 50 so that each full
+# tile is size 640 x 640, a common input size for building segmentation
+# models.
+flags.DEFINE_integer('tile_size', 540, 'Tile size in pixels.')
+flags.DEFINE_integer('margin', 50, 'Margin size in pixels.')
+flags.DEFINE_float(
+    'detection_confidence_threshold',
+    0.2,
+    'Confidence threshold for building detection. All instances below this'
+    ' detection score will be dropped.',
+)
+
+
+def main(args):
+  del args  # unused
+
   logging.getLogger().setLevel(logging.INFO)
 
-  parser = argparse.ArgumentParser()
-  parser.add_argument(
-      '--input_path', required=True, help='Path of input GeoTIFF.')
-  parser.add_argument('--aoi_path', required=True, help='Path to AOI geojson.')
-  parser.add_argument(
-      '--output_prefix',
-      required=True,
-      help='Path prefix for output TFRecords.')
-  parser.add_argument(
-      '--output_shards', type=int, default=20, help='Number of output shards.')
+  temp_dir = os.path.join(FLAGS.output_prefix, 'temp')
+  timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+  dataflow_job_name = f'detect_buildings_{timestamp}'
 
-  # By default, use a tile size of 540 and a margin size of 50 so that each full
-  # tile is size 640 x 640, a common input size for building segmentation
-  # models.
-  parser.add_argument(
-      '--tile_size', type=int, default=540, help='Tile size in pixels.')
-  parser.add_argument(
-      '--margin', type=int, default=50, help='Margin size in pixels.')
-  parser.add_argument(
-      '--model_path',
-      type=str,
-      default='',
-      help='Path to building segmentation model\'s SavedModel directory.')
-
-  parser.add_argument(
-      '--detection_confidence_threshold',
-      type=float,
-      default=0.2,
-      help=(
-          'Confidence threshold for building detection. All instances below'
-          ' this detection score will be dropped.'
-      ),
+  pipeline_options = beam_utils.get_pipeline_options(
+      FLAGS.use_dataflow,
+      dataflow_job_name,
+      FLAGS.cloud_project,
+      FLAGS.cloud_region,
+      temp_dir,
+      FLAGS.max_dataflow_workers,
+      FLAGS.worker_service_account,
+      machine_type=None,
+      accelerator=None,
+      accelerator_count=0,
   )
 
-  args, pipeline_args = parser.parse_known_args()
-
-  pipeline_options = PipelineOptions(pipeline_args)
-
-  with tf.io.gfile.GFile(args.aoi_path, mode='rb') as f:
+  with tf.io.gfile.GFile(FLAGS.aoi_path, mode='rb') as f:
     gdf = gpd.read_file(f)
   aoi = gdf.geometry.values[0]
   tiles = list(extract_tiles.get_tiles_for_aoi(
-      args.input_path, aoi, args.tile_size, args.margin, {}))
+      FLAGS.input_path, aoi, FLAGS.tile_size, FLAGS.margin, {}))
   print(f'Extracting {len(tiles)} tiles total')
 
   with beam.Pipeline(options=pipeline_options) as pipeline:
@@ -107,21 +131,25 @@ if __name__ == '__main__':
         | 'CreateTiles' >> beam.Create(tiles)
         | 'ExtractTiles'
         >> beam.ParDo(
-            extract_tiles.ExtractTilesAsExamplesFn(args.input_path, {})
+            extract_tiles.ExtractTilesAsExamplesFn(FLAGS.input_path, {})
         )
         | 'DetectBuildings'
         >> beam.ParDo(
             detect_buildings.DetectBuildingsFn(
-                args.model_path, args.detection_confidence_threshold
+                FLAGS.model_path, FLAGS.detection_confidence_threshold
             )
         )
     )
 
     detect_buildings.write_buildings(
-        buildings, args.output_prefix, args.output_shards, 'Buildings')
+        buildings, FLAGS.output_prefix, FLAGS.output_shards, 'Buildings')
     deduplicated_buildings = detect_buildings.deduplicate_buildings(buildings)
     detect_buildings.write_buildings(
-        deduplicated_buildings, args.output_prefix + '_dedup',
-        args.output_shards, 'DedupedBuildings')
+        deduplicated_buildings, FLAGS.output_prefix + '_dedup',
+        FLAGS.output_shards, 'DedupedBuildings')
     detect_buildings.write_centroids_csv(
-        deduplicated_buildings, args.output_prefix + '_dedup_centroids.csv')
+        deduplicated_buildings, FLAGS.output_prefix + '_dedup_centroids.csv')
+
+
+if __name__ == '__main__':
+  app.run(main)
