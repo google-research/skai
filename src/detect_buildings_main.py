@@ -102,8 +102,8 @@ def main(args):
   logging.getLogger().setLevel(logging.INFO)
 
   temp_dir = os.path.join(FLAGS.output_prefix, 'temp')
-  timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
-  dataflow_job_name = f'detect_buildings_{timestamp}'
+  timestamp = datetime.datetime.now().strftime('%Y%m%d-%H%M%S')
+  dataflow_job_name = f'detect-buildings-{timestamp}'
 
   pipeline_options = beam_utils.get_pipeline_options(
       FLAGS.use_dataflow,
