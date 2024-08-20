@@ -529,15 +529,15 @@ class DetectBuildingsFn(beam.DoFn):
   """Detects buildings within the given tiles and returns as discrete confidence masks."""
 
   def __init__(
-      self, detection_model_path: str, detection_confidence_threshold: float
+      self, model_path: str, detection_confidence_threshold: float
   ) -> None:
-    self._detection_model_path = detection_model_path
+    self._model_path = model_path
     self._detection_confidence_threshold = detection_confidence_threshold
     self._num_detected_buildings = Metrics.counter('skai',
                                                    'num_detected_buildings')
 
   def setup(self) -> None:
-    self._model = _load_tf_model(self._detection_model_path)
+    self._model = _load_tf_model(self._model_path) if self._model_path else None
 
   def process(self, example: Example) -> Iterator[Example]:
     """Runs building detection model on a single tile, encoded as a tf.Example.
@@ -555,32 +555,36 @@ class DetectBuildingsFn(beam.DoFn):
         - The mapping from pixel to coordinates represented as a affine
           transformation matrix.
     """
-    image = tf.io.decode_image(
-        utils.get_bytes_feature(example, extract_tiles_constants.IMAGE_ENCODED)[
-            0
-        ],
-        dtype=tf.uint8,
-    ).numpy()
+    if self._model:
+      image = tf.io.decode_image(
+          utils.get_bytes_feature(
+              example, extract_tiles_constants.IMAGE_ENCODED
+          )[0],
+          dtype=tf.uint8,
+      ).numpy()
 
-    # Current segmentation model expects images that are a multiple of 64.
-    padded_image = _pad_to_square_multiple_of(
-        image, _SEGMENTATION_IMAGE_MULTIPLE)
+      # Current segmentation model expects images that are a multiple of 64.
+      padded_image = _pad_to_square_multiple_of(
+          image, _SEGMENTATION_IMAGE_MULTIPLE)
 
-    padded_image_bytes = tf.io.encode_png(padded_image).numpy()
-    example.features.feature[
-        extract_tiles_constants.IMAGE_ENCODED
-    ].bytes_list.value[0] = padded_image_bytes
+      padded_image_bytes = tf.io.encode_png(padded_image).numpy()
+      example.features.feature[
+          extract_tiles_constants.IMAGE_ENCODED
+      ].bytes_list.value[0] = padded_image_bytes
 
-    serialized_example = tf.constant([example.SerializeToString()])
+      serialized_example = tf.constant([example.SerializeToString()])
 
-    model_output = self._model(serialized_example)
+      model_output = self._model(serialized_example)
 
-    instance_masks, instance_scores = _extract_masks_and_scores(
-        model_output,
-        padded_image.shape[0],
-        padded_image.shape[1],
-        self._detection_confidence_threshold,
-    )
+      instance_masks, instance_scores = _extract_masks_and_scores(
+          model_output,
+          padded_image.shape[0],
+          padded_image.shape[1],
+          self._detection_confidence_threshold,
+      )
+    else:
+      instance_masks = tf.constant([], shape=(0, 0, 0, 1))
+      instance_scores = tf.constant([], shape=(0,))
 
     yield from _construct_output_examples(
         instance_masks, instance_scores, example
