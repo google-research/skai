@@ -23,12 +23,15 @@ import functools
 import os
 import shutil
 import tempfile
+import time
 from typing import Any, Iterable, Iterator, List, Optional, Set, Tuple
 
 import affine
 import apache_beam as beam
 from apache_beam import typehints
 from apache_beam.dataframe.convert import to_dataframe
+from apache_beam.utils import multi_process_shared
+
 import cv2
 import numpy as np
 import pyproj
@@ -536,8 +539,40 @@ class DetectBuildingsFn(beam.DoFn):
     self._num_detected_buildings = Metrics.counter('skai',
                                                    'num_detected_buildings')
 
+  def _make_dummy_input(self):
+    image = np.zeros(
+        (_SEGMENTATION_IMAGE_MULTIPLE, _SEGMENTATION_IMAGE_MULTIPLE, 3),
+        dtype=np.uint8
+    )
+    example = tf.train.Example()
+    example.features.feature[
+        extract_tiles_constants.IMAGE_ENCODED
+    ].bytes_list.value.append(tf.io.encode_png(image).numpy())
+    return tf.constant([example.SerializeToString()])
+
   def setup(self) -> None:
-    self._model = _load_tf_model(self._model_path) if self._model_path else None
+    # Use a shared handle so that the model is only loaded once per worker and
+    # shared by all processing threads. For more details, see
+    #
+    # https://medium.com/google-cloud/cache-reuse-across-dofns-in-beam-a34a926db848
+    def load():
+      start_time = time.time()
+      Metrics.counter('skai', 'load_model_start').inc()
+      if self._model_path:
+        model = _load_tf_model(self._model_path)
+        _ = model(self._make_dummy_input())
+      else:
+        model = None
+      Metrics.counter('skai', 'load_model_end').inc()
+      elapsed_time = time.time() - start_time
+      Metrics.distribution('skai', 'model_load_time').update(elapsed_time)
+      return model
+
+    Metrics.counter('skai', 'setup_start').inc()
+    self._model = multi_process_shared.MultiProcessShared(
+        load, self._model_path
+    ).acquire()
+    Metrics.counter('skai', 'setup_end').inc()
 
   def process(self, example: Example) -> Iterator[Example]:
     """Runs building detection model on a single tile, encoded as a tf.Example.
@@ -555,6 +590,7 @@ class DetectBuildingsFn(beam.DoFn):
         - The mapping from pixel to coordinates represented as a affine
           transformation matrix.
     """
+    Metrics.counter('skai', 'process_example').inc()
     if self._model:
       image = tf.io.decode_image(
           utils.get_bytes_feature(
@@ -563,14 +599,14 @@ class DetectBuildingsFn(beam.DoFn):
           dtype=tf.uint8,
       ).numpy()
 
-      # Current segmentation model expects images that are a multiple of 64.
-      padded_image = _pad_to_square_multiple_of(
-          image, _SEGMENTATION_IMAGE_MULTIPLE)
-
-      padded_image_bytes = tf.io.encode_png(padded_image).numpy()
-      example.features.feature[
-          extract_tiles_constants.IMAGE_ENCODED
-      ].bytes_list.value[0] = padded_image_bytes
+      if (image.shape[0] % _SEGMENTATION_IMAGE_MULTIPLE != 0) or (
+          image.shape[1] % _SEGMENTATION_IMAGE_MULTIPLE != 0
+      ):
+        # Current segmentation model expects images that are a multiple of 64.
+        image = _pad_to_square_multiple_of(image, _SEGMENTATION_IMAGE_MULTIPLE)
+        example.features.feature[
+            extract_tiles_constants.IMAGE_ENCODED
+        ].bytes_list.value[0] = tf.io.encode_png(image).numpy()
 
       serialized_example = tf.constant([example.SerializeToString()])
 
@@ -578,14 +614,16 @@ class DetectBuildingsFn(beam.DoFn):
 
       instance_masks, instance_scores = _extract_masks_and_scores(
           model_output,
-          padded_image.shape[0],
-          padded_image.shape[1],
+          image.shape[0],
+          image.shape[1],
           self._detection_confidence_threshold,
       )
+      self._num_detected_buildings.inc(len(instance_scores))
     else:
       instance_masks = tf.constant([], shape=(0, 0, 0, 1))
       instance_scores = tf.constant([], shape=(0,))
 
+    Metrics.counter('skai', 'examples_processed').inc()
     yield from _construct_output_examples(
         instance_masks, instance_scores, example
     )

@@ -191,7 +191,7 @@ def get_tiles_for_aoi(image_path: str,
 
 
 class ExtractTilesAsExamplesFn(beam.DoFn):
-  """Extracts tiles from a GeoTIFF and converts them into TF Examples."""
+  """Extracts tiles from an image and converts them into TF Examples."""
 
   def __init__(self, input_path: str, gdal_env: Dict[str, str]) -> None:
     self._input_path = input_path

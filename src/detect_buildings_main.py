@@ -68,6 +68,7 @@ flags.DEFINE_string(
 flags.DEFINE_integer(
     'max_dataflow_workers', None, 'Maximum number of dataflow workers'
 )
+flags.DEFINE_string('worker_machine_type', 'n1-standard-8', 'Worker type.')
 
 PipelineOptions = beam.options.pipeline_options.PipelineOptions
 
@@ -113,7 +114,7 @@ def main(args):
       temp_dir,
       FLAGS.max_dataflow_workers,
       FLAGS.worker_service_account,
-      machine_type=None,
+      machine_type=FLAGS.worker_machine_type,
       accelerator=None,
       accelerator_count=0,
   )
