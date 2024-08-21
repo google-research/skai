@@ -73,7 +73,7 @@ flags.DEFINE_string('worker_machine_type', 'n1-standard-8', 'Worker type.')
 PipelineOptions = beam.options.pipeline_options.PipelineOptions
 
 
-flags.DEFINE_string('input_path', None, 'Path of input GeoTIFF.', required=True)
+flags.DEFINE_list('image_paths', None, 'Paths of input images.', required=True)
 flags.DEFINE_string('aoi_path', None, 'Path of AOI GeoJSON.', required=True)
 flags.DEFINE_string(
     'model_path',
@@ -122,8 +122,13 @@ def main(args):
   with tf.io.gfile.GFile(FLAGS.aoi_path, mode='rb') as f:
     gdf = gpd.read_file(f)
   aoi = gdf.geometry.values[0]
-  tiles = list(extract_tiles.get_tiles_for_aoi(
-      FLAGS.input_path, aoi, FLAGS.tile_size, FLAGS.margin, {}))
+  tiles = []
+  for image_path in FLAGS.image_paths:
+    tiles.extend(
+        extract_tiles.get_tiles_for_aoi(
+            image_path, aoi, FLAGS.tile_size, FLAGS.margin, {}
+        )
+    )
   print(f'Extracting {len(tiles)} tiles total')
 
   with beam.Pipeline(options=pipeline_options) as pipeline:
@@ -131,9 +136,7 @@ def main(args):
         pipeline
         | 'CreateTiles' >> beam.Create(tiles)
         | 'ExtractTiles'
-        >> beam.ParDo(
-            extract_tiles.ExtractTilesAsExamplesFn(FLAGS.input_path, {})
-        )
+        >> beam.ParDo(extract_tiles.ExtractTilesAsExamplesFn({}))
         | 'DetectBuildings'
         >> beam.ParDo(
             detect_buildings.DetectBuildingsFn(

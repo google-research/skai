@@ -14,7 +14,7 @@
 """Extracts equal-sized tiles from a GeoTIFF."""
 
 import dataclasses
-from typing import Any, Dict, Iterable, Tuple
+from typing import Any, Iterable
 
 import affine
 import apache_beam as beam
@@ -22,14 +22,15 @@ import numpy as np
 import pyproj
 import rasterio
 import rasterio.plot
+from skai import extract_tiles_constants
 from skai import utils
 import tensorflow as tf
-from skai import extract_tiles_constants
+
 
 Example = tf.train.Example
 PipelineOptions = beam.options.pipeline_options.PipelineOptions
 # Extents of a window in a raster, represented as (x, y, width, height).
-ExtentsType = Tuple[int, int, int, int]
+ExtentsType = tuple[int, int, int, int]
 
 
 @dataclasses.dataclass(frozen=True, order=True)
@@ -37,6 +38,7 @@ class Tile:
   """Class for holding information about an image tile.
 
   Attributes:
+    image_path: Image path.
     x: x pixel coordinate of lower-left corner of the tile.
     y: y pixel coordinate of lower-left corner of the tile.
     width: Tile width in pixels.
@@ -45,6 +47,7 @@ class Tile:
     column: The column of this tile in the grid covering the source image.
     row: The row of this tile in the grid covering the source image.
   """
+  image_path: str
   x: int
   y: int
   width: int
@@ -54,8 +57,12 @@ class Tile:
   row: int
 
 
-def _create_tile_example(image: np.array, tile: Tile, crs: str,
-                         affine_transform: affine.Affine) -> Example:
+def _create_tile_example(
+    image: np.array,
+    tile: Tile,
+    crs: str,
+    affine_transform: affine.Affine,
+) -> Example:
   """Creates an Example for the building detection model from an image tile.
 
   The x and y pixel offsets of the tile in the original image is encoded in the
@@ -91,6 +98,9 @@ def _create_tile_example(image: np.array, tile: Tile, crs: str,
   utils.add_bytes_feature(extract_tiles_constants.IMAGE_ENCODED,
                           tf.io.encode_png(image).numpy(), example)
   utils.add_bytes_feature(extract_tiles_constants.CRS, crs.encode(), example)
+  utils.add_bytes_feature(
+      extract_tiles_constants.IMAGE_PATH, tile.image_path.encode(), example
+  )
 
   transform_tuple = tuple(affine_transform)
   if transform_tuple[6:] != (0.0, 0.0, 1.0):
@@ -102,7 +112,7 @@ def _create_tile_example(image: np.array, tile: Tile, crs: str,
 
 
 def _get_pixel_bounds_for_aoi(
-    image: Any, aoi: Any) -> Tuple[int, int, int, int]:
+    image: Any, aoi: Any) -> tuple[int, int, int, int]:
   """Gets the pixel coordinates of the rectangle spanned by the AOI.
 
   Args:
@@ -137,11 +147,19 @@ def _get_pixel_bounds_for_aoi(
   return (min_col, min_row, max_col, max_row)
 
 
-def get_tiles(x_min: int, y_min: int, x_max: int, y_max: int,
-              tile_size: int, margin: int) -> Iterable[Tile]:
+def get_tiles(
+    image_path: str,
+    x_min: int,
+    y_min: int,
+    x_max: int,
+    y_max: int,
+    tile_size: int,
+    margin: int,
+) -> Iterable[Tile]:
   """Generates a set of tiles that would completely cover a rectangle.
 
   Args:
+    image_path: Image path.
     x_min: Minimum x coordinate.
     y_min: Minimum y coordinate.
     x_max: Maximum x coordinate.
@@ -164,14 +182,14 @@ def get_tiles(x_min: int, y_min: int, x_max: int, y_max: int,
       y_start = y - margin
       y_end = y + tile_size + margin
       height = y_end - y_start
-      yield Tile(x_start, y_start, width, height, margin, col, row)
+      yield Tile(image_path, x_start, y_start, width, height, margin, col, row)
 
 
 def get_tiles_for_aoi(image_path: str,
                       aoi: Any,
                       tile_size: int,
                       margin: int,
-                      gdal_env: Dict[str, str]) -> Iterable[Tile]:
+                      gdal_env: dict[str, str]) -> Iterable[Tile]:
   """Generates a set of tiles that would completely cover an AOI.
 
   Args:
@@ -187,21 +205,27 @@ def get_tiles_for_aoi(image_path: str,
   with rasterio.Env(**gdal_env):
     image = rasterio.open(image_path)
     x_min, y_min, x_max, y_max = _get_pixel_bounds_for_aoi(image, aoi)
-    yield from get_tiles(x_min, y_min, x_max, y_max, tile_size, margin)
+    yield from get_tiles(
+        image_path, x_min, y_min, x_max, y_max, tile_size, margin
+    )
 
 
 class ExtractTilesAsExamplesFn(beam.DoFn):
   """Extracts tiles from an image and converts them into TF Examples."""
 
-  def __init__(self, input_path: str, gdal_env: Dict[str, str]) -> None:
-    self._input_path = input_path
+  def __init__(self, gdal_env: dict[str, str]) -> None:
     self._gdal_env = gdal_env
 
   def setup(self) -> None:
-    with rasterio.Env(**self._gdal_env):
-      self._input_file = rasterio.open(self._input_path)
-      self._crs = self._input_file.crs.to_string()
-      self._affine_transform = self._input_file.transform
+    self._rasters = {}
+
+  def _get_raster(self, image_path: str):
+    raster = self._rasters.get(image_path)
+    if not raster:
+      with rasterio.Env(**self._gdal_env):
+        raster = rasterio.open(image_path)
+      self._rasters[image_path] = raster
+    return raster
 
   def process(self, tile: Tile) -> Iterable[Example]:
     """Extract a tile from the source image and encode it as an Example.
@@ -215,9 +239,9 @@ class ExtractTilesAsExamplesFn(beam.DoFn):
     if tile.x < 0 or tile.y < 0:
       raise ValueError(f'Tile extents out of bounds: x={tile.x}, y={tile.y}')
 
+    raster = self._get_raster(tile.image_path)
     window = rasterio.windows.Window(tile.x, tile.y, tile.width, tile.height)
-    window_data = self._input_file.read(
-        window=window, boundless=True, fill_value=0)
+    window_data = raster.read(window=window, boundless=True, fill_value=0)
     window_data = rasterio.plot.reshape_as_image(window_data)
     # Dimensions should be (row, col, channel).
     height, width, _ = window_data.shape
@@ -229,6 +253,10 @@ class ExtractTilesAsExamplesFn(beam.DoFn):
       window_data = np.pad(
           window_data, ((0, height_pad), (0, width_pad), (0, 0)))
 
-    example = _create_tile_example(window_data, tile, self._crs,
-                                   self._affine_transform)
+    example = _create_tile_example(
+        window_data,
+        tile,
+        raster.crs.to_string(),
+        raster.transform,
+    )
     yield example

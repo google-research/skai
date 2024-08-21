@@ -11,6 +11,8 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+"""Constants for extract tiles library."""
+
 import tensorflow as tf
 
 # Output TF Example feature names.
@@ -25,6 +27,7 @@ TILE_COL = 'tile_column'
 CRS = 'crs'
 AFFINE_TRANSFORM = 'affine_transform'
 MARGIN_SIZE = 'margin_size'
+IMAGE_PATH = 'image_path'
 
 
 # Output TF Example feature specification.
@@ -41,4 +44,5 @@ FEATURES = {
     AFFINE_TRANSFORM: tf.io.FixedLenFeature(
         [6], tf.float32, default_value=[1., 0., 0., 0., 1., 0.]),
     MARGIN_SIZE: tf.io.FixedLenFeature([], tf.int64, default_value=0),
+    IMAGE_PATH: tf.io.FixedLenFeature([], tf.string, default_value='')
 }

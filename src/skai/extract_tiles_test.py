@@ -16,7 +16,6 @@
 """
 
 import pathlib
-from typing import List
 
 from absl.testing import absltest
 import apache_beam as beam
@@ -37,7 +36,7 @@ def _deserialize_image(serialized_image: bytes) -> np.ndarray:
   return tf.io.decode_image(serialized_image).numpy()
 
 
-def _check_examples(expected_tiles: List[Tile]):
+def _check_examples(expected_tiles: list[Tile]):
   """Validates examples generated from beam pipeline.
 
   Args:
@@ -54,7 +53,7 @@ def _check_examples(expected_tiles: List[Tile]):
       assert feature_names == set([
           'image/width', 'image/height', 'image/format', 'image/encoded', 'x',
           'y', 'tile_column', 'tile_row', 'margin_size', 'crs',
-          'affine_transform'
+          'affine_transform', 'image_path'
       ])
 
       assert (example.features.feature['image/format'].bytes_list.value[0] ==
@@ -66,6 +65,9 @@ def _check_examples(expected_tiles: List[Tile]):
       tile_column = example.features.feature['tile_column'].int64_list.value[0]
       tile_row = example.features.feature['tile_row'].int64_list.value[0]
       margin_size = example.features.feature['margin_size'].int64_list.value[0]
+      image_path = (
+          example.features.feature['image_path'].bytes_list.value[0].decode()
+      )
 
       crs = example.features.feature['crs'].bytes_list.value[0].decode()
       assert crs == 'EPSG:3857', crs
@@ -84,8 +86,18 @@ def _check_examples(expected_tiles: List[Tile]):
       assert image.shape[1] == width
       assert image.shape[2] == 3
 
-      actual_tiles.add(Tile(x, y, width, height, margin_size, tile_column,
-                            tile_row))
+      actual_tiles.add(
+          Tile(
+              image_path,
+              x,
+              y,
+              width,
+              height,
+              margin_size,
+              tile_column,
+              tile_row,
+          )
+      )
 
     assert set(expected_tiles) == actual_tiles
 
@@ -97,24 +109,33 @@ class ExtractTilesTest(absltest.TestCase):
   def setUp(self):
     super().setUp()
     current_dir = pathlib.Path(__file__).parent
-    self.test_image_path = current_dir / TEST_IMAGE_PATH
+    self.test_image_path = str(current_dir / TEST_IMAGE_PATH)
     self.image = rasterio.open(self.test_image_path)
 
   def testGetTiles(self):
     """Tests that correct window extents are generated for a GeoTIFF."""
-    tiles = set(extract_tiles.get_tiles(
-        x_min=0, y_min=0, x_max=300, y_max=282, tile_size=100, margin=10))
+    tiles = set(
+        extract_tiles.get_tiles(
+            self.test_image_path,
+            x_min=0,
+            y_min=0,
+            x_max=300,
+            y_max=282,
+            tile_size=100,
+            margin=10,
+        )
+    )
 
     self.assertEqual(tiles, set([
-        Tile(0, 0, 120, 120, 10, 0, 0),
-        Tile(100, 0, 120, 120, 10, 1, 0),
-        Tile(200, 0, 120, 120, 10, 2, 0),
-        Tile(0, 100, 120, 120, 10, 0, 1),
-        Tile(100, 100, 120, 120, 10, 1, 1),
-        Tile(200, 100, 120, 120, 10, 2, 1),
-        Tile(0, 200, 120, 120, 10, 0, 2),
-        Tile(100, 200, 120, 120, 10, 1, 2),
-        Tile(200, 200, 120, 120, 10, 2, 2)
+        Tile(self.test_image_path, 0, 0, 120, 120, 10, 0, 0),
+        Tile(self.test_image_path, 100, 0, 120, 120, 10, 1, 0),
+        Tile(self.test_image_path, 200, 0, 120, 120, 10, 2, 0),
+        Tile(self.test_image_path, 0, 100, 120, 120, 10, 0, 1),
+        Tile(self.test_image_path, 100, 100, 120, 120, 10, 1, 1),
+        Tile(self.test_image_path, 200, 100, 120, 120, 10, 2, 1),
+        Tile(self.test_image_path, 0, 200, 120, 120, 10, 0, 2),
+        Tile(self.test_image_path, 100, 200, 120, 120, 10, 1, 2),
+        Tile(self.test_image_path, 200, 200, 120, 120, 10, 2, 2)
     ]))
 
   def testGetTilesForAOI(self):
@@ -129,12 +150,12 @@ class ExtractTilesTest(absltest.TestCase):
         self.test_image_path, aoi, tile_size=100, margin=10, gdal_env={}))
 
     self.assertEqual(tiles, set([
-        Tile(21, 19, 120, 120, 10, 0, 0),
-        Tile(21, 119, 120, 120, 10, 0, 1),
-        Tile(121, 19, 120, 120, 10, 1, 0),
-        Tile(121, 119, 120, 120, 10, 1, 1),
-        Tile(221, 19, 120, 120, 10, 2, 0),
-        Tile(221, 119, 120, 120, 10, 2, 1)
+        Tile(self.test_image_path, 21, 19, 120, 120, 10, 0, 0),
+        Tile(self.test_image_path, 21, 119, 120, 120, 10, 0, 1),
+        Tile(self.test_image_path, 121, 19, 120, 120, 10, 1, 0),
+        Tile(self.test_image_path, 121, 119, 120, 120, 10, 1, 1),
+        Tile(self.test_image_path, 221, 19, 120, 120, 10, 2, 0),
+        Tile(self.test_image_path, 221, 119, 120, 120, 10, 2, 1)
     ]))
 
   def testExtractTilesAsExamplesFn(self):
@@ -142,23 +163,23 @@ class ExtractTilesTest(absltest.TestCase):
 
     # These tiles form a 3x3 grid that covers the test image.
     tiles = [
-        Tile(0, 0, 120, 120, 10, 0, 0),
-        Tile(100, 0, 120, 120, 10, 1, 0),
-        Tile(200, 0, 120, 120, 10, 2, 0),
-        Tile(0, 100, 120, 120, 10, 0, 1),
-        Tile(100, 100, 120, 120, 10, 1, 1),
-        Tile(200, 100, 120, 120, 10, 2, 1),
-        Tile(0, 200, 120, 120, 10, 0, 2),
-        Tile(100, 200, 120, 120, 10, 1, 2),
-        Tile(200, 200, 120, 120, 10, 2, 2)
+        Tile(self.test_image_path, 0, 0, 120, 120, 10, 0, 0),
+        Tile(self.test_image_path, 100, 0, 120, 120, 10, 1, 0),
+        Tile(self.test_image_path, 200, 0, 120, 120, 10, 2, 0),
+        Tile(self.test_image_path, 0, 100, 120, 120, 10, 0, 1),
+        Tile(self.test_image_path, 100, 100, 120, 120, 10, 1, 1),
+        Tile(self.test_image_path, 200, 100, 120, 120, 10, 2, 1),
+        Tile(self.test_image_path, 0, 200, 120, 120, 10, 0, 2),
+        Tile(self.test_image_path, 100, 200, 120, 120, 10, 1, 2),
+        Tile(self.test_image_path, 200, 200, 120, 120, 10, 2, 2)
     ]
 
     with test_pipeline.TestPipeline() as pipeline:
       result = (
           pipeline
           | beam.Create(tiles)
-          | beam.ParDo(extract_tiles.ExtractTilesAsExamplesFn(
-              self.test_image_path, {})))
+          | beam.ParDo(extract_tiles.ExtractTilesAsExamplesFn({}))
+      )
 
       assert_that(result, _check_examples(tiles))
 
