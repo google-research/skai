@@ -69,10 +69,6 @@ flags.DEFINE_integer(
     'max_dataflow_workers', None, 'Maximum number of dataflow workers'
 )
 flags.DEFINE_string('worker_machine_type', 'n1-standard-8', 'Worker type.')
-
-PipelineOptions = beam.options.pipeline_options.PipelineOptions
-
-
 flags.DEFINE_list('image_paths', None, 'Paths of input images.', required=True)
 flags.DEFINE_string('aoi_path', None, 'Path of AOI GeoJSON.', required=True)
 flags.DEFINE_string(
@@ -80,9 +76,7 @@ flags.DEFINE_string(
     None,
     "Path to building segmentation model's SavedModel directory.",
 )
-flags.DEFINE_string(
-    'output_prefix', None, 'Path prefix for output TFRecords.', required=True
-)
+flags.DEFINE_string('output_dir', None, 'Output directory.', required=True)
 flags.DEFINE_integer('output_shards', 20, 'Number of output shards.')
 # By default, use a tile size of 540 and a margin size of 50 so that each full
 # tile is size 640 x 640, a common input size for building segmentation
@@ -96,13 +90,15 @@ flags.DEFINE_float(
     ' detection score will be dropped.',
 )
 
+PipelineOptions = beam.options.pipeline_options.PipelineOptions
+
 
 def main(args):
   del args  # unused
 
   logging.getLogger().setLevel(logging.INFO)
 
-  temp_dir = os.path.join(FLAGS.output_prefix, 'temp')
+  temp_dir = os.path.join(FLAGS.output_dir, 'temp')
   timestamp = datetime.datetime.now().strftime('%Y%m%d-%H%M%S')
   dataflow_job_name = f'detect-buildings-{timestamp}'
 
@@ -145,14 +141,23 @@ def main(args):
         )
     )
 
-    detect_buildings.write_buildings(
-        buildings, FLAGS.output_prefix, FLAGS.output_shards, 'Buildings')
+    detect_buildings.write_tfrecords(
+        buildings,
+        os.path.join(FLAGS.output_dir, 'buildings'),
+        FLAGS.output_shards,
+        'Buildings',
+    )
     deduplicated_buildings = detect_buildings.deduplicate_buildings(buildings)
-    detect_buildings.write_buildings(
-        deduplicated_buildings, FLAGS.output_prefix + '_dedup',
-        FLAGS.output_shards, 'DedupedBuildings')
-    detect_buildings.write_centroids_csv(
-        deduplicated_buildings, FLAGS.output_prefix + '_dedup_centroids.csv')
+    detect_buildings.write_tfrecords(
+        deduplicated_buildings,
+        os.path.join(FLAGS.output_dir, 'dedup_buildings'),
+        FLAGS.output_shards,
+        'DedupedBuildings',
+    )
+    detect_buildings.write_csv(
+        deduplicated_buildings,
+        os.path.join(FLAGS.output_dir, 'dedup_buildings.csv'),
+    )
 
 
 if __name__ == '__main__':

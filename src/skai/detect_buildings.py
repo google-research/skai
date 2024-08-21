@@ -65,20 +65,20 @@ _MASK_BINARIZATION_THRESHOLD = 0.4
 _MASK_TENSOR_AS_LOGITS = False
 
 
-def _recursively_copy_directory(src_dir: str,
-                                dest_dir: str,
-                                overwrite=False) -> None:
+def _recursively_copy_directory(
+    src_dir: str, dest_dir: str, overwrite: bool = False
+) -> None:
   """Copies a directory and all files in it.
 
   Args:
     src_dir: Path to source directory.
     dest_dir: Path to destination directory.
+    overwrite: Overwrite files.
   """
   if not tf.io.gfile.isdir(dest_dir):
     tf.io.gfile.mkdir(dest_dir)
 
   # For reflecting the subdir structure of the source dir.
-  dest_dir_current_path = dest_dir
   for src_dir_name, src_subdirs, src_leaf_files in tf.io.gfile.walk(src_dir):
     dest_dir_current_path = os.path.join(dest_dir,
                                          os.path.relpath(src_dir_name, src_dir))
@@ -284,28 +284,20 @@ def _pixel_xy_to_long_lat(
 
 
 def _get_mask_polygon(
-    sparse_mask,
+    mask: np.ndarray,
     x_offset: int,
     y_offset: int,
     crs: str,
-    affine_transform: AffineTuple) -> str:
+    affine_transform: AffineTuple) -> shapely.geometry.Polygon | None:
   """Returns a polygon around the mask."""
-  x = sparse_mask.indices[:, 1].numpy() + x_offset
-  y = sparse_mask.indices[:, 0].numpy() + y_offset
+  contours, _ = cv2.findContours(mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_TC89_L1)
+  x = contours[0][:, 0, 0] + x_offset
+  y = contours[0][:, 0, 1] + y_offset
   coords = _pixel_xy_to_long_lat(x, y, crs, affine_transform)
-  if len(coords) == 1:
-    geometry = shapely.geometry.Point(*coords[0])
-  elif len(coords) == 2:
-    geometry = shapely.geometry.LineString(coords)
-  else:
-    hull = cv2.convexHull(np.array(coords, dtype=np.float32))
-    hull = np.squeeze(hull)
-    if len(hull) < 3:
-      geometry = shapely.geometry.LineString(hull)
-    else:
-      geometry = shapely.geometry.Polygon(hull)
-
-  return shapely.wkt.dumps(geometry)
+  try:
+    return shapely.geometry.Polygon(coords)
+  except ValueError:
+    return None
 
 
 def _get_mask_bounds(sparse_mask) -> Tuple[int, int, int, int]:
@@ -370,13 +362,17 @@ def _construct_output_examples(
     mask_image = tf.expand_dims(tf.cast(instance_mask, tf.uint8), -1) * 255
     mask_png = tf.io.encode_png(mask_image).numpy()
 
-    mask_poly_wkt = _get_mask_polygon(
-        sparse_instance_mask,
+    mask_polygon = _get_mask_polygon(
+        instance_mask.numpy().astype(np.uint8),
         pixel_x_offset,
         pixel_y_offset,
         crs_str,
         affine_transform,
     )
+    if not mask_polygon:
+      Metrics.counter('skai', 'invalid_mask_polygon').inc()
+      continue
+    mask_poly_wkt = shapely.wkt.dumps(mask_polygon)
 
     # Compute mask centroid.
     min_x, min_y, max_x, max_y = _get_mask_bounds(sparse_instance_mask)
@@ -388,6 +384,17 @@ def _construct_output_examples(
         crs_str,
         affine_transform,
     )[0]
+
+    # Check if this mask is touching the edge of the image.
+    on_edge = int(
+        min_x == 0
+        or min_y == 0
+        or max_x == mask_image.shape[1] - 1
+        or max_y == mask_image.shape[0] - 1
+    )
+    utils.add_int64_feature(
+        detect_buildings_constants.ON_EDGE, on_edge, output_example
+    )
 
     # Compute "area".
     area = len(sparse_instance_mask.indices)
@@ -908,6 +915,20 @@ def _masks_overlap(mask1, mask2) -> bool:
           (num_intersecting_pixels / len(mask2) >= _OVERLAP_THRESHOLD))
 
 
+def _nms_score(building: Example) -> float:
+  """Calculates score for ranking in non-max suppression.
+  """
+  confidence = utils.get_float_feature(
+      building, detect_buildings_constants.CONFIDENCE
+  )[0]
+  edge_penalty = (
+      utils.get_int64_feature(building, detect_buildings_constants.ON_EDGE)[0]
+      * -100
+  )
+
+  return confidence + edge_penalty
+
+
 def non_max_suppression(
     region_key: Any, region_buildings: Iterable[Example]) -> Iterable[Example]:
   """Deduplicate buildings using NMS.
@@ -927,11 +948,8 @@ def non_max_suppression(
   # amount of overlap.
   buildings = list(region_buildings)
   masks = [_get_global_mask(b) for b in buildings]
-  confidences = [
-      utils.get_float_feature(b, detect_buildings_constants.CONFIDENCE)[0]
-      for b in buildings
-  ]
-  indexes = list(np.argsort(confidences))
+  scores = [_nms_score(b) for b in buildings]
+  indexes = list(np.argsort(scores))
   while indexes:
     best = indexes[-1]
     yield buildings[best]
@@ -1005,10 +1023,12 @@ def deduplicate_buildings_simple(buildings: PCollection) -> PCollection:
   return deduped_buildings
 
 
-def write_buildings(buildings: PCollection,
-                    output_prefix: str,
-                    num_shards: int,
-                    stage_prefix: str) -> None:
+def write_tfrecords(
+    buildings: PCollection,
+    output_prefix: str,
+    num_shards: int,
+    stage_prefix: str,
+) -> None:
   """Writes building examples as sharded TFRecords.
 
   Args:
@@ -1026,8 +1046,8 @@ def write_buildings(buildings: PCollection,
           num_shards=num_shards))
 
 
-def write_centroids_csv(buildings: PCollection, csv_path: str) -> None:
-  """Writes a CSV containing the longitude, latitude centroids of all buildings.
+def write_csv(buildings: PCollection, csv_path: str) -> None:
+  """Writes a CSV containing building footprints.
 
   Args:
     buildings: PCollection of building examples.
@@ -1051,4 +1071,4 @@ def write_centroids_csv(buildings: PCollection, csv_path: str) -> None:
   # pylint: enable=g-long-lambda
 
   centroids_df = to_dataframe(centroid_rows)
-  centroids_df.to_csv(csv_path, index=False, float_format='%.12f')
+  centroids_df.to_csv(csv_path, index=False, float_format='%.12f', num_shards=1)

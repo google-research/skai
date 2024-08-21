@@ -64,6 +64,9 @@ def _create_building_example(tile_row: int, tile_col: int, tile_pixel_row: int,
   e.features.feature[
       detect_buildings_constants.AFFINE_TRANSFORM].float_list.value.extend(
           [0.0] * 6)
+  e.features.feature[
+      detect_buildings_constants.ON_EDGE
+  ].int64_list.value.append(0)
 
   mask_tensor = _create_building_mask(tile_height, tile_width, indices)
   detect_buildings._encode_sparse_tensor(mask_tensor, e,
@@ -457,6 +460,17 @@ class DetectBuildingsTest(tf.test.TestCase):
     recropped = detect_buildings._recrop_mask(
         padded_image, image.shape[0], image.shape[1])
     self.assertAllEqual(image, np.squeeze(recropped, 0))
+
+  def test_get_mask_polygon(self):
+    mask = np.zeros((50, 50), dtype=np.uint8)
+    mask[10:40, 12:38] = 1
+    polygon = detect_buildings._get_mask_polygon(
+        mask, 7, 13, 'EPSG:4326', (1.0, 0.0, 0.0, 0.0, 1.0, 0.0)
+    )
+    self.assertEqual(
+        list(polygon.exterior.coords),
+        [(19.5, 23.5), (19.5, 52.5), (44.5, 52.5), (44.5, 23.5), (19.5, 23.5)],
+    )
 
 
 # `python -m skai.detect_buildings_test` will set __name__ to __main__, but

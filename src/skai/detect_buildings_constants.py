@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Constants for detect_buildings.py"""
+"""Constants for building detection."""
 import tensorflow as tf
 
 # TF Example feature names
@@ -27,6 +27,7 @@ AFFINE_TRANSFORM = 'affine_transform'
 LONGITUDE = 'longitude'
 LATITUDE = 'latitude'
 AREA = 'area'
+ON_EDGE = 'on_edge'
 
 # Output TF Example feature specification.
 FEATURES = {
@@ -42,4 +43,5 @@ FEATURES = {
     LONGITUDE: tf.io.FixedLenFeature([], tf.float32, default_value=0),
     LATITUDE: tf.io.FixedLenFeature([], tf.float32, default_value=0),
     AREA: tf.io.FixedLenFeature([], tf.float32, default_value=0),
+    ON_EDGE: tf.io.FixedLenFeature([], tf.int64, default_value=0),
 }
