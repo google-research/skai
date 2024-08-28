@@ -35,6 +35,7 @@ from PIL import Image, ImageDraw, ImageFont
 import pyproj
 import requests
 import tensorflow as tf
+import pycountry
 
 
 def launch_pexpect_process(script,
