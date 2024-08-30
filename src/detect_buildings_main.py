@@ -159,6 +159,10 @@ def main(args):
         os.path.join(FLAGS.output_dir, 'dedup_buildings.csv'),
     )
 
+  detect_buildings.combine_csvs(
+      os.path.join(FLAGS.output_dir, 'dedup_buildings.csv-*-of-*'),
+      os.path.join(FLAGS.output_dir, 'dedup_buildings.parquet'),
+  )
 
 if __name__ == '__main__':
   app.run(main)

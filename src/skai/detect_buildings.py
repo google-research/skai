@@ -33,7 +33,9 @@ from apache_beam.dataframe.convert import to_dataframe
 from apache_beam.utils import multi_process_shared
 
 import cv2
+import geopandas as gpd
 import numpy as np
+import pandas as pd
 import pyproj
 import rasterio
 import shapely
@@ -42,6 +44,7 @@ import shapely.wkt
 from skai import detect_buildings_constants
 from skai import extract_tiles_constants
 from skai import utils
+import skai.buildings
 import tensorflow as tf
 import tensorflow_addons.image as tfa_image
 
@@ -1072,3 +1075,13 @@ def write_csv(buildings: PCollection, csv_path: str) -> None:
 
   centroids_df = to_dataframe(centroid_rows)
   centroids_df.to_csv(csv_path, index=False, float_format='%.12f', num_shards=1)
+
+
+def combine_csvs(pattern: str, output_path: str) -> None:
+  combined_df = pd.concat(
+      [pd.read_csv(path) for path in tf.io.gfile.glob(pattern)],
+      ignore_index=True,
+  )
+  combined_df['geometry'] = combined_df['wkt'].apply(shapely.wkt.loads)
+  gdf = gpd.GeoDataFrame(combined_df.drop(columns=['wkt']), crs='EPSG:4326')
+  skai.buildings.write_buildings_file(gdf, output_path)
