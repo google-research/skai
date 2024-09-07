@@ -21,6 +21,7 @@ import struct
 from typing import Iterable, List, Sequence, Tuple
 
 from absl import flags
+import geopandas as gpd
 import PIL.Image
 import tensorflow as tf
 
@@ -129,7 +130,7 @@ def decode_coordinates(encoded_coords: str) -> Tuple[float, float]:
   return struct.unpack('<ff', buffer)
 
 
-def convert_wgs_to_utm(lon: float, lat: float):
+def get_utm_crs(lon: float, lat: float):
   """Based on lat and lng, return best utm epsg-code."""
   utm_band = str((math.floor((lon + 180) / 6) % 60) + 1)
   if len(utm_band) == 1:
@@ -139,3 +140,10 @@ def convert_wgs_to_utm(lon: float, lat: float):
   else:
     epsg_code = '327' + utm_band
   return f'EPSG:{epsg_code}'
+
+
+def convert_to_utm(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
+  """Converts a GeoDataFrame to UTM coordinates."""
+  sample_gdf = gdf.sample(min(len(gdf), 50))
+  centroid = sample_gdf.unary_union.centroid
+  return gdf.to_crs(get_utm_crs(centroid.x, centroid.y))

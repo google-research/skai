@@ -281,7 +281,7 @@ def _compute_window(
   # window in the target CRS. Always use UTM for the target CRS so that
   # rectangles are easy to derive.
   target_crs = rasterio.CRS.from_string(
-      utils.convert_wgs_to_utm(longitude, latitude)
+      utils.get_utm_crs(longitude, latitude)
   )
   transformer = _get_transformer('EPSG:4326', target_crs)
   x, y = transformer.transform(longitude, latitude, errcheck=True)

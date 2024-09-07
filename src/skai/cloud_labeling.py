@@ -302,7 +302,7 @@ def create_labeling_images(
         gpd.points_from_xy(df_metadata['longitude'], df_metadata['latitude'])
     ).set_crs(4326)
     centroid = points.unary_union.centroid
-    utm_points = points.to_crs(utils.convert_wgs_to_utm(centroid.x, centroid.y))
+    utm_points = points.to_crs(utils.get_utm_crs(centroid.x, centroid.y))
     gpd_df = gpd.GeoDataFrame(df_metadata, geometry=utm_points)
     df_buffered_samples = sample_with_buffer(
         gpd_df, max_images, buffered_sampling_radius
@@ -643,7 +643,7 @@ def get_connection_matrix(
   )).set_crs(4326)
 
   centroid = points.unary_union.centroid
-  utm_points = points.to_crs(utils.convert_wgs_to_utm(centroid.x, centroid.y))
+  utm_points = points.to_crs(utils.get_utm_crs(centroid.x, centroid.y))
 
   gpd_df = gpd.GeoDataFrame(
       {'encoded_coordinates': encoded_coordinates},

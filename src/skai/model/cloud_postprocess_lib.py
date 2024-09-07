@@ -13,7 +13,7 @@ def convert_to_geopandas(df: pd.DataFrame) -> gpd.GeoDataFrame:
       crs='EPSG:4326',
   )
   c = gdf.unary_union.centroid
-  new_proj = utils.convert_wgs_to_utm(c.x, c.y)
+  new_proj = utils.get_utm_crs(c.x, c.y)
   return gdf.to_crs(new_proj)
 
 

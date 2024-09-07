@@ -152,19 +152,18 @@ def get_diffuse_subset(
   Returns:
     Points with neighbors dropped.
   """
-  buffer_df = gpd.GeoDataFrame(geometry=points.buffer(buffer_meters))
-  joined = points.sjoin(buffer_df, how='left')
-  indexes_to_keep = set()
+  buffers = gpd.GeoDataFrame(geometry=points.geometry.buffer(buffer_meters))
+  joined = gpd.GeoDataFrame(geometry=points.geometry).sjoin(
+      buffers, how='left'
+  )['index_right']
+  indexes_to_keep = []
   indexes_to_drop = set()
-  for index, row in joined.iterrows():
+  for index, nearby_indexes in joined.groupby(level=0):
     if index in indexes_to_drop:
       continue
-    indexes_to_keep.add(index)
-    if row.index_right != index:
-      indexes_to_drop.add(row.index_right)
-  assert len(indexes_to_keep) + len(indexes_to_drop) == len(points)
-  assert indexes_to_keep.isdisjoint(indexes_to_drop)
-  return points.loc[list(indexes_to_keep)]
+    indexes_to_keep.append(index)
+    indexes_to_drop.update(nearby_indexes.values)
+  return points.loc[indexes_to_keep]
 
 
 def merge_dropping_neighbors(
@@ -205,7 +204,7 @@ def sample_with_buffer(
   """
   unsampled = points.copy()
   if starting_sample is None:
-    s = unsampled.sample(num_points)
+    s = unsampled.sample(min(num_points, len(unsampled)))
     unsampled.drop(s.index, inplace=True)
     sample = get_diffuse_subset(s, buffer_meters)
     target_size = num_points
@@ -264,12 +263,13 @@ def get_buffered_example_ids(
       ' metres...',
       buffered_sampling_radius,
   )
-  points = gpd.GeoSeries(
-      gpd.points_from_xy(df_metadata['longitude'], df_metadata['latitude'])
-  ).set_crs(4326)
-  centroid = points.unary_union.centroid
-  utm_points = points.to_crs(utils.convert_wgs_to_utm(centroid.x, centroid.y))
-  gpd_df = gpd.GeoDataFrame(df_metadata, geometry=utm_points)
+  points = utils.convert_to_utm(
+      gpd.GeoSeries(
+          gpd.points_from_xy(df_metadata['longitude'], df_metadata['latitude']),
+          crs=4326,
+      )
+  )
+  gpd_df = gpd.GeoDataFrame(df_metadata, geometry=points)
   max_examples = len(gpd_df) if max_examples is None else max_examples
   df_buffered_samples = sample_with_buffer(
       gpd_df, max_examples, buffered_sampling_radius
@@ -791,17 +791,13 @@ def get_connection_matrix(
   Returns:
     Tuple of (GeoDataFrame, connection_matrix).
   """
-  points = gpd.GeoSeries(gpd.points_from_xy(
-      longitudes,
-      latitudes,
-  )).set_crs(4326)
 
-  centroid = points.unary_union.centroid
-  utm_points = points.to_crs(utils.convert_wgs_to_utm(centroid.x, centroid.y))
-
-  gpd_df = gpd.GeoDataFrame(
-      {'encoded_coordinates': encoded_coordinates},
-      geometry=utm_points
+  gpd_df = utils.convert_to_utm(
+      gpd.GeoDataFrame(
+          {'encoded_coordinates': encoded_coordinates},
+          geometry=gpd.points_from_xy(longitudes, latitudes),
+          crs=4326,
+      )
   )
 
   def calculate_euclidean_distance(row):

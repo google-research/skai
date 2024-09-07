@@ -15,6 +15,10 @@
 """Tests for utils."""
 from absl.testing import absltest
 from absl.testing import parameterized
+
+import geopandas as gpd
+import shapely.geometry
+
 from skai import utils
 
 
@@ -47,8 +51,18 @@ class UtilsTest(parameterized.TestCase):
           correct_utm='EPSG:32655',
       )
   )
-  def testConvertWGStoUTM(self, longitude, latitude, correct_utm):
-    self.assertEqual(utils.convert_wgs_to_utm(longitude, latitude), correct_utm)
+  def test_get_utm_crs(self, longitude, latitude, correct_utm):
+    self.assertEqual(utils.get_utm_crs(longitude, latitude), correct_utm)
+
+  def test_convert_to_utm(self):
+    points = [
+        shapely.geometry.Point(30, 50),
+        shapely.geometry.Point(35, 55),
+        shapely.geometry.Point(25, 45),
+    ]
+    gdf = gpd.GeoDataFrame(geometry=points, crs=4326)
+    utm_gdf = utils.convert_to_utm(gdf)
+    self.assertEqual(str(utm_gdf.crs), 'EPSG:32636')
 
 
 if __name__ == '__main__':

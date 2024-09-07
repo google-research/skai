@@ -19,8 +19,10 @@ import random
 import tempfile
 
 from absl.testing import absltest
+import geopandas as gpd
 import numpy as np
 import pandas as pd
+import shapely.geometry
 from skai import labeling
 from skai import utils
 import tensorflow as tf
@@ -414,6 +416,22 @@ class LabelingTest(absltest.TestCase):
             ('d', 1.0, [3, 3]),
         ],
     )
+
+  def test_get_diffuse_subset(self):
+    points = [
+        shapely.geometry.Point(-61.458391, 12.470539),
+        shapely.geometry.Point(-61.458325, 12.470466),
+        shapely.geometry.Point(-61.457885, 12.470580),
+        shapely.geometry.Point(-61.457784, 12.470587),
+        shapely.geometry.Point(-61.458100, 12.470049),
+    ]
+    example_ids = ['a', 'b', 'c', 'd', 'e']
+    points_gdf = utils.convert_to_utm(
+        gpd.GeoDataFrame({'example_id': example_ids}, geometry=points, crs=4326)
+    )
+    subset_gdf = labeling.get_diffuse_subset(points_gdf, 50)
+    self.assertSameElements(['a', 'c', 'e'], subset_gdf['example_id'].values)
+
 
 if __name__ == '__main__':
   tf.compat.v1.enable_eager_execution()
