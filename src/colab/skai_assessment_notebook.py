@@ -135,6 +135,10 @@ AFTER_IMAGES = process_image_entries([
 # @markdown proceed to run the next cell.
 def install_requirements():
   """Installs necessary Python libraries."""
+  # !rm -rf {SKAI_CODE_DIR}
+  # !git clone {SKAI_REPO} {SKAI_CODE_DIR}
+  # !pip install {SKAI_CODE_DIR}/src/.
+
   requirements = textwrap.dedent('''
     apache_beam[gcp]==2.54.0
     google-cloud-storage>=2.18.2  # https://github.com/apache/beam/issues/32169
@@ -897,13 +901,11 @@ create_labeled_examples(
 
 # %% cellView="form"
 # @title Show Label Stats
-def _load_examples_into_gdf(
+def _load_examples_into_df(
     train_tfrecords: str,
     test_tfrecords: str,
-    max_examples: int,
-    load_images: bool,
-) -> tuple[list[tf.train.Example], gpd.GeoDataFrame]:
-  """Loads examples from TFRecords into a GeoDataFrame.
+) -> pd.DataFrame:
+  """Loads examples from TFRecords into a DataFrame.
   """
   feature_config = {
       'example_id': tf.io.FixedLenFeature([], tf.string),
@@ -911,12 +913,6 @@ def _load_examples_into_gdf(
       'string_label': tf.io.FixedLenFeature([], tf.string, 'unlabeled'),
       'label': tf.io.FixedLenFeature([], tf.float32),
   }
-
-  if load_images:
-    feature_config['pre_image_png_large'] = tf.io.FixedLenFeature([], tf.string)
-    feature_config['post_image_png_large'] = tf.io.FixedLenFeature(
-        [], tf.string
-    )
 
   def _parse_examples(record_bytes):
     return tf.io.parse_single_example(record_bytes, feature_config)
@@ -938,57 +934,42 @@ def _load_examples_into_gdf(
       columns['string_label'].append(features['string_label'].decode())
       columns['label'].append(features['label'])
       columns['source_path'].append(path)
-      if load_images:
-        columns['pre_image_bytes'].append(features['pre_image_png_large'])
-        columns['post_image_bytes'].append(features['post_image_png_large'])
-      if max_examples > 0 and len(columns['example_id']) >= max_examples:
-        break
-    if max_examples > 0 and len(columns['example_id']) >= max_examples:
-      break
 
-  return gpd.GeoDataFrame(
-      columns,
-      geometry=gpd.points_from_xy(longitudes, latitudes))
+  return pd.DataFrame(columns)
 
+def _format_counts_table(df: pd.DataFrame):
+  for column in df.columns:
+    if column != 'All':
+      df[column] = [
+          f'{x}  ({x/t * 100:0.2f}%)' for x, t in zip(df[column], df['All'])
+      ]
 
-def label_counts(df: gpd.GeoDataFrame):
-  """Creates tables showing various labeling stats."""
+def show_label_stats(train_tfrecord: str, test_tfrecord: str):
+  """Displays tables showing label count stats."""
+  df = _load_examples_into_df(train_tfrecord, test_tfrecord)
   counts = df.pivot_table(
       index='source_path',
       columns='string_label',
       aggfunc='count',
       values='example_id',
-      margins=True)
+      margins=True,
+      fill_value=0)
+  _format_counts_table(counts)
 
   print('String Label Counts')
-  display(counts)
-
-  percents = counts.drop(columns=['All']).div(counts['All'], axis=0) * 100
-
-  print('String Label Percentages')
-  display(percents)
+  display(data_table.DataTable(counts))
 
   float_counts = df.pivot_table(
       index='source_path',
       columns='label',
       aggfunc='count',
       values='example_id',
-      margins=True)
+      margins=True,
+      fill_value=0.0)
+  _format_counts_table(float_counts)
   print('Float Label Counts')
-  display(float_counts)
+  display(data_table.DataTable(float_counts))
 
-  float_percents = (
-      float_counts.drop(columns=['All']).div(float_counts['All'], axis=0) * 100
-  )
-  print('Float Label Percentages')
-  display(float_percents)
-
-
-def show_label_stats(
-    train_tfrecord: str,
-    test_tfrecord: str):
-  gdf = _load_examples_into_gdf(train_tfrecord, test_tfrecord, 1000, False)
-  label_counts(gdf)
 
 show_label_stats(TRAIN_TFRECORD, TEST_TFRECORD)
 
