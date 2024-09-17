@@ -1,0 +1,29 @@
+<html>
+  <meta charset="UTF-8">
+  <title>EagleEye - New Project</title>
+  <head>
+    <script type="module" src="/static/newproject.js"></script>
+    <link rel="stylesheet" href="/static/newproject.css">
+    <link rel="stylesheet" href="/static/common.css">
+  </head>
+  <body>
+    <a href="/projects">Home</a>
+    <form class="project-form">
+      <div class="form-entry">
+        <label for="projectName">Project Name:</label><br>
+        <input class="form-text" type="text" id="projectName" name="projectName" required>
+      </div>
+      <div class="form-entry">
+        <label for="imageMetadataPath">Image Metadata Path (e.g. "gs://[bucket]/[path]"):</label><br>
+        <input class="form-text" type="text" id="imageMetadataPath" name="imageMetadataPath" required>
+      </div>
+      <div class="form-entry">
+        <button id="create_project">Create Project</button>
+      </div>
+    </form>
+
+    <div id="loading-spinner">
+      <div class="spinner"></div>
+    </div>
+  </body>
+</html>

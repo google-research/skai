@@ -1,0 +1,33 @@
+<html>
+  <meta charset="UTF-8">
+  <title>EagleEye - Reopen Project</title>
+  <head>
+    <script type="module" src="/static/reopen_project.js"></script>
+    <link rel="stylesheet" href="/static/reopen_project.css">
+    <link rel="stylesheet" href="/static/common.css">
+  </head>
+  <body>
+    <a href="/projects">Home</a>
+    <h2>Re-Opening Project: {{project_name}}</h2>
+    <div class="description-text">
+      Re-opening a project will add the newly specified image labeling
+      tasks to the existing project. If retaining the ability to
+      distinguish between tasks that were previously labeled and newly
+      added tasks is needed, <a href="/projects/new">create a new
+      project</a> instead.
+    </div>
+    <form class="project-form">
+      <div class="form-entry">
+        <label for="imageMetadataPath">Image Metadata File Path (e.g. "gs://[bucket]/[path]"):</label><br>
+        <input class="form-text" type="text" id="imageMetadataPath" name="imageMetadataPath" required>
+      </div>
+      <div class="form-entry">
+        <button data-project-id="{{project_id}}" id="reopen_project">Re-Open Project</button>
+      </div>
+    </form>
+
+    <div id="loading-spinner">
+      <div class="spinner"></div>
+    </div>
+  </body>
+</html>

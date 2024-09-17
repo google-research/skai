@@ -1,0 +1,29 @@
+<html>
+  <meta charset="UTF-8">
+  <title>EagleEye Homepage</title>
+  <head>
+    <link rel="stylesheet" href="/static/homepage.css">
+    <script type="module" src="/static/homepage.js"></script>
+  </head>
+  <body>
+    <h1>EagleEye</h1>
+    {% if is_admin %}
+    <h2>Create Project</h2>
+    <button id="create_project">Create</button>
+    {% endif %}
+    <h2>Active Projects</h2>
+    {% for project in all_projects %}
+    <a href="/project/{{project.project_id}}/summary">
+      <div class="project">
+        <div>
+          {{project.name}}
+        </div>
+        <progress class="project-progress"
+          value="{{project_labeled_task_count_map[project.project_id]}}"
+          max="{{project_task_count_map[project.project_id]}}">
+        </progress>
+    </div>
+  </a>
+    {% endfor %}
+  </body>
+</html>
