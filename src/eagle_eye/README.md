@@ -69,9 +69,9 @@ EagleEye is a simple multi-user image labeling system for use with SKAI.
   to create and download a service account JSON key file to your workstation.
 
 ### Deploy App Using Cloud Run
-- On your workstation, create a text file in the `skai/src/eagle_eye` directory
-  named `config.json`. The contents of the file should be the `firebaseConfig`
-  JSON data structure you copied previously. It should look like this:
+- On your workstation, create a text file named `config.json`. The contents of
+  the file should be the `firebaseConfig` JSON data structure you copied
+  previously. The file should look like this:
 
   ```
   {
@@ -91,14 +91,14 @@ EagleEye is a simple multi-user image labeling system for use with SKAI.
   ```
   $ export GOOGLE_APPLICATION_CREDENTIALS=[path to your JSON key file]
   $ cd skai/src/eagle_eye
-  $ gcloud run deploy
+  $ bash deploy.sh [path to your config.json]
   ```
 
 - The output should contain lines similar to the following:
 
   ```
-  Service [eagle_eye] revision [eagle_eye-00001-kpb] has been deployed and is serving 100 percent of traffic.
-  Service URL: https://eagle-eye-1234567890.us-central1.run.app
+  Service [eagle_eye] revision [eagleeye-00001-kpb] has been deployed and is serving 100 percent of traffic.
+  Service URL: https://eagleeye-1234567890.us-central1.run.app
   ```
 
 - Copy the Service URL. That is the URL of the EagleEye app.
