@@ -134,10 +134,10 @@ def _get_pixel_bounds_for_aoi(
   min_row, max_col = image.index(tx2, ty2)
 
   # Clamp values to extents of image.
-  min_col = max(0, min_col)
-  min_row = max(0, min_row)
-  max_col = min(image.width, max_col)
-  max_row = min(image.height, max_row)
+  min_col = np.clip(min_col, 0, image.width)
+  min_row = np.clip(min_row, 0, image.height)
+  max_col = np.clip(max_col, 0, image.width)
+  max_row = np.clip(max_row, 0, image.height)
 
   assert 0 <= min_col <= max_col <= image.width, (
       f'Expecting 0 <= {min_col} <= {max_col} <= image.width')

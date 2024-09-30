@@ -112,7 +112,7 @@ class ExtractTilesTest(absltest.TestCase):
     self.test_image_path = str(current_dir / TEST_IMAGE_PATH)
     self.image = rasterio.open(self.test_image_path)
 
-  def testGetTiles(self):
+  def test_get_tiles(self):
     """Tests that correct window extents are generated for a GeoTIFF."""
     tiles = set(
         extract_tiles.get_tiles(
@@ -138,7 +138,7 @@ class ExtractTilesTest(absltest.TestCase):
         Tile(self.test_image_path, 200, 200, 120, 120, 10, 2, 2)
     ]))
 
-  def testGetTilesForAOI(self):
+  def test_get_tiles_for_aoi(self):
     """Tests that correct window extents are generated for a subrectangle."""
     aoi = shapely.geometry.Polygon([
         (178.48236869631341506, -16.63234307247736155),
@@ -158,7 +158,29 @@ class ExtractTilesTest(absltest.TestCase):
         Tile(self.test_image_path, 221, 119, 120, 120, 10, 2, 1)
     ]))
 
-  def testExtractTilesAsExamplesFn(self):
+  def test_get_tiles_for_aoi_oob_longitude(self):
+    """Tests that no tiles are generated if the AOI does not overlap image."""
+    aoi = shapely.geometry.Polygon([
+        (179, -16.63234307247736155),
+        (179, -16.63313880852423665),
+        (179.5, -16.6331413589602839),
+        (179.5, -16.63235072378550328)])
+    tiles = set(extract_tiles.get_tiles_for_aoi(
+        self.test_image_path, aoi, tile_size=100, margin=10, gdal_env={}))
+    self.assertEmpty(tiles)
+
+  def test_get_tiles_for_aoi_oob_latitude(self):
+    """Tests that no tiles are generated if the AOI does not overlap image."""
+    aoi = shapely.geometry.Polygon([
+        (178.48236869631341506, -15),
+        (178.48236359544131346, -15),
+        (178.48353934645930963, -14),
+        (178.48351639253488088, -14)])
+    tiles = set(extract_tiles.get_tiles_for_aoi(
+        self.test_image_path, aoi, tile_size=100, margin=10, gdal_env={}))
+    self.assertEmpty(tiles)
+
+  def test_extract_tiles_as_examples_fn(self):
     """Tests that beam pipeline generates correct tensorflow examples."""
 
     # These tiles form a 3x3 grid that covers the test image.
