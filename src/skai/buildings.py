@@ -171,4 +171,10 @@ def read_building_coordinates(path: str) -> pd.DataFrame:
   """
   with tf.io.gfile.GFile(path, 'rb') as f:
     f.closed = False  # Work-around for GFile issue.
-    return pd.read_parquet(f, columns=['longitude', 'latitude'])
+    df = pd.read_parquet(f, columns=['longitude', 'latitude'])
+  if df['longitude'].dtype != float:
+    raise TypeError(f'longitude column in file {path} is not type float')
+  if df['latitude'].dtype != float:
+    raise TypeError(f'latitude column in file {path} is not type float')
+  return df
+
