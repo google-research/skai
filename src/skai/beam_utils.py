@@ -108,6 +108,7 @@ def get_pipeline_options(
     project: str,
     region: str,
     temp_dir: str,
+    min_workers: int,
     max_workers: int,
     worker_service_account: str | None,
     machine_type: str | None,
@@ -123,6 +124,7 @@ def get_pipeline_options(
     project: GCP project.
     region: GCP region.
     temp_dir: Temporary data location.
+    min_workers: Minimum number of Dataflow workers.
     max_workers: Maximum number of Dataflow workers.
     worker_service_account: Email of the service account will launch workers.
         If None, uses the project's default Compute Engine service account
@@ -164,8 +166,11 @@ def get_pipeline_options(
   if machine_type:
     options['machine_type'] = machine_type
 
+  service_options = [
+      f'min_num_workers={min_workers}',
+  ]
   if accelerator:
-    options['dataflow_service_options'] = ';'.join([
+    service_options.extend([
         f'worker_accelerator=type:{accelerator}',
         f'count:{accelerator_count}',
         'install-nvidia-driver',
@@ -174,4 +179,5 @@ def get_pipeline_options(
   else:
     options['sdk_container_image'] = _get_dataflow_container_image('cpu')
 
+  options['dataflow_service_options'] = ';'.join(service_options)
   return PipelineOptions.from_dictionary(options)

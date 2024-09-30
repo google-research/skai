@@ -52,6 +52,9 @@ flags.DEFINE_string(
     'Service account that will launch Dataflow workers. If unset, workers will '
     'run with the project\'s default Compute Engine service account.')
 flags.DEFINE_integer(
+    'min_dataflow_workers', None, 'Minimum number of dataflow workers'
+)
+flags.DEFINE_integer(
     'max_dataflow_workers', None, 'Maximum number of dataflow workers'
 )
 
