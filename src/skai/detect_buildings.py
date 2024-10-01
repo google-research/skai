@@ -1077,11 +1077,24 @@ def write_csv(buildings: PCollection, csv_path: str) -> None:
   centroids_df.to_csv(csv_path, index=False, float_format='%.12f', num_shards=1)
 
 
-def combine_csvs(pattern: str, output_path: str) -> None:
+def combine_csvs(pattern: str, output_prefix: str) -> None:
+  """Combines sharded CSVs output by Dataflow job into a single CSV.
+
+  Also outputs combined files as GeoPackage and GeoParquet formats.
+
+  Args:
+    pattern: Sharded CSV pattern.
+    output_prefix: Output files prefix.
+  """
   combined_df = pd.concat(
       [pd.read_csv(path) for path in tf.io.gfile.glob(pattern)],
       ignore_index=True,
   )
+  with tf.io.gfile.GFile(f'{output_prefix}.csv', 'w') as f:
+    combined_df.to_csv(f)
+
   combined_df['geometry'] = combined_df['wkt'].apply(shapely.wkt.loads)
   gdf = gpd.GeoDataFrame(combined_df.drop(columns=['wkt']), crs='EPSG:4326')
-  skai.buildings.write_buildings_file(gdf, output_path)
+  with tf.io.gfile.GFile(f'{output_prefix}.gpkg', 'wb') as f:
+    gdf.to_file(f, driver='GPKG', engine='fiona')
+  skai.buildings.write_buildings_file(gdf, f'{output_prefix}.parquet')

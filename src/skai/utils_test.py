@@ -13,6 +13,9 @@
 # limitations under the License.
 
 """Tests for utils."""
+import pathlib
+import tempfile
+
 from absl.testing import absltest
 from absl.testing import parameterized
 
@@ -63,6 +66,48 @@ class UtilsTest(parameterized.TestCase):
     gdf = gpd.GeoDataFrame(geometry=points, crs=4326)
     utm_gdf = utils.convert_to_utm(gdf)
     self.assertEqual(str(utm_gdf.crs), 'EPSG:32636')
+
+  @parameterized.named_parameters(
+      dict(
+          testcase_name='empty_pattern',
+          files=[],
+          patterns=[],
+      ),
+      dict(
+          testcase_name='no_match',
+          files=['a.tif', 'b.tif'],
+          patterns=['*.tif', 'c.tif'],
+      ),
+      dict(
+          testcase_name='duplicate_matches',
+          files=['a.tif', 'b.tif'],
+          patterns=['*.tif', 'a.*'],
+      ),
+  )
+  def testExpandPatternsRaises(self, files, patterns):
+    temp_dir = pathlib.Path(tempfile.mkdtemp(dir=absltest.TEST_TMPDIR.value))
+    patterns_with_dir = [str(temp_dir / p) for p in patterns]
+    for f in files:
+      (temp_dir / f).touch()
+    with self.assertRaises(ValueError):
+      utils.expand_file_patterns(patterns_with_dir)
+
+  @parameterized.named_parameters(
+      dict(
+          testcase_name='match',
+          files=['a.tif', 'b.tif', 'c.jpg'],
+          patterns=['*.tif'],
+          expected_matches=['a.tif', 'b.tif'],
+      ),
+  )
+  def testExpandPatternsNoRaises(self, files, patterns, expected_matches):
+    temp_dir = pathlib.Path(tempfile.mkdtemp(dir=absltest.TEST_TMPDIR.value))
+    patterns_with_dir = [str(temp_dir / p) for p in patterns]
+    expected_matches_with_dir = [str(temp_dir / f) for f in expected_matches]
+    for f in files:
+      (pathlib.Path(temp_dir) / f).touch()
+    matches = utils.expand_file_patterns(patterns_with_dir)
+    self.assertSameElements(expected_matches_with_dir, matches)
 
 
 if __name__ == '__main__':

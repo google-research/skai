@@ -14,7 +14,6 @@
 """Pipeline for generating tensorflow examples from satellite images."""
 
 import binascii
-import collections
 import csv
 import dataclasses
 import hashlib
@@ -673,48 +672,6 @@ def _remove_large_images(example: Example) -> Example:
   return new_example
 
 
-def _expand_patterns(patterns: Iterable[str]) -> List[str]:
-  """Returns the list of paths matched by a list of URI patterns.
-
-  Args:
-    patterns: List of file patterns.
-
-  Returns:
-    List of matched paths.
-
-  Raises:
-    ValueError if any patterns do not match any files, or if files are
-      duplicated.
-  """
-  if not patterns:
-    raise ValueError('No patterns to expand')
-
-  paths = []
-  for pattern in patterns:
-    if (pattern.startswith('/') or
-        pattern.startswith('file://') or
-        pattern.startswith('gs://') or
-        pattern.startswith('s3://')):
-      matched = tf.io.gfile.glob(pattern)
-      if not matched:
-        raise ValueError(
-            f'The file pattern "{pattern}" does not match any files'
-        )
-      paths.extend(matched)
-    else:
-      paths.append(pattern)
-
-  duplicates = [
-      (p, c) for p, c in collections.Counter(paths).items() if c > 1
-  ]
-  if duplicates:
-    raise ValueError(
-        'The following input files matched more than one pattern: '
-        + ', '.join(f'{p}: {c} times' for p, c in duplicates)
-    )
-  return paths
-
-
 def _generate_examples(
     pipeline,
     before_image_info: list[RasterInfo],
@@ -1031,9 +988,11 @@ def _get_image_infos_from_config(
     before_image_info = config.before_image_info
   elif config.before_image_patterns or config.before_image_config:
     if config.before_image_patterns:
-      before_image_paths = _expand_patterns(config.before_image_patterns)
+      before_image_paths = utils.expand_file_patterns(
+          config.before_image_patterns
+      )
     else:
-      before_image_paths = _expand_patterns(
+      before_image_paths = utils.expand_file_patterns(
           _read_image_config(config.before_image_config)
       )
     before_image_info = [
@@ -1047,9 +1006,11 @@ def _get_image_infos_from_config(
     after_image_info = config.after_image_info
   elif config.after_image_patterns or config.after_image_config:
     if config.after_image_patterns:
-      after_image_paths = _expand_patterns(config.after_image_patterns)
+      after_image_paths = utils.expand_file_patterns(
+          config.after_image_patterns
+      )
     else:
-      after_image_paths = _expand_patterns(
+      after_image_paths = utils.expand_file_patterns(
           _read_image_config(config.after_image_config)
       )
     after_image_info = [

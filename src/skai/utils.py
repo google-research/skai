@@ -15,10 +15,11 @@
 """Utility functions for skai package."""
 
 import base64
+import collections
 import io
 import math
 import struct
-from typing import Iterable, List, Sequence, Tuple
+from typing import Iterable, Sequence
 
 from absl import flags
 import geopandas as gpd
@@ -100,7 +101,7 @@ def get_bytes_feature(example: Example, feature_name: str) -> Sequence[bytes]:
   return list(example.features.feature[feature_name].bytes_list.value)
 
 
-def reformat_flags(flags_list: List[flags.Flag]) -> List[str]:
+def reformat_flags(flags_list: list[flags.Flag]) -> list[str]:
   """Converts Flag objects to strings formatted as command line arguments.
 
   Args:
@@ -125,7 +126,7 @@ def encode_coordinates(longitude: float, latitude: float) -> str:
   return base64.b16encode(packed).decode('ascii')
 
 
-def decode_coordinates(encoded_coords: str) -> Tuple[float, float]:
+def decode_coordinates(encoded_coords: str) -> tuple[float, float]:
   buffer = base64.b16decode(encoded_coords.encode('ascii'))
   return struct.unpack('<ff', buffer)
 
@@ -147,3 +148,45 @@ def convert_to_utm(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
   sample_gdf = gdf.sample(min(len(gdf), 50))
   centroid = sample_gdf.unary_union.centroid
   return gdf.to_crs(get_utm_crs(centroid.x, centroid.y))
+
+
+def expand_file_patterns(patterns: Iterable[str]) -> list[str]:
+  """Returns the list of paths matched by a list of URI patterns.
+
+  Args:
+    patterns: List of file patterns.
+
+  Returns:
+    List of matched paths.
+
+  Raises:
+    ValueError if any patterns do not match any files, or if files are
+      duplicated.
+  """
+  if not patterns:
+    raise ValueError('No patterns to expand')
+
+  paths = []
+  for pattern in patterns:
+    if (pattern.startswith('/') or
+        pattern.startswith('file://') or
+        pattern.startswith('gs://') or
+        pattern.startswith('s3://')):
+      matched = tf.io.gfile.glob(pattern)
+      if not matched:
+        raise ValueError(
+            f'The file pattern "{pattern}" does not match any files'
+        )
+      paths.extend(matched)
+    else:
+      paths.append(pattern)
+
+  duplicates = [
+      (p, c) for p, c in collections.Counter(paths).items() if c > 1
+  ]
+  if duplicates:
+    raise ValueError(
+        'The following input files matched more than one pattern: '
+        + ', '.join(f'{p}: {c} times' for p, c in duplicates)
+    )
+  return paths

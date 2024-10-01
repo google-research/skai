@@ -668,3 +668,22 @@ def get_raster_bounds(
         raster.bounds.right, raster.bounds.top, errcheck=True
     )
     return shapely.geometry.box(x1, y1, x2, y2)
+
+
+def raster_is_tiled(path: str) -> bool:
+  """Determines whether a raster is tiled.
+
+  A tiled raster is defined here as a raster whose blocks are 512x512 or
+  smaller.
+
+  Args:
+    path: Raster path.
+
+  Returns:
+    True if and only if raster blocks are all smaller than or equal to 512x512.
+  """
+  raster = rasterio.open(path)
+  for rows, cols in raster.block_shapes:
+    if rows > 512 or cols > 512:
+      return False
+  return True

@@ -53,6 +53,8 @@ import geopandas as gpd
 from skai import beam_utils
 from skai import detect_buildings
 from skai import extract_tiles
+from skai import read_raster
+from skai import utils
 
 import tensorflow as tf
 
@@ -119,7 +121,10 @@ def main(args):
     gdf = gpd.read_file(f)
   aoi = gdf.geometry.values[0]
   tiles = []
-  for image_path in FLAGS.image_paths:
+  for image_path in utils.expand_file_patterns(FLAGS.image_paths):
+    if not read_raster.raster_is_tiled(image_path):
+      raise ValueError(f'Raster "{image_path}" is not tiled.')
+
     tiles.extend(
         extract_tiles.get_tiles_for_aoi(
             image_path, aoi, FLAGS.tile_size, FLAGS.margin, {}
@@ -161,7 +166,7 @@ def main(args):
 
   detect_buildings.combine_csvs(
       os.path.join(FLAGS.output_dir, 'dedup_buildings.csv-*-of-*'),
-      os.path.join(FLAGS.output_dir, 'dedup_buildings.parquet'),
+      os.path.join(FLAGS.output_dir, 'dedup_buildings'),
   )
 
 if __name__ == '__main__':
