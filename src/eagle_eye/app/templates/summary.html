@@ -1,0 +1,113 @@
+<!--
+ Copyright 2024 Google LLC
+
+ Licensed under the Apache License, Version 2.0 (the "License");
+ you may not use this file except in compliance with the License.
+ You may obtain a copy of the License at
+
+     http://www.apache.org/licenses/LICENSE-2.0
+
+ Unless required by applicable law or agreed to in writing, software
+ distributed under the License is distributed on an "AS IS" BASIS,
+ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ See the License for the specific language governing permissions and
+ limitations under the License.
+-->
+
+<html>
+  <meta charset="UTF-8">
+  <title>EagleEye Project Summary</title>
+<head>
+    <link rel="stylesheet" href="/static/summary.css">
+    <link rel="stylesheet" href="/static/common.css">
+    <script type="text/javascript">
+        const labelDistributionData = {
+          "destroyed_task_count": {{destroyed_task_count}},
+          "major_damage_task_count": {{major_damage_task_count}},
+          "minor_damage_task_count": {{minor_damage_task_count}},
+          "no_damage_task_count": {{no_damage_task_count}},
+          "bad_example_task_count": {{bad_example_task_count}},
+          "not_sure_task_count": {{not_sure_task_count}},
+        };
+    </script>
+    <script type="module" src="/static/summary.js"></script>
+    <script type="text/javascript" src="https://www.gstatic.com/charts/loader.js"></script>
+</head>
+  <body>
+    <header>
+        <nav>
+            <a href="/projects">Home</a>
+        </nav>
+        <h2>{{project_name}}</h2>
+    </header>
+
+    <main>
+      <div class="column-container">
+        <div>
+        <section class="project-details">
+            <h3>Project Details</h3>
+            <ul>
+              <li>Project ID: {{project_id}}</li>
+              <li>Created: {{creation_time}}</li>
+            </ul>
+        </section>
+        <section class="summary">
+            <h3>Summary</h3>
+            <table class="summary-table">
+              <tr><td class="label">Total Tasks:</td><td>{{task_count}}</td><td></td></tr>
+              <tr><td class="label">Labeled:</td><td>{{labeled_task_count}}</td><td><progress value="{{labeled_task_count}}" max="{{task_count}}">{{labeled_task_percent}}</progress></td></tr>
+            </table>
+            <h3>Stats</h3>
+            <table class="summary-table">
+              <tr><td class="label">Destroyed:</td><td id="destroyed_task_count">{{destroyed_task_count}}</td><td>{{destroyed_task_percent}}</td></tr>
+              <tr><td class="label">Major Damage:</td><td  id="major_damage_task_count">{{major_damage_task_count}}</td><td>{{major_damage_task_percent}}</td></tr>
+              <tr><td class="label">Minor Damage:</td><td  id="minor_damage_task_count">{{minor_damage_task_count}}</td><td>{{minor_damage_task_percent}}</td></tr>
+              <tr><td class="label">No Damage:</td><td  id="no_damage_task_count">{{no_damage_task_count}}</td><td>{{no_damage_task_percent}}</td></tr>
+              <tr><td class="label">Bad Example:</td><td  id="bad_example_task_count">{{bad_example_task_count}}</td><td>{{bad_example_task_percent}}</td></tr>
+              <tr><td class="label">I'm Not Sure:</td><td  id="i_am_not_sure_task_count">{{not_sure_task_count}}</td><td>{{not_sure_task_percent}}</td></tr>
+            </table>
+
+            <div id="chart_div"></div>
+
+        </section>
+
+        <section class="utilities">
+            <h3>Utilities</h3>
+            <ul>
+                <li class="list-item">
+                    {% if task_count == labeled_task_count %}
+                        All Tasks Labeled!
+                    {% else %}
+                        <button id="next_task" data-project="{{project_id}}">Next Labeling Task</button>
+                    {% endif %}
+                </li>
+                <li class="list-item">
+                    <button id="download_csv" data-project="{{project_id}}">Download CSV</button>
+                </li>
+                {% if is_admin %}
+                <li class="list-item">
+                  <button id="reopen_project" data-project="{{project_id}}">Re-open project / add more tasks</button>
+                </li>
+                <li class="list-item item-top-margin">
+                  <button id="drop_tasks" data-project="{{project_id}}">Revert all labeled tasks (Irreversible - USE WITH CAUTION!)</button>
+                </li>
+                <li class="list-item">
+                  <button id="delete_project" data-project="{{project_id}}">Delete project, Delete all labeled tasks (Irreversible - USE WITH CAUTION!)</button>
+                </li>
+                {% endif %}
+            </ul>
+          </section>
+        </div>
+        <div>
+        <section class="tasks">
+          <iframe src="/project/{{project_id}}/task_table" title="description"></iframe>
+        </section>
+        </div>
+      </div>
+    </main>
+
+    <div id="loading-spinner">
+      <div class="spinner"></div>
+    </div>
+  </body>
+</html>

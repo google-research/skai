@@ -1,0 +1,114 @@
+/**
+ * Copyright 2024 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+body {
+  font-family: sans-serif;
+  margin: 0;
+  padding: 20px;
+  background-color: #f4f4f4;
+  color: #333;
+}
+
+.header {
+  display: flex;
+  flex-direction: row;
+  margin-bottom: 20px;
+}
+
+a {
+  color: #007bff;
+  text-decoration: none;
+  margin-right: 20px;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+.form-container {
+  background-color: #fff;
+  border: 1px solid #ddd;
+  padding: 20px;
+  border-radius: 5px;
+  box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+  margin-bottom: 20px;
+}
+
+.image-row {
+  display: flex;
+  flex-direction: row;
+  margin-bottom: 15px;
+}
+
+.image-container {
+  position: relative;
+  margin-right: 20px;
+}
+
+.image-header-text {
+  margin: 3px 0;
+  font-size: 14px;
+  text-align: center;
+}
+
+.image-row img {
+  width: 500px;
+  height: 500px;
+}
+
+.red-rectangle {
+  position: absolute;
+  /* (500-125)/2 */
+  top: 187px;
+  left: 187px;
+  width: 125px;
+  height: 125px;
+  border: 1px solid red;
+}
+
+.form-element-wrapper {
+  margin-bottom: 15px;
+}
+
+.example-id {
+  margin-bottom: 10px;
+}
+
+.progress {
+  margin-bottom: 10px;
+}
+
+label {
+  margin-right: 10px;
+}
+
+button {
+  background-color: #007bff;
+  color: white;
+  padding: 10px 15px;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+button:hover {
+  background-color: #0056b3;
+}
+
+button:disabled {
+  background-color: #ccc;
+  cursor: not-allowed;
+}
