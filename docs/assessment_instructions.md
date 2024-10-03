@@ -218,15 +218,16 @@ This CSV can be used by labeling tools to create labeling tasks.
 
 ## Step 6: Label examples
 
-Use [this colab notebook](https://colab.research.google.com/drive/11RmU0h_-ehnsi2aSK7fl6P5__uwzBN_q?usp=sharing) to label the examples.
-
-Note: This is a temporary solution until we develop a more featureful labeling
-tool.
+Set up the Eagle Eye labeling tool in your GCP environment by following these
+[instructions](https://github.com/google-research/skai/blob/main/src/eagle_eye/README.md).
+Then create a new project in Eagle Eye and upload the CSV generated in the
+previous step to begin labeling the examples.
 
 ## Step 7: Merge Labels into Dataset
 
-When a sufficient number of examples are labeled, the labels need to be
-downloaded to a CSV file and then merged into the TFRecords we are training on.
+When a sufficient number of examples are labeled, download the labels from the
+labeling tool as a CSV file and then merged into the TFRecords we are training
+on.
 
 ```
 $ python create_labeled_dataset.py \
@@ -237,8 +238,8 @@ $ python create_labeled_dataset.py \
   --test_output_path=gs://$BUCKET/examples/labeled_test_examples.tfrecord
 ```
 
-The `--label_file_paths` flag should point to CSV files with two columns:
-"example_id" and "string_label". This file maps labels to examples.
+The `--label_file_paths` flag should point to the CSV files you downloaded from
+the labeling tool.
 
 The flag `--string_to_numeric_labels` controls how string label values such as
 "no\_damage" and "destroyed" are mapped to numeric label values (either 0 or 1).
