@@ -32,7 +32,10 @@ _PARAMS = {
     'GCP_LOCATION': '',
     'GCP_BUCKET': '',
     'GCP_SERVICE_ACCOUNT': '',
+    'SERVICE_ACCOUNT_KEY': '',
     'BUILDING_SEGMENTATION_MODEL_PATH': '',
+    'BUILDINGS_METHOD': 'open_buildings',
+    'USER_BUILDINGS_FILE': '',
     'ASSESSMENT_NAME': '',
     'EVENT_DATE': '',
     'OUTPUT_DIR': '',
@@ -56,6 +59,7 @@ _PARAMS = {
     'AFTER_IMAGE_7': '',
     'AFTER_IMAGE_8': '',
     'AFTER_IMAGE_9': '',
+    'DAMAGE_SCORE_THRESHOLD': 0.5,
 }
 
 
