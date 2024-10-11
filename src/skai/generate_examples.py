@@ -32,6 +32,7 @@ import cv2
 import geopandas as gpd
 import numpy as np
 from openlocationcode import openlocationcode
+import pyarrow
 import shapely.geometry
 import shapely.wkb
 from skai import beam_utils
@@ -1147,3 +1148,85 @@ def _get_example_metadata(example: tf.train.Example) -> ExampleType:
       'pre_image_id': pre_image_id,
       'plus_code': plus_code,
   })
+
+
+def _extract_features(e: tf.train.Example) -> dict[str, Any]:
+  """Extracts features into a dict to put into a schema."""
+  Metrics.counter('skai', 'examples_processed').inc()
+  longitude, latitude = utils.get_float_feature(e, 'coordinates')
+  return {
+      'int64_id': utils.get_int64_feature(e, 'int64_id')[0],
+      'example_id': utils.get_bytes_feature(e, 'example_id')[0].decode(),
+      'encoded_coordinates': utils.get_bytes_feature(e, 'encoded_coordinates')[
+          0
+      ].decode(),
+      'longitude': longitude,
+      'latitude': latitude,
+      'pre_image_id': utils.get_bytes_feature(e, 'pre_image_id')[0].decode(),
+      'post_image_id': utils.get_bytes_feature(e, 'post_image_id')[0].decode(),
+      'plus_code': utils.get_bytes_feature(e, 'plus_code')[0].decode(),
+      'pre_image_png_large': utils.get_bytes_feature(e, 'pre_image_png_large')[
+          0
+      ],
+      'post_image_png_large': utils.get_bytes_feature(
+          e, 'post_image_png_large'
+      )[0],
+  }
+
+
+def convert_tfrecords_to_parquet(
+    tfrecords_pattern: str,
+    parquet_prefix: str,
+    project: str,
+    region: str,
+    service_account: str,
+    temp_dir: str,
+) -> None:
+  """Converts TFRecords to Parquet format.
+
+  Args:
+    tfrecords_pattern: Pattern matching input TFRecords.
+    parquet_prefix: Path prefix for output Parquet files.
+    project: GCP project.
+    region: GCP region.
+    service_account: Service account to run Dataflow job.
+    temp_dir: Beam temporary directory path.
+  """
+  pipeline_options = beam_utils.get_pipeline_options(
+      True,
+      'convert-tfrecords-to-parquet',
+      project,
+      region,
+      temp_dir,
+      100,
+      service_account,
+      machine_type=None,
+      accelerator=None,
+      accelerator_count=0,
+  )
+  pipeline = beam.Pipeline(options=pipeline_options)
+  schema = pyarrow.schema([
+      ('int64_id', pyarrow.int64()),
+      ('example_id', pyarrow.string()),
+      ('encoded_coordinates', pyarrow.string()),
+      ('longitude', pyarrow.float64()),
+      ('latitude', pyarrow.float64()),
+      ('pre_image_id', pyarrow.string()),
+      ('post_image_id', pyarrow.string()),
+      ('plus_code', pyarrow.string()),
+      ('pre_image_png_large', pyarrow.binary()),
+      ('post_image_png_large', pyarrow.binary()),
+  ])
+  _ = (
+      pipeline
+      | 'read_tfrecords'
+      >> beam.io.tfrecordio.ReadFromTFRecord(
+          tfrecords_pattern, coder=beam.coders.ProtoCoder(tf.train.Example)
+      )
+      | 'convert_examples' >> beam.Map(_extract_features)
+      | 'write_parquet'
+      >> beam.io.parquetio.WriteToParquet(
+          parquet_prefix, schema=schema, file_name_suffix='.parquet'
+      )
+  )
+  _ = pipeline.run()
