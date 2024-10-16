@@ -119,6 +119,8 @@ class ExamplesGenerationConfig:
     use_dataflow: If true, execute pipeline in Cloud Dataflow.
     output_metadata_file: Output a CSV metadata file for all generated examples.
     worker_service_account: If using Dataflow, the service account to run as.
+    min_dataflow_workers: If using Dataflow, the minimum number of workers to
+      instantiate.
     max_dataflow_workers: If using Dataflow, the number of workers to
       instantiate.
     example_patch_size: Size of the example image.
@@ -171,6 +173,7 @@ class ExamplesGenerationConfig:
   use_dataflow: bool = False
   output_metadata_file: bool = True
   worker_service_account: Optional[str] = None
+  min_dataflow_workers: int = 10
   max_dataflow_workers: int = 20
   example_patch_size: int = 64
   large_patch_size: int = 256
@@ -870,6 +873,7 @@ def _generate_examples_pipeline(
     cloud_project: Optional[str],
     cloud_region: Optional[str],
     worker_service_account: Optional[str],
+    min_workers: int,
     max_workers: int,
     wait_for_dataflow_job: bool,
     cloud_detector_model_path: Optional[str],
@@ -893,6 +897,7 @@ def _generate_examples_pipeline(
     cloud_project: Cloud project name.
     cloud_region: Cloud region, e.g. us-central1.
     worker_service_account: Email of service account that will launch workers.
+    min_workers: Minimum number of workers to use.
     max_workers: Maximum number of workers to use.
     wait_for_dataflow_job: If true, wait for dataflow job to complete before
       returning.
@@ -908,6 +913,7 @@ def _generate_examples_pipeline(
       cloud_project,
       cloud_region,
       temp_dir,
+      min_workers,
       max_workers,
       worker_service_account,
       machine_type=None,
@@ -1089,6 +1095,7 @@ def run_example_generation(
       config.cloud_project,
       config.cloud_region,
       config.worker_service_account,
+      config.min_dataflow_workers,
       config.max_dataflow_workers,
       wait_for_dataflow,
       config.cloud_detector_model_path,

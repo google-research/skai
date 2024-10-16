@@ -68,6 +68,9 @@ flags.DEFINE_string(
     'Service account that will launch Dataflow workers. If unset, workers will '
     'run with the project\'s default Compute Engine service account.')
 flags.DEFINE_integer(
+    'min_dataflow_workers', 10, 'Minimum number of dataflow workers'
+)
+flags.DEFINE_integer(
     'max_dataflow_workers', None, 'Maximum number of dataflow workers'
 )
 flags.DEFINE_string('worker_machine_type', 'n1-standard-8', 'Worker type.')
@@ -110,6 +113,7 @@ def main(args):
       FLAGS.cloud_project,
       FLAGS.cloud_region,
       temp_dir,
+      FLAGS.min_dataflow_workers,
       FLAGS.max_dataflow_workers,
       FLAGS.worker_service_account,
       machine_type=FLAGS.worker_machine_type,
