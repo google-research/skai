@@ -14,6 +14,7 @@
 
 """Tests for generate_examples.py."""
 
+import glob
 import os
 import pathlib
 import tempfile
@@ -526,26 +527,27 @@ class GenerateExamplesTest(parameterized.TestCase):
     tfrecords = os.listdir(
         os.path.join(output_dir, 'examples', 'unlabeled-large')
     )
-    df_metadata_contents = pd.read_csv(
-        os.path.join(output_dir, 'examples', 'metadata_examples.csv')
+    metadata_pattern = os.path.join(
+        output_dir, 'examples', 'metadata', 'metadata.csv-*-of-*'
     )
+    metadata = pd.concat([pd.read_csv(p) for p in glob.glob(metadata_pattern)])
 
     # No assert for example_id as each example_id depends on the image path
     # which varies with platforms where this test is run
     self.assertEqual(
-        df_metadata_contents.encoded_coordinates[0], 'A17B32432A1085C1'
+        metadata.encoded_coordinates[0], 'A17B32432A1085C1'
     )
     self.assertAlmostEqual(
-        df_metadata_contents.latitude[0], -16.632892608642578
+        metadata.latitude[0], -16.632892608642578
     )
     self.assertAlmostEqual(
-        df_metadata_contents.longitude[0], 178.48292541503906
+        metadata.longitude[0], 178.48292541503906
     )
-    self.assertEqual(df_metadata_contents.pre_image_id[0], self.test_image_path)
+    self.assertEqual(metadata.pre_image_id[0], self.test_image_path)
     self.assertEqual(
-        df_metadata_contents.post_image_id[0], self.test_image_path
+        metadata.post_image_id[0], self.test_image_path
     )
-    self.assertEqual(df_metadata_contents.plus_code[0], '5VMW9F8M+R5V8F4')
+    self.assertEqual(metadata.plus_code[0], '5VMW9F8M+R5V8F4')
     self.assertSameElements(tfrecords, ['unlabeled-00000-of-00001.tfrecord'])
 
   def testConfigLoadedCorrectlyFromJsonFile(self):

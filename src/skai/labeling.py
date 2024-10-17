@@ -220,6 +220,26 @@ def sample_with_buffer(
   return sample
 
 
+def _read_sharded_csvs(pattern: str) -> pd.DataFrame:
+  """Reads CSV shards matching pattern and merges them."""
+  paths = tf.io.gfile.glob(pattern)
+  if not paths:
+    raise ValueError(f'File pattern {pattern} did not match any files.')
+  dfs = []
+  expected_columns = None
+  for path in paths:
+    with tf.io.gfile.GFile(path, 'r') as f:
+      df = pd.read_csv(f)
+      if expected_columns is None:
+        expected_columns = set(df.columns)
+      else:
+        actual_columns = set(df.columns)
+        if actual_columns != expected_columns:
+          raise ValueError(f'Inconsistent columns in file {path}')
+      dfs.append(df)
+  return pd.concat(dfs, ignore_index=True)
+
+
 def get_buffered_example_ids(
     examples_pattern: str,
     buffered_sampling_radius: float,
@@ -238,25 +258,23 @@ def get_buffered_example_ids(
   Returns:
     Set of allowed example ids.
   """
-  metadata_path = str(
-      os.path.join(
-          '/'.join(examples_pattern.split('/')[:-2]),
-          'metadata_examples.csv',
-      )
-  )
-  with tf.io.gfile.GFile(metadata_path, 'r') as f:
-    try:
-      df_metadata = pd.read_csv(f)
-      df_metadata = df_metadata[
-          ~df_metadata['example_id'].isin(excluded_example_ids)
-      ].reset_index(drop=True)
-    except tf.errors.NotFoundError as error:
-      raise SystemExit(
-          f'\ntf.errors.NotFoundError: {metadata_path} was not found\nUse'
-          ' examples_to_csv module to generate metadata_examples.csv and/or'
-          ' put metadata_examples.csv in the appropriate directory that is'
-          ' PATH_DIR/examples/'
-      ) from error
+  root_dir = '/'.join(examples_pattern.split('/')[:-2])
+  single_csv_pattern = str(os.path.join(root_dir, 'metadata_examples.csv'))
+  if tf.io.gfile.exists(single_csv_pattern):
+    metadata = _read_sharded_csvs(single_csv_pattern)
+  else:
+    sharded_csv_pattern = str(
+        os.path.join(
+            root_dir,
+            'metadata',
+            'metadata.csv-*-of-*',
+        )
+    )
+    metadata = _read_sharded_csvs(sharded_csv_pattern)
+
+  metadata = metadata[
+      ~metadata['example_id'].isin(excluded_example_ids)
+  ].reset_index(drop=True)
 
   logging.info(
       'Randomly searching for buffered samples with buffer radius %.2f'
@@ -265,11 +283,11 @@ def get_buffered_example_ids(
   )
   points = utils.convert_to_utm(
       gpd.GeoSeries(
-          gpd.points_from_xy(df_metadata['longitude'], df_metadata['latitude']),
+          gpd.points_from_xy(metadata['longitude'], metadata['latitude']),
           crs=4326,
       )
   )
-  gpd_df = gpd.GeoDataFrame(df_metadata, geometry=points)
+  gpd_df = gpd.GeoDataFrame(metadata, geometry=points)
   max_examples = len(gpd_df) if max_examples is None else max_examples
   df_buffered_samples = sample_with_buffer(
       gpd_df, max_examples, buffered_sampling_radius

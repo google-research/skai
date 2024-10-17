@@ -12,13 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for labeling."""
-
 import os
 import random
 import tempfile
 
 from absl.testing import absltest
+from absl.testing import parameterized
 import geopandas as gpd
 import numpy as np
 import pandas as pd
@@ -80,9 +79,12 @@ def _read_tfrecords(path: str) -> list[Example]:
   return examples
 
 
-class LabelingTest(absltest.TestCase):
+class LabelingTest(parameterized.TestCase):
 
-  def test_create_buffered_tfrecords(self):
+  @parameterized.parameters(
+      dict(sharded_example_metadata=True), dict(sharded_example_metadata=False)
+  )
+  def test_create_buffered_tfrecords(self, sharded_example_metadata: bool):
     """Tests create_buffered_tfrecords."""
     # Create 5 unlabeled examples in 3 tfrecords.
     with tempfile.TemporaryDirectory() as examples_dir:
@@ -92,9 +94,6 @@ class LabelingTest(absltest.TestCase):
 
       examples_pattern = os.path.join(
           examples_dir, 'examples', 'unlabeled', '*'
-      )
-      metadata_examples_path = os.path.join(
-          examples_dir, 'examples', 'metadata_examples.csv'
       )
       filtered_tfrecords_output_dir = os.path.join(
           examples_dir, 'filtered',
@@ -114,7 +113,28 @@ class LabelingTest(absltest.TestCase):
           columns=['example_id', 'longitude', 'latitude'],
       )
       df_metadata = df_metadata.sample(frac=1)
-      df_metadata.to_csv(metadata_examples_path, index=False)
+      if sharded_example_metadata:
+        metadata_dir = os.path.join(examples_dir, 'examples', 'metadata')
+        os.mkdir(metadata_dir)
+        df_metadata.iloc[:2].to_csv(
+            os.path.join(
+                metadata_dir,
+                'metadata.csv-00000-of-00002',
+            ),
+            index=False,
+        )
+        df_metadata.iloc[2:].to_csv(
+            os.path.join(
+                metadata_dir,
+                'metadata.csv-00001-of-00002',
+            ),
+            index=False,
+        )
+      else:
+        metadata_examples_path = os.path.join(
+            examples_dir, 'examples', 'metadata_examples.csv'
+        )
+        df_metadata.to_csv(metadata_examples_path, index=False)
 
       example_id_lon_lat_create_tfrecords = {
           '001': [('a', [92.850449, 20.148951]), ('b', [92.889694, 20.157515])],
