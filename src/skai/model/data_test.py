@@ -127,9 +127,9 @@ class SkaiDatasetTest(tfds.testing.DatasetBuilderTestCase):
             name='test_config',
             labeled_train_pattern=labeled_train_path,
             labeled_test_pattern=labeled_test_path,
-            unlabeled_pattern=unlabeled_path)
+            unlabeled_pattern=unlabeled_path,
+        )
     ]
-
 
 if __name__ == '__main__':
   tfds.testing.test_main()

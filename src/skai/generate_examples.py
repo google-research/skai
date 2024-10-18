@@ -14,6 +14,7 @@
 """Pipeline for generating tensorflow examples from satellite images."""
 
 import binascii
+import csv
 import dataclasses
 import hashlib
 import itertools
@@ -27,8 +28,6 @@ import typing
 from typing import Any, Dict, Iterable, Iterator, List, Optional, Tuple
 
 import apache_beam as beam
-import apache_beam.dataframe.convert
-import apache_beam.dataframe.io
 import cv2
 import geopandas as gpd
 import numpy as np
@@ -120,8 +119,6 @@ class ExamplesGenerationConfig:
     use_dataflow: If true, execute pipeline in Cloud Dataflow.
     output_metadata_file: Output a CSV metadata file for all generated examples.
     worker_service_account: If using Dataflow, the service account to run as.
-    min_dataflow_workers: If using Dataflow, the minimum number of workers to
-      instantiate.
     max_dataflow_workers: If using Dataflow, the number of workers to
       instantiate.
     example_patch_size: Size of the example image.
@@ -174,7 +171,6 @@ class ExamplesGenerationConfig:
   use_dataflow: bool = False
   output_metadata_file: bool = True
   worker_service_account: Optional[str] = None
-  min_dataflow_workers: int = 10
   max_dataflow_workers: int = 20
   example_patch_size: int = 64
   large_patch_size: int = 256
@@ -874,7 +870,6 @@ def _generate_examples_pipeline(
     cloud_project: Optional[str],
     cloud_region: Optional[str],
     worker_service_account: Optional[str],
-    min_workers: int,
     max_workers: int,
     wait_for_dataflow_job: bool,
     cloud_detector_model_path: Optional[str],
@@ -898,7 +893,6 @@ def _generate_examples_pipeline(
     cloud_project: Cloud project name.
     cloud_region: Cloud region, e.g. us-central1.
     worker_service_account: Email of service account that will launch workers.
-    min_workers: Minimum number of workers to use.
     max_workers: Maximum number of workers to use.
     wait_for_dataflow_job: If true, wait for dataflow job to complete before
       returning.
@@ -914,7 +908,6 @@ def _generate_examples_pipeline(
       cloud_project,
       cloud_region,
       temp_dir,
-      min_workers,
       max_workers,
       worker_service_account,
       machine_type=None,
@@ -945,14 +938,28 @@ def _generate_examples_pipeline(
           num_shards=num_output_shards))
 
   if output_metadata_file:
-    rows = (
+    field_names = [
+        'example_id',
+        'encoded_coordinates',
+        'longitude',
+        'latitude',
+        'post_image_id',
+        'pre_image_id',
+        'plus_code',
+    ]
+    _ = (
         examples
-        | 'extract_metadata_rows' >> beam.Map(_get_example_metadata)
-        | 'remove_duplicates' >> beam.Distinct()
+        | 'convert_metadata_examples_to_dict' >> beam.Map(_get_example_metadata)
+        | 'combine_to_list' >> beam.combiners.ToList()
+        | 'write_metadata_to_file'
+        >> beam.ParDo(
+            WriteMetadataToCSVFn(
+                metadata_output_file_path=(
+                    f'{output_dir}/examples/metadata_examples.csv'
+                ), field_names=field_names
+            )
+        )
     )
-    df = apache_beam.dataframe.convert.to_dataframe(rows)
-    output_prefix = f'{output_dir}/examples/metadata/metadata.csv'
-    apache_beam.dataframe.io.to_csv(df, output_prefix, index=False)
 
   result = pipeline.run()
   if wait_for_dataflow_job:
@@ -1082,12 +1089,32 @@ def run_example_generation(
       config.cloud_project,
       config.cloud_region,
       config.worker_service_account,
-      config.min_dataflow_workers,
       config.max_dataflow_workers,
       wait_for_dataflow,
       config.cloud_detector_model_path,
       config.output_metadata_file
   )
+
+
+class WriteMetadataToCSVFn(beam.DoFn):
+  """DoFn to write meta data of examples to csv file.
+
+  Attributes:
+    metadata_output_file_path: File path to output meta data of all examples.
+    field_names: Field names to be included in output file.
+  """
+
+  def __init__(self, metadata_output_file_path: str, field_names: List[str]):
+    self.metadata_output_file_path = metadata_output_file_path
+    self.field_names = field_names
+
+  def process(self, element):
+    with tf.io.gfile.GFile(
+        self.metadata_output_file_path, 'w'
+    ) as csv_output_file:
+      csv_writer = csv.DictWriter(csv_output_file, fieldnames=self.field_names)
+      csv_writer.writeheader()
+      csv_writer.writerows(element)
 
 
 class ExampleType(typing.NamedTuple):
@@ -1102,16 +1129,21 @@ class ExampleType(typing.NamedTuple):
 
 @beam.typehints.with_output_types(ExampleType)
 def _get_example_metadata(example: tf.train.Example) -> ExampleType:
-  return ExampleType(
-      example_id=utils.get_bytes_feature(example, 'example_id')[0].decode(),
-      encoded_coordinates=utils.get_bytes_feature(
-          example, 'encoded_coordinates'
-      )[0].decode(),
-      longitude=utils.get_float_feature(example, 'coordinates')[0],
-      latitude=utils.get_float_feature(example, 'coordinates')[1],
-      post_image_id=utils.get_bytes_feature(example, 'post_image_id')[
-          0
-      ].decode(),
-      pre_image_id=utils.get_bytes_feature(example, 'pre_image_id')[0].decode(),
-      plus_code=utils.get_bytes_feature(example, 'plus_code')[0].decode(),
-  )
+  example_id = utils.get_bytes_feature(example, 'example_id')[0].decode()
+  encoded_coordinates = utils.get_bytes_feature(example, 'encoded_coordinates')[
+      0
+  ].decode()
+  longitude, latitude = utils.get_float_feature(example, 'coordinates')
+  post_image_id = utils.get_bytes_feature(example, 'post_image_id')[0].decode()
+  pre_image_id = utils.get_bytes_feature(example, 'pre_image_id')[0].decode()
+  plus_code = utils.get_bytes_feature(example, 'plus_code')[0].decode()
+
+  return dict({
+      'example_id': example_id,
+      'encoded_coordinates': encoded_coordinates,
+      'longitude': longitude,
+      'latitude': latitude,
+      'post_image_id': post_image_id,
+      'pre_image_id': pre_image_id,
+      'plus_code': plus_code,
+  })

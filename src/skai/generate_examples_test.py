@@ -14,7 +14,6 @@
 
 """Tests for generate_examples.py."""
 
-import glob
 import os
 import pathlib
 import tempfile
@@ -478,7 +477,6 @@ class GenerateExamplesTest(parameterized.TestCase):
         cloud_project=None,
         cloud_region=None,
         worker_service_account=None,
-        min_workers=0,
         max_workers=0,
         wait_for_dataflow_job=True,
         cloud_detector_model_path=None,
@@ -517,7 +515,6 @@ class GenerateExamplesTest(parameterized.TestCase):
         cloud_project=None,
         cloud_region=None,
         worker_service_account=None,
-        min_workers=0,
         max_workers=0,
         wait_for_dataflow_job=True,
         cloud_detector_model_path=None,
@@ -527,27 +524,26 @@ class GenerateExamplesTest(parameterized.TestCase):
     tfrecords = os.listdir(
         os.path.join(output_dir, 'examples', 'unlabeled-large')
     )
-    metadata_pattern = os.path.join(
-        output_dir, 'examples', 'metadata', 'metadata.csv-*-of-*'
+    df_metadata_contents = pd.read_csv(
+        os.path.join(output_dir, 'examples', 'metadata_examples.csv')
     )
-    metadata = pd.concat([pd.read_csv(p) for p in glob.glob(metadata_pattern)])
 
     # No assert for example_id as each example_id depends on the image path
     # which varies with platforms where this test is run
     self.assertEqual(
-        metadata.encoded_coordinates[0], 'A17B32432A1085C1'
+        df_metadata_contents.encoded_coordinates[0], 'A17B32432A1085C1'
     )
     self.assertAlmostEqual(
-        metadata.latitude[0], -16.632892608642578
+        df_metadata_contents.latitude[0], -16.632892608642578
     )
     self.assertAlmostEqual(
-        metadata.longitude[0], 178.48292541503906
+        df_metadata_contents.longitude[0], 178.48292541503906
     )
-    self.assertEqual(metadata.pre_image_id[0], self.test_image_path)
+    self.assertEqual(df_metadata_contents.pre_image_id[0], self.test_image_path)
     self.assertEqual(
-        metadata.post_image_id[0], self.test_image_path
+        df_metadata_contents.post_image_id[0], self.test_image_path
     )
-    self.assertEqual(metadata.plus_code[0], '5VMW9F8M+R5V8F4')
+    self.assertEqual(df_metadata_contents.plus_code[0], '5VMW9F8M+R5V8F4')
     self.assertSameElements(tfrecords, ['unlabeled-00000-of-00001.tfrecord'])
 
   def testConfigLoadedCorrectlyFromJsonFile(self):
