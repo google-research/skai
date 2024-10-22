@@ -72,7 +72,7 @@ def get_data_config():
   # model is trained on a random subsample of the dataset. Split guarantees
   # each point to be in the exact number of splits defined by the ood ratio.
   # Filtering only guarantees this in expectation.
-  config.use_splits = True
+  config.use_splits = False
   config.use_filtering = False
 
   # The following arguments are only used when use_filtering=True
