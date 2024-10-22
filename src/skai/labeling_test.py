@@ -219,6 +219,7 @@ class LabelingTest(parameterized.TestCase):
           '003': [
               ('d', [92.850479, 20.148664]),
               ('e', [92.898537, 20.160021]),
+              ('a', [92.850449, 20.148951]),  # This duplicate should be dropped
           ],
       }
       for (
@@ -295,7 +296,7 @@ class LabelingTest(parameterized.TestCase):
       num_examples = sum([1 for _ in ds])
       self.assertEqual(num_examples, 3)
 
-  def testCreateLabeledExamplesFromLabelFile(self):
+  def test_create_labeled_examples_from_label_file(self):
     # Create unlabeled examples.
     _, unlabeled_examples_path = tempfile.mkstemp(
         dir=absltest.TEST_TMPDIR.value)
@@ -371,7 +372,7 @@ class LabelingTest(parameterized.TestCase):
         ],
     )
 
-  def testCreateLabeledExamplesFromLabeledExamples(self):
+  def test_create_labeled_examples_from_labeled_examples(self):
     # Create labeled examples.
     _, examples_path = tempfile.mkstemp(dir=absltest.TEST_TMPDIR.value)
     with tf.io.TFRecordWriter(examples_path) as writer:

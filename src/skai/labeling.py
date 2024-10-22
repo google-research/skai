@@ -302,6 +302,18 @@ def get_buffered_example_ids(
   return allowed_example_ids
 
 
+def _deduplicate_labeling_examples(
+    examples: list[LabelingExample],
+) -> list[LabelingExample]:
+  example_ids = set()
+  deduped_examples = []
+  for example in examples:
+    if example.example_id not in example_ids:
+      example_ids.add(example.example_id)
+      deduped_examples.append(example)
+  return deduped_examples
+
+
 def create_labeling_images(
     examples_pattern: str,
     max_images: int,
@@ -436,49 +448,39 @@ def create_labeling_images(
         max_images,
     )
 
-  labeling_examples = _process_example_files(
-      example_files,
-      output_dir,
-      use_multiprocessing,
-      multiprocessing_context,
-      max_processes,
-      allowed_example_ids,
-      _create_labeling_assets_from_example_file,
+  labeling_examples = _deduplicate_labeling_examples(
+      _process_example_files(
+          example_files,
+          output_dir,
+          use_multiprocessing,
+          multiprocessing_context,
+          max_processes,
+          allowed_example_ids,
+          _create_labeling_assets_from_example_file,
+      )
   )
 
   image_metadata_csv = os.path.join(
       output_dir, 'image_metadata.csv'
   )
 
-  image_metadata_df = pd.DataFrame(
-      [
-          (
-              i.int64_id,
-              i.int64_id,
-              i.example_id,
-              f'file://{i.combined_image_path.replace("gs://", "/bigstore/")}',
-              i.combined_image_path,
-              i.pre_image_path,
-              i.post_image_path,
-              i.tfrecord_path,
-              i.longitude,
-              i.latitude,
-          )
-          for i in labeling_examples
-      ],
-      columns=(
-          'id',
-          'int64_id',
-          'example_id',
-          'image',
-          'image_source_path',
-          'pre_image_path',
-          'post_image_path',
-          'tfrecord_source_path',
-          'longitude',
-          'latitude',
-      ),
-  )
+  image_metadata_df = pd.DataFrame([
+      {
+          'id': i.int64_id,
+          'int64_id': i.int64_id,
+          'example_id': i.example_id,
+          'image': (
+              f'file://{i.combined_image_path.replace("gs://", "/bigstore/")}'
+          ),
+          'image_source_path': i.combined_image_path,
+          'pre_image_path': i.pre_image_path,
+          'post_image_path': i.post_image_path,
+          'tfrecord_source_path': i.tfrecord_path,
+          'longitude': i.longitude,
+          'latitude': i.latitude,
+      }
+      for i in labeling_examples
+  ])
   with tf.io.gfile.GFile(image_metadata_csv, 'w') as f:
     image_metadata_df.to_csv(f, index=False)
 
