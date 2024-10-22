@@ -32,11 +32,13 @@ def get_task_from_db(firestore_db, project_id, example_id):
   task_firestore = (
       firestore_db.collection(project_id).document(example_id).get()
   )
+  task_dict = task_firestore.to_dict()
   return Task(
       example_id,
-      task_firestore.get('preImage'),
-      task_firestore.get('postImage'),
-      task_firestore.get('label'),
+      task_dict.get('preImage'),
+      task_dict.get('postImage'),
+      task_dict.get('label'),
+      task_dict.get('labeler', ''),
   )
 
 
@@ -68,12 +70,13 @@ def normalize_image_url_suffix(image_url):
 class Task:
   """A Task data type."""
 
-  def __init__(self, example_id, pre_image, post_image, label=''):
+  def __init__(self, example_id, pre_image, post_image, label='', labeler=''):
     """Initializes a Task object."""
     self.example_id = example_id
     self.pre_image = pre_image
     self.post_image = post_image
     self.label = label
+    self.labeler = labeler
 
   def write_to_firestore(self, project_id, firestore_db):
     """Writes the Task to the given project_id firestore collection."""
@@ -84,6 +87,7 @@ class Task:
         'preImage': self.pre_image,
         'postImage': self.post_image,
         'label': self.label,
+        'labeler': self.labeler,
     }
     firestore_db.collection(project_id).document(self.example_id).set(
         firestore_format

@@ -156,8 +156,11 @@ def require_authentication(decorated_func):
   """A decorator function checking for a valid session token.
 
   Checks for a valid session token before executing the given
-  decorated_func, or redirect to the default route for sign-in if the
+  decorated_func, or redirects to the default route for sign-in if the
   session token is invalid.
+
+  If the session token is valid, passes the `email` field from the
+  session token to the decorated method.
   """
 
   def wrapper(*args, **kwargs):
@@ -165,6 +168,7 @@ def require_authentication(decorated_func):
     if session_token:
       try:
         decoded_token = auth.verify_session_cookie(session_token)
+        kwargs['user_email'] = decoded_token['email']
         return decorated_func(*args, **kwargs)
       except (
           auth.InvalidIdTokenError,
@@ -213,8 +217,10 @@ def _check_is_admin(session_token):
 
 @app.route('/projects', methods=['GET'])
 @require_authentication
-def homepage():
+def homepage(user_email):
   """Returns the eagleeye homepage."""
+  del user_email  # Unused
+
   is_admin = _check_is_admin(request.cookies.get('sessionToken'))
 
   all_projects_snapshot = firestore_db.collection('projects').get()
@@ -381,11 +387,16 @@ def reopen_project(project_id):
     '/project/<path:project_id>/task/<path:example_id>', methods=['POST']
 )
 @require_authentication
-def submit_task(project_id, example_id):
+def submit_task(project_id, example_id, user_email):
   """Handles the task submission POST request.
 
   Writes the labeled task to Firestore. Note that this overwrites the
   existing label, if one is currently set.
+
+  Args:
+    project_id: project id
+    example_id: example id
+    user_email: email of the labeler
   """
   print(f'handling submit task for example id: {example_id}')
   assessment = request.form.get('assessment')
@@ -395,14 +406,17 @@ def submit_task(project_id, example_id):
 
   task = get_task_from_db(firestore_db, project.project_id, example_id)
   task.label = assessment
+  task.labeler = user_email
   task.write_to_firestore(project.project_id, firestore_db)
   return redirect(f'/project/{project.project_id}/next')
 
 
 @app.route('/project/<path:project_id>/task/<path:example_id>', methods=['GET'])
 @require_authentication
-def get_task(project_id, example_id):
+def get_task(project_id, example_id, user_email):
   """Returns the task labeling page for the given project_id and example_id."""
+  del user_email  # Unused
+
   print(f'Returning task: {example_id}, in project: {project_id}')
   project = get_project_from_db(firestore_db, project_id)
   if not project:
@@ -440,7 +454,7 @@ def get_task(project_id, example_id):
 
 @app.route('/project/<path:project_id>/next', methods=['GET'])
 @require_authentication
-def get_next_task(project_id):
+def get_next_task(project_id, user_email):
   """Returns a currently unlabeled task, in a pseudo-random order.
 
   If there are no remaining unlabeled tasks, redirects to the project
@@ -451,7 +465,13 @@ def get_next_task(project_id):
   and introducing enough randomness such that multiple users
   concurrently labeling tasks are unlikely to have duplicate tasks /
   wasted effort.
+
+  Args:
+    project_id: project id
+    user_email: email of the labeler
   """
+  del user_email  # Unused
+
   LIMIT_TASK_COUNT_READS = 20
   project = get_project_from_db(firestore_db, project_id)
   if not project:
@@ -477,8 +497,10 @@ def get_next_task(project_id):
 
 @app.route('/project/<path:project_id>/summary', methods=['GET'])
 @require_authentication
-def summary(project_id):
+def summary(project_id, user_email):
   """Returns the project summary page."""
+  del user_email  # Unused
+
   is_admin = _check_is_admin(request.cookies.get('sessionToken'))
 
   project = get_project_from_db(firestore_db, project_id)
@@ -561,8 +583,10 @@ def summary(project_id):
 
 @app.route('/project/<path:project_id>/task_table', methods=['GET'])
 @require_authentication
-def task_table(project_id):
+def task_table(project_id, user_email):
   """Returns a page with a paginated list of tasks for the project."""
+  del user_email  # Unused
+
   page = request.args.get('page', 1, type=int)
   label = request.args.get('label', '', type=str)
   project = get_project_from_db(firestore_db, project_id)
@@ -595,8 +619,10 @@ def task_table(project_id):
 
 @app.route('/project/<path:project_id>/download_csv', methods=['GET'])
 @require_authentication
-def download_csv(project_id):
+def download_csv(project_id, user_email):
   """Returns a csv containing the labeled tasks for the project."""
+  del user_email  # Unused
+
   print(f'Producing results csv for project: {project_id}')
   project = get_project_from_db(firestore_db, project_id)
   if not project:
@@ -605,11 +631,15 @@ def download_csv(project_id):
   filename = f'labeled_tasks_{project.project_id}'
   df = pd.DataFrame(
       [
-          (task.get('exampleId'), label)
+          (
+              task_dict.get('exampleId'),
+              task_dict.get('label'),
+              task_dict.get('labeler', ''),
+          )
           for task in firestore_db.collection(project.project_id).stream()
-          if (label := task.get('label'))
+          if ((task_dict := task.to_dict()).get('label'))
       ],
-      columns=['example_id', 'string_label'],
+      columns=['example_id', 'string_label', 'labeler'],
   )
   output_bytes = io.BytesIO()
   df.to_csv(output_bytes, index=False)
