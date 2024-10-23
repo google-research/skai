@@ -12,8 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for generate_examples.py."""
-
 import glob
 import os
 import pathlib
@@ -482,7 +480,9 @@ class GenerateExamplesTest(parameterized.TestCase):
         max_workers=0,
         wait_for_dataflow_job=True,
         cloud_detector_model_path=None,
-        output_metadata_file=False)
+        output_metadata_file=False,
+        output_parquet=False,
+    )
 
     tfrecords = os.listdir(
         os.path.join(output_dir, 'examples', 'unlabeled-large')
@@ -522,6 +522,7 @@ class GenerateExamplesTest(parameterized.TestCase):
         wait_for_dataflow_job=True,
         cloud_detector_model_path=None,
         output_metadata_file=True,
+        output_parquet=False,
     )
 
     tfrecords = os.listdir(
