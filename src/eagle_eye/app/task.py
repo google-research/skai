@@ -70,13 +70,24 @@ def normalize_image_url_suffix(image_url):
 class Task:
   """A Task data type."""
 
-  def __init__(self, example_id, pre_image, post_image, label='', labeler=''):
+  def __init__(
+      self,
+      example_id,
+      pre_image,
+      post_image,
+      label='',
+      labeler='',
+      start_time=None,
+      submit_time=None,
+  ):
     """Initializes a Task object."""
     self.example_id = example_id
     self.pre_image = pre_image
     self.post_image = post_image
     self.label = label
     self.labeler = labeler
+    self.start_time = start_time
+    self.submit_time = submit_time
 
   def write_to_firestore(self, project_id, firestore_db):
     """Writes the Task to the given project_id firestore collection."""
@@ -88,6 +99,8 @@ class Task:
         'postImage': self.post_image,
         'label': self.label,
         'labeler': self.labeler,
+        'startTime': self.start_time,
+        'submitTime': self.submit_time,
     }
     firestore_db.collection(project_id).document(self.example_id).set(
         firestore_format

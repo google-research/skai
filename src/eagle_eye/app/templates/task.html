@@ -27,7 +27,7 @@
       <a href="/project/{{project_id}}/summary">Project Summary</a>
     </div>
     <div class="form-container">
-      <form action="/project/{{project_id}}/task/{{example_id}}" method="POST">
+      <form>
         <div class="example-id">Example ID: {{example_id}}</div>
         <div class="progress">
           Project Labeling Progress:
@@ -63,7 +63,12 @@
           {% endfor %}
         </div>
         <div class="form-element-wrapper">
-          <button id="submit" type="submit" disabled>Submit</button>
+          <button id="submit" disabled
+                  data-project-id="{{project_id}}"
+                  data-example-id="{{example_id}}"
+                  >
+            Submit
+          </button>
         </div>
       </form>
       <div>

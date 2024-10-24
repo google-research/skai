@@ -399,16 +399,18 @@ def submit_task(project_id, example_id, user_email):
     user_email: email of the labeler
   """
   print(f'handling submit task for example id: {example_id}')
-  assessment = request.form.get('assessment')
   project = get_project_from_db(firestore_db, project_id)
   if not project:
     return abort(404, 'Invalid project id')
 
   task = get_task_from_db(firestore_db, project.project_id, example_id)
-  task.label = assessment
   task.labeler = user_email
+  task.label = request.json['assessment']
+  task.start_time = request.json['taskStartTime']
+  task.submit_time = request.json['taskSubmitTime']
   task.write_to_firestore(project.project_id, firestore_db)
-  return redirect(f'/project/{project.project_id}/next')
+
+  return jsonify(success=True)
 
 
 @app.route('/project/<path:project_id>/task/<path:example_id>', methods=['GET'])
@@ -635,11 +637,19 @@ def download_csv(project_id, user_email):
               task_dict.get('exampleId'),
               task_dict.get('label'),
               task_dict.get('labeler', ''),
+              task_dict.get('startTime', ''),
+              task_dict.get('submitTime', ''),
           )
           for task in firestore_db.collection(project.project_id).stream()
           if ((task_dict := task.to_dict()).get('label'))
       ],
-      columns=['example_id', 'string_label', 'labeler'],
+      columns=[
+          'example_id',
+          'string_label',
+          'labeler',
+          'start_time',
+          'end_time',
+      ],
   )
   output_bytes = io.BytesIO()
   df.to_csv(output_bytes, index=False)
@@ -647,7 +657,7 @@ def download_csv(project_id, user_email):
   return send_file(
       output_bytes,
       mimetype='text/csv',
-      download_name=f'{filename}_labeled.csv',
+      download_name=f'{filename}.csv',
   )
 
 
