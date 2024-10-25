@@ -1,6 +1,6 @@
 # SKAI Example Labeling Instructions
 
-Updated: June 1, 2022
+Updated: Oct 23, 2024
 
 ## Overview
 
@@ -16,56 +16,60 @@ on the building marked by the red frame in the center of the image. Your task is
 to compare the ‘BEFORE' and ‘AFTER' images and determine whether the building
 has been damaged as a result of the disaster.
 
-![image](https://storage.googleapis.com/skai-public/documentation_images/labeling_instructions/example_image.png)
+![image](images/example_image.png)
 
 Sometimes it is difficult to tell if a building is damaged or not. Please do
 your best in these cases, and remember that a small number of mistakes will not
 mislead the model very much. If there are multiple buildings in the frame,
-evaluate only the building in the very center. It can also be helpful to check 
-the surroundings of the building for clues: if all the nearby buildings are 
-clearly damaged, or if there is rubble and debris everywhere, it's likely that 
+evaluate only the building in the very center. It can also be helpful to check
+the surroundings of the building for clues: if all the nearby buildings are
+clearly damaged, or if there is rubble and debris everywhere, it's likely that
 the building is damaged.
 
 ## User Interface
 
-This is a screenshot of the labeling task in progress. It includes the BEFORE
-and AFTER images along with the choices for labels on the left.
+This is a screenshot of the Eagle Eye labeling tool in progress. It includes the
+BEFORE (Pre-Event) and AFTER (Post-Event) images along with the choices for
+labels on the bottom.
 
-![image](https://storage.googleapis.com/skai-public/documentation_images/labeling_instructions/interface.png)
+![eagle_eye_labeling_interface](images/eagle_eye_labeling_interface.png)
 
--  For each example, please choose the label on the left hand side,
-    and then click the submit button at the bottom of the screen.
--  Every example you label will appear as a green circle with a check mark
-    in the upper left of the interface. If you think you made a mistake on a
-    previous example, you can always go back to it by clicking one of these circles.
--  You can also skip examples by clicking on the "More" menu, in the upper
-    right, then choosing "Skip example".
+-  For each example, please choose the best label, and then click the submit
+   button.
 
 ## Labels explanations and examples
 
 Please label each building from the following choices:
 
-### undamaged
+### no_damage
 
 The building was not damaged by the disaster event. This includes cases where
 the building was already damaged prior to the disaster (i.e. it is clearly
 damaged in the ‘BEFORE' (left) image).
 
-![undamaged](https://storage.googleapis.com/skai-public/documentation_images/labeling_instructions/undamaged_example.png)
+![no_damage](images/labeling_example_no_damage.png)
 
-### possibly\_damaged
+### minor_damage
 
-The building looks like it may be damaged, but you are unsure. Use these for
-hard cases where it is hard to make a decision.
+The building has minor damage such as: partially burnt, water surrounding
+structure, volcanic flow nearby, roof elements missing or visible cracks.
 
-### damaged\_destroyed
+![minor_damage](images/labeling_example_minor.png)
 
-The building was damaged or destroyed by the disaster event. Lower range of 
-damage can be a missing roof, collapsed wall, or part of the building becoming
-rubble. Higher range can be that the entire building has been burned down or
-become rubble.
+### major_damage
 
-![image](https://storage.googleapis.com/skai-public/documentation_images/labeling_instructions/damaged_destroyed_example.png)
+The building has major damage such as: partial wall or roof collapse,
+encroaching volcanic flow or surrounded by water/mud.
+
+![major_damage](images/labeling_example_major.png)
+
+### destroyed
+
+The building was effectively destroyed such as: the building is burned to the
+ground, completely collapsed, partially/completely covered with water/mud, and
+became rubble.
+
+![destroyed](images/labeling_example_destroyed.png)
 
 ### bad\_example
 
