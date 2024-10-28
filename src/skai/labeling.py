@@ -15,12 +15,13 @@
 """Functions for performing data labeling."""
 
 import collections
+import concurrent.futures
 import dataclasses
 import functools
 import multiprocessing
 import os
 import random
-from typing import Any, Callable, Iterable, Optional
+from typing import Any, Callable, Iterable
 
 from absl import logging
 import geopandas as gpd
@@ -32,7 +33,7 @@ import PIL.ImageFont
 import scipy
 from skai import utils
 import tensorflow as tf
-
+import tqdm
 
 # Gap to add between before and after images.
 BEFORE_AFTER_GAP = 10
@@ -189,7 +190,7 @@ def sample_with_buffer(
     points: gpd.GeoDataFrame,
     num_points: int,
     buffer_meters: float,
-    starting_sample: Optional[gpd.GeoDataFrame] = None,
+    starting_sample: gpd.GeoDataFrame | None = None,
 ) -> gpd.GeoDataFrame:
   """Samples num_points from points, dropping neighbors if necessary.
 
@@ -244,7 +245,7 @@ def get_buffered_example_ids(
     examples_pattern: str,
     buffered_sampling_radius: float,
     excluded_example_ids: set[str],
-    max_examples: Optional[int] = None,
+    max_examples: int | None = None,
 ) -> set[str]:
   """Gets a set of allowed example ids.
 
@@ -325,8 +326,8 @@ def create_labeling_images(
     max_processes: int,
     buffered_sampling_radius: float,
     score_bins_to_sample_fraction: dict[tuple[float, float], float],
-    scores_path: Optional[str] = None,
-    filter_by_column: Optional[str] = None,
+    scores_path: str | None = None,
+    filter_by_column: str | None = None,
 ) -> int:
   """Samples labeling examples and creates PNG images for the labeling task.
 
@@ -448,17 +449,21 @@ def create_labeling_images(
         max_images,
     )
 
-  labeling_examples = _deduplicate_labeling_examples(
-      _process_example_files(
-          example_files,
-          output_dir,
-          use_multiprocessing,
-          multiprocessing_context,
-          max_processes,
-          allowed_example_ids,
-          _create_labeling_assets_from_example_file,
-      )
-  )
+  if all(f.endswith('.parquet') for f in example_files):
+    labeling_examples = _create_labeling_assets_from_parquet_files(
+        example_files, output_dir, allowed_example_ids
+    )
+  else:
+    labeling_examples = _process_example_files(
+        example_files,
+        output_dir,
+        use_multiprocessing,
+        multiprocessing_context,
+        max_processes,
+        allowed_example_ids,
+        _create_labeling_assets_from_example_file,
+    )
+  labeling_examples = _deduplicate_labeling_examples(labeling_examples)
 
   image_metadata_csv = os.path.join(
       output_dir, 'image_metadata.csv'
@@ -652,8 +657,7 @@ def _create_labeling_assets_from_example_file(
 ) -> list[LabelingExample]:
   """Creates assets needed for a labeling task from TFRecords.
 
-  Creates combined and separate pre/post PNGs used by labeling tools. Also
-  writes metadata CSV files needed by labeling tools to create labeling tasks.
+  Creates combined and separate pre/post PNGs used by labeling tools.
 
   Args:
     example_file: Path to file containing TF records.
@@ -741,6 +745,131 @@ def _create_labeling_assets_from_example_file(
         )
     )
 
+  return labeling_examples
+
+
+def _parquet_row_to_example(row: pd.Series) -> tf.train.Example:
+  """Converts a row in a Parquet file into an TF example.
+
+  Args:
+    row: The input row.
+
+  Returns:
+    TF Example with features populated from the row's column values.
+  """
+  example = tf.train.Example()
+  utils.add_bytes_feature('example_id', row['example_id'].encode(), example)
+  utils.add_bytes_feature(
+      'encoded_coordinates', row['encoded_coordinates'].encode(), example
+  )
+  utils.add_bytes_feature('plus_code', row['plus_code'].encode(), example)
+  utils.add_bytes_feature('pre_image_id', row['pre_image_id'].encode(), example)
+  utils.add_bytes_feature(
+      'post_image_id', row['post_image_id'].encode(), example
+  )
+  utils.add_bytes_feature(
+      'pre_image_png_large', row['pre_image_png_large'], example
+  )
+  utils.add_bytes_feature(
+      'post_image_png_large', row['post_image_png_large'], example
+  )
+  utils.add_int64_feature('int64_id', row['int64_id'], example)
+  utils.add_float_list_feature(
+      'coordinates', [row['longitude'], row['latitude']], example
+  )
+  return example
+
+
+def _read_parquet(
+    path: str, output_dir: str, allowed_example_ids: set[str]
+) -> list[LabelingExample]:
+  """Extracts labeling images from Parquet files.
+
+  Args:
+    path: Path to Parquet file.
+    output_dir: Output directory.
+    allowed_example_ids: Set of example ids that should be included.
+
+  Returns:
+    List of LabelingExample obtions.
+  """
+  labeling_examples = []
+  df = pd.read_parquet(
+      path,
+      filters=[('example_id', 'in', allowed_example_ids)],
+      engine='pyarrow',
+  )
+  for _, row in df.iterrows():
+    example_id = row['example_id']
+    before_image = utils.deserialize_image(
+        row['pre_image_png_large'],
+        'png',
+    )
+    after_image = utils.deserialize_image(
+        row['post_image_png_large'],
+        'png',
+    )
+    combined_image = create_labeling_image(
+        before_image, after_image, example_id, row['plus_code']
+    )
+
+    pre_image_path = os.path.join(output_dir, f'{example_id}_pre.png')
+    with tf.io.gfile.GFile(pre_image_path, 'wb') as f:
+      f.write(row['pre_image_png_large'])
+    post_image_path = os.path.join(output_dir, f'{example_id}_post.png')
+    with tf.io.gfile.GFile(post_image_path, 'wb') as f:
+      f.write(row['post_image_png_large'])
+    combined_image_path = os.path.join(output_dir, f'{example_id}.png')
+    with tf.io.gfile.GFile(combined_image_path, 'wb') as f:
+      f.write(utils.serialize_image(combined_image, 'png'))
+
+    labeling_examples.append(
+        LabelingExample(
+            int64_id=row['int64_id'],
+            example_id=str(example_id),
+            pre_image_path=pre_image_path,
+            post_image_path=post_image_path,
+            combined_image_path=combined_image_path,
+            tfrecord_path=path,
+            serialized_example=_parquet_row_to_example(row).SerializeToString(),
+            longitude=row['longitude'],
+            latitude=row['latitude'],
+        )
+    )
+  return labeling_examples
+
+
+def _create_labeling_assets_from_parquet_files(
+    parquet_paths: list[str],
+    output_dir: str,
+    allowed_example_ids: set[str],
+) -> list[LabelingExample]:
+  """Creates assets needed for a labeling task from examples stored in Parquet.
+
+  Writes combined and separate pre/post PNGs used by labeling tools.
+
+  Args:
+    parquet_paths: List of Parquet files.
+    output_dir: Directory to write assets to.
+    allowed_example_ids: Set of example_id from which a subset will be used in
+      creating labeling task.
+
+  Returns:
+    List of LabelingExamples containing information about the created assets.
+  """
+  labeling_examples = []
+  with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+    futures = {
+        executor.submit(_read_parquet, p, output_dir, allowed_example_ids): p
+        for p in parquet_paths
+    }
+    with tqdm.tqdm(
+        desc='examples', total=len(allowed_example_ids)
+    ) as progress_bar:
+      for future in concurrent.futures.as_completed(futures):
+        examples = future.result()
+        progress_bar.update(len(examples))
+        labeling_examples.extend(examples)
   return labeling_examples
 
 
