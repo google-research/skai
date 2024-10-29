@@ -158,6 +158,7 @@ def get_pipeline_options(
       'experiments': experiments,
       'sdk_location': 'container',
       'setup_file': _get_setup_file_path(),
+      'num_workers': min_workers,
       'max_num_workers': max_workers,
       'use_public_ips': False,  # Avoids hitting public ip quota bottleneck.
   }
@@ -166,9 +167,7 @@ def get_pipeline_options(
   if machine_type:
     options['machine_type'] = machine_type
 
-  service_options = [
-      f'min_num_workers={min_workers}',
-  ]
+  service_options = []
   if accelerator:
     service_options.extend([
         f'worker_accelerator=type:{accelerator}',
@@ -179,5 +178,6 @@ def get_pipeline_options(
   else:
     options['sdk_container_image'] = _get_dataflow_container_image('cpu')
 
-  options['dataflow_service_options'] = ';'.join(service_options)
+  if service_options:
+    options['dataflow_service_options'] = ';'.join(service_options)
   return PipelineOptions.from_dictionary(options)

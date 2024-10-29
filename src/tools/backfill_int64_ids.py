@@ -71,6 +71,7 @@ def main(_) -> None:
       FLAGS.cloud_project,
       FLAGS.cloud_region,
       temp_dir,
+      min(10, FLAGS.max_dataflow_workers),
       FLAGS.max_dataflow_workers,
       FLAGS.worker_service_account,
       machine_type=None,
