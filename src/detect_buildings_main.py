@@ -75,6 +75,11 @@ flags.DEFINE_integer(
 )
 flags.DEFINE_string('worker_machine_type', 'n1-standard-8', 'Worker type.')
 flags.DEFINE_list('image_paths', None, 'Paths of input images.', required=True)
+flags.DEFINE_bool(
+    'mosaic_images',
+    False,
+    'If true, mosaic all images into a single image using a VRT.',
+)
 flags.DEFINE_string('aoi_path', None, 'Path of AOI GeoJSON.', required=True)
 flags.DEFINE_string(
     'model_path',
@@ -125,7 +130,12 @@ def main(args):
     gdf = gpd.read_file(f)
   aoi = gdf.geometry.values[0]
   tiles = []
-  for image_path in utils.expand_file_patterns(FLAGS.image_paths):
+  image_paths = utils.expand_file_patterns(FLAGS.image_paths)
+  if FLAGS.mosaic_images:
+    vrt_path = os.path.join(temp_dir, 'image_mosaic.vrt')
+    read_raster.build_vrt(image_paths, vrt_path)
+    image_paths = [vrt_path]
+  for image_path in image_paths:
     if not read_raster.raster_is_tiled(image_path):
       raise ValueError(f'Raster "{image_path}" is not tiled.')
 

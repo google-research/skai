@@ -16,6 +16,10 @@
 import dataclasses
 import functools
 import logging
+import os
+import shutil
+import subprocess
+import tempfile
 import time
 from typing import Any, Iterable, Sequence
 
@@ -31,6 +35,8 @@ import shapely.geometry
 
 from skai import buildings
 from skai import utils
+
+import tensorflow as tf
 
 Metrics = beam.metrics.Metrics
 Polygon = shapely.geometry.Polygon
@@ -687,3 +693,65 @@ def raster_is_tiled(path: str) -> bool:
     if rows > 512 or cols > 512:
       return False
   return True
+
+
+def _run_gdalbuildvrt(image_paths: list[str], vrt_path: str):
+  """Runs gdalbuildvrt binary to create a VRT file.
+
+  This function assumes that the binary "gdalbuildvrt" is installed on the
+  running system and just calls that under the hood. It does not use the GDAL
+  Python API (i.e. from osgeo import gdal; gdal.BuildVRT()) because installing
+  the gdal library through pip is too brittle.
+
+  Args:
+    image_paths: Input image paths.
+    vrt_path: Output VRT path.
+  """
+  # GDAL doesn't recognize gs:// prefixes. Instead it wants /vsigs/ prefixes.
+  gdal_image_paths = [
+      p.replace('gs://', '/vsigs/') if p.startswith('gs://') else p
+      for p in image_paths
+  ]
+  try:
+    subprocess.check_call(['gdalbuildvrt', vrt_path] + gdal_image_paths)
+  except subprocess.CalledProcessError as process_error:
+    process_error.add_note(
+        f'Failed to build VRT file {vrt_path} from {len(image_paths)} rasters.'
+    )
+    raise
+
+
+def build_vrt(image_paths: list[str], vrt_path: str) -> None:
+  """Builds a VRT from a list of image paths.
+
+  Args:
+    image_paths: Image paths.
+    vrt_path: Path to write VRT to.
+  """
+  # First verify that all images have the same number of bands and resolutions.
+  raster = rasterio.open(image_paths[0])
+  expected_crs = raster.crs
+  expected_band_count = raster.count
+  expected_resolution = raster.res
+  for path in image_paths[1:]:
+    raster = rasterio.open(path)
+    if raster.crs != expected_crs:
+      raise ValueError(
+          f'Expecting CRS {expected_crs}, got {raster.crs}'
+      )
+    if raster.count != expected_band_count:
+      raise ValueError(
+          f'Expecting {expected_band_count} bands, got {raster.count}'
+      )
+    if not np.allclose(raster.res, expected_resolution):
+      raise ValueError(
+          f'Expecting resolution {expected_resolution}, got {raster.res}'
+      )
+
+  with tempfile.TemporaryDirectory() as temp_dir:
+    temp_vrt_path = os.path.join(temp_dir, 'mosaic.vrt')
+    _run_gdalbuildvrt(image_paths, temp_vrt_path)
+    with open(temp_vrt_path, 'rb') as source, tf.io.gfile.GFile(
+        vrt_path, 'wb'
+    ) as dest:
+      shutil.copyfileobj(source, dest)

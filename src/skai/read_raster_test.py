@@ -11,7 +11,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Tests for read_raster."""
 
 import pathlib
 import tempfile
@@ -35,19 +34,26 @@ _Window = read_raster._Window
 _WindowGroup = read_raster._WindowGroup
 
 
-def _create_test_image_tiff_file(colorinterps: list[ColorInterp]):
-
+def _create_test_image_tiff_file_with_position_size(
+    west: float,
+    north: float,
+    width: int,
+    height: int,
+    colorinterps: list[ColorInterp],
+):
   num_channels = len(colorinterps)
-  image = np.random.randint(0, 256, (100, 100, num_channels), dtype=np.uint8)
+  image = np.random.randint(
+      0, 256, (height, width, num_channels), dtype=np.uint8
+  )
 
   profile = {
       'driver': 'GTiff',
-      'height': 100,
-      'width': 100,
+      'height': height,
+      'width': width,
       'count': num_channels,
       'dtype': 'uint8',
       'crs': '+proj=latlong',
-      'transform': rasterio.transform.from_origin(0, 0, 1, 1),
+      'transform': rasterio.transform.from_origin(west, north, 0.1, 0.1),
       'colorinterp': colorinterps,
   }
   _, image_path = tempfile.mkstemp(
@@ -58,6 +64,12 @@ def _create_test_image_tiff_file(colorinterps: list[ColorInterp]):
       dst.write(image[..., i], i + 1)
     dst.colorinterp = profile['colorinterp']
   return image_path
+
+
+def _create_test_image_tiff_file(colorinterps: list[ColorInterp]):
+  return _create_test_image_tiff_file_with_position_size(
+      0, 0, 100, 100, colorinterps
+  )
 
 
 def _create_buildings_file(
@@ -301,6 +313,29 @@ class ReadRasterTest(absltest.TestCase):
     np.testing.assert_equal(converted[1, 1, :], [127, 127, 127])
     np.testing.assert_equal(converted[2, 2, :], [63, 63, 63])
     np.testing.assert_equal(converted[3, 3, :], [31, 31, 31])
+
+  def test_build_vrt(self):
+    image1_path = _create_test_image_tiff_file_with_position_size(
+        west=10,
+        north=20,
+        width=100,
+        height=100,
+        colorinterps=[ColorInterp.red, ColorInterp.green, ColorInterp.blue],
+    )
+    image2_path = _create_test_image_tiff_file_with_position_size(
+        west=20,
+        north=20,
+        width=100,
+        height=100,
+        colorinterps=[ColorInterp.red, ColorInterp.green, ColorInterp.blue],
+    )
+    with tempfile.NamedTemporaryFile(dir=absltest.TEST_TMPDIR.value) as f:
+      read_raster.build_vrt([image1_path, image2_path], f.name)
+      vrt_raster = rasterio.open(f.name)
+      vrt_image = vrt_raster.read()
+    self.assertEqual(3, vrt_raster.count)
+    self.assertEqual((0.1, 0.1), vrt_raster.res)
+    self.assertEqual((3, 100, 200), vrt_image.shape)
 
 
 if __name__ == '__main__':

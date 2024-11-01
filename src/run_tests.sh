@@ -31,7 +31,7 @@ then
   pyenv uninstall -f $PY_VERSION
   # Have to install lzma library first, otherwise will get an error
   # "ModuleNotFoundError: No module named '_lzma'".
-  sudo apt-get install liblzma-dev
+  sudo apt-get -y install liblzma-dev
   pyenv install -f $PY_VERSION
   pyenv global $PY_VERSION
 else
@@ -41,6 +41,7 @@ else
 fi
 
 function setup {
+  sudo apt-get -y install gdal-bin
   if ! which python && which python3
   then
     PYTHON=python3
