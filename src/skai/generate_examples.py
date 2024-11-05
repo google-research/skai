@@ -841,26 +841,6 @@ def read_labels_file(
   buildings.write_buildings_file(output_gdf, output_path)
 
 
-def parse_gdal_env(settings: List[str]) -> Dict[str, str]:
-  """Parses a list of GDAL environment variable settings into a dictionary.
-
-  Args:
-    settings: A list of environment variable settings in "var=value" format.
-
-  Returns:
-    Dictionary with variable as key and assigned value.
-  """
-  gdal_env = {}
-  for setting in settings:
-    if '=' not in setting:
-      raise ValueError(
-          'Each GDAL environment setting should have the form "var=value".'
-      )
-    var, _, value = setting.partition('=')
-    gdal_env[var] = value
-  return gdal_env
-
-
 def _generate_examples_pipeline(
     before_image_info: list[RasterInfo],
     after_image_info: list[RasterInfo],
@@ -1043,7 +1023,7 @@ def run_example_generation(
   timestamp = time.strftime('%Y%m%d-%H%M%S')
   timestamped_dataset = f'{config.dataset_name}-{timestamp}'
 
-  gdal_env = parse_gdal_env(config.gdal_env)
+  gdal_env = read_raster.parse_gdal_env(config.gdal_env)
 
   before_image_info, after_image_info = _get_image_infos_from_config(
       config, gdal_env

@@ -676,6 +676,28 @@ def get_raster_bounds(
     return shapely.geometry.box(x1, y1, x2, y2)
 
 
+def parse_gdal_env(settings: list[str]) -> dict[str, str]:
+  """Parses a list of GDAL environment variable settings into a dictionary.
+
+  Args:
+    settings: A list of environment variable settings in "var=value" format.
+
+  Returns:
+    Dictionary with variable as key and assigned value.
+  """
+  if not settings:
+    return {}
+  gdal_env = {}
+  for setting in settings:
+    if '=' not in setting:
+      raise ValueError(
+          'Each GDAL environment setting should have the form "var=value".'
+      )
+    var, _, value = setting.partition('=')
+    gdal_env[var] = value
+  return gdal_env
+
+
 def raster_is_tiled(path: str) -> bool:
   """Determines whether a raster is tiled.
 

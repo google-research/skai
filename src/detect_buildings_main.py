@@ -99,6 +99,14 @@ flags.DEFINE_float(
     'Confidence threshold for building detection. All instances below this'
     ' detection score will be dropped.',
 )
+flags.DEFINE_list(
+    'gdal_env',
+    None,
+    (
+        'Environment configuration for GDAL. Comma delimited list '
+        'where each element has the form "var=value".'
+    ),
+)
 
 PipelineOptions = beam.options.pipeline_options.PipelineOptions
 
@@ -130,6 +138,7 @@ def main(args):
     gdf = gpd.read_file(f)
   aoi = gdf.geometry.values[0]
   tiles = []
+  gdal_env = read_raster.parse_gdal_env(FLAGS.gdal_env)
   image_paths = utils.expand_file_patterns(FLAGS.image_paths)
   if FLAGS.mosaic_images:
     vrt_path = os.path.join(temp_dir, 'image_mosaic.vrt')
@@ -141,7 +150,7 @@ def main(args):
 
     tiles.extend(
         extract_tiles.get_tiles_for_aoi(
-            image_path, aoi, FLAGS.tile_size, FLAGS.margin, {}
+            image_path, aoi, FLAGS.tile_size, FLAGS.margin, gdal_env
         )
     )
   print(f'Extracting {len(tiles)} tiles total')
