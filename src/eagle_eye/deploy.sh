@@ -22,8 +22,13 @@
 
 if [ ! -f "$1" ]
 then
-  echo "Usage: $0 config.json"
+  echo "Usage: $0 config.json <database>"
   exit 1
+fi
+
+if [ -n "$2" ]
+then
+  ENV_VAR_SETTINGS="--set-env-vars FIRESTORE_DB=$2"
 fi
 
 TEMP_DIR=$(mktemp -d)
@@ -31,5 +36,5 @@ SOURCE_DIR=`dirname $0`
 
 cp -r "$SOURCE_DIR"/* "$TEMP_DIR"
 cp "$1" "$TEMP_DIR/app/config.json"
-gcloud run deploy eagleeye --source "$TEMP_DIR/app"
+gcloud run deploy eagleeye --source "$TEMP_DIR/app" $ENV_VAR_SETTINGS
 rm -rf "$TEMP_DIR"

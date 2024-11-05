@@ -23,11 +23,11 @@ import datetime
 import io
 import json
 import math
+import os
 import random
 import time
 import firebase_admin
 from firebase_admin import auth
-from firebase_admin import firestore
 from flask import abort
 from flask import Flask
 from flask import jsonify
@@ -36,8 +36,8 @@ from flask import render_template
 from flask import request
 from flask import send_file
 import google.api_core.exceptions
+from google.cloud import firestore
 from google.cloud import storage
-from google.cloud.firestore_v1 import FieldFilter
 import pandas as pd
 from project import get_completed_task_count
 from project import get_project_from_db
@@ -56,7 +56,7 @@ from task import TASK_LABEL_MAP
 app = Flask(__name__)
 storage_client = storage.Client()
 firebase_app = firebase_admin.initialize_app()
-firestore_db = firestore.client()
+firestore_db = firestore.Client(database=os.environ.get('FIRESTORE_DB'))
 MAX_WORKER_THREAD_COUNT = 1000
 
 
@@ -69,15 +69,16 @@ LABEL_FILTER_OPTIONS = (
     ]
 )
 
+
 def _open_gcs_file(path: str, mode: str):
   """Opens a GCS path."""
   if not path.startswith('gs://'):
-    raise RuntimeError(f'GCS path does not begin with "gs://".')
+    raise RuntimeError('GCS path does not begin with "gs://".')
   bucket_name, _, file_name = path[5:].partition('/')
   if not bucket_name:
-    raise RuntimeError(f'Path does not specify a bucket.')
+    raise RuntimeError('Path does not specify a bucket.')
   if not file_name:
-    raise RuntimeError(f'Path does not have a file name component.')
+    raise RuntimeError('Path does not have a file name component.')
   try:
     bucket = storage_client.get_bucket(bucket_name)
   except (
@@ -87,12 +88,9 @@ def _open_gcs_file(path: str, mode: str):
   ) as e:
     raise RuntimeError(f'Error reading bucket "{bucket_name}": {e}') from e
 
-  try:
-    blob = bucket.get_blob(file_name)
-  except:
-    raise RuntimeError(f'Path is unreadable.')
+  blob = bucket.get_blob(file_name)
   if not blob:
-    raise RuntimeError(f'Path not found.')
+    raise RuntimeError('Path not found.')
   return blob.open(mode)
 
 
@@ -109,14 +107,11 @@ def _parse_image_metadata_file(path):
     List of tasks.
 
   Raises:
-    RuntimeError if file parsing fails in some way.
+    RuntimeError: If file parsing fails in some way.
   """
   start_time = time.perf_counter()
   with _open_gcs_file(path, 'r') as image_metadata_file:
-    try:
-      df = pd.read_csv(image_metadata_file)
-    except:
-      raise RuntimeError(f'Cannot read image metadata file as CSV.')
+    df = pd.read_csv(image_metadata_file)
 
   for column in ('example_id', 'pre_image_path', 'post_image_path'):
     if column not in df.columns:
@@ -481,7 +476,7 @@ def get_next_task(project_id, user_email):
 
   unlabeled_tasks = (
       firestore_db.collection(project.project_id)
-      .where(filter=FieldFilter('label', '==', ''))
+      .where(filter=firestore.FieldFilter('label', '==', ''))
       .limit_to_last(LIMIT_TASK_COUNT_READS)
       .get()
   )
@@ -686,7 +681,7 @@ def reset_labels(project_id):
   print(f'Reverting all labels for project: {project_id}')
   project_tasks = (
       firestore_db.collection(project_id)
-      .where(filter=FieldFilter('label', '!=', ''))
+      .where(filter=firestore.FieldFilter('label', '!=', ''))
       .stream()
   )
   for task_snapshot in project_tasks:
