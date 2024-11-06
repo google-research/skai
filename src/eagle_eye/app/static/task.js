@@ -30,6 +30,7 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 submitButton.addEventListener('click', () => {
+  submitButton.disabled = true;
   const labelValue =
       document.querySelector('input[name="assessment"]:checked').value;
   const taskSubmitTime = Date.now();

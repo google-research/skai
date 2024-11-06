@@ -27,50 +27,50 @@
       <a href="/project/{{project_id}}/summary">Project Summary</a>
     </div>
     <div class="form-container">
-      <form>
-        <div class="example-id">Example ID: {{example_id}}</div>
-        <div class="progress">
-          Project Labeling Progress:
-          <progress class="project-progress"
-                    value="{{project_labeled_task_count}}"
-                    max="{{project_task_count}}">
-          </progress>
-        </div>
 
-        <div class="image-row">
-          <div class="image-container">
-            <div class="image-header-text">
-              Pre-Event Image
-            </div>
-            <img src="https://storage.mtls.cloud.google.com/{{pre_image}}" />
-            <div class="red-rectangle"></div>
+      <div class="example-id">Example ID: {{example_id}}</div>
+      <div class="progress">
+        Project Labeling Progress:
+        <progress class="project-progress"
+                  value="{{project_labeled_task_count}}"
+                  max="{{project_task_count}}">
+        </progress>
+      </div>
+
+      <div class="image-row">
+        <div class="image-container">
+          <div class="image-header-text">
+            Pre-Event Image
           </div>
-          <div class="image-container">
-            <div class="image-header-text">
-              Post-Event Image
-            </div>
-            <img src="https://storage.mtls.cloud.google.com/{{post_image}}" />
-            <div class="red-rectangle"></div>
+          <img src="https://storage.mtls.cloud.google.com/{{pre_image}}" />
+          <div class="red-rectangle"></div>
+        </div>
+        <div class="image-container">
+          <div class="image-header-text">
+            Post-Event Image
           </div>
+          <img src="https://storage.mtls.cloud.google.com/{{post_image}}" />
+          <div class="red-rectangle"></div>
         </div>
-        <div class="form-element-wrapper">
-          {% for key, value in labels.items() %}
-          <input type="radio"
-                 name="assessment" id="{{key}}" value="{{key}}"
-                 {% if current_label == key %} checked {% endif %}
-                 />
-          <label for="{{key}}">({{ loop.index }}) {{value}}</label>
-          {% endfor %}
-        </div>
-        <div class="form-element-wrapper">
-          <button id="submit" disabled
-                  data-project-id="{{project_id}}"
-                  data-example-id="{{example_id}}"
-                  >
-            Submit
-          </button>
-        </div>
-      </form>
+      </div>
+      <div class="form-element-wrapper">
+        {% for key, value in labels.items() %}
+        <input type="radio"
+               name="assessment" id="{{key}}" value="{{key}}"
+               {% if current_label == key %} checked {% endif %}
+               />
+        <label for="{{key}}">({{ loop.index }}) {{value}}</label>
+        {% endfor %}
+      </div>
+      <div class="form-element-wrapper">
+        <button id="submit" disabled
+                data-project-id="{{project_id}}"
+                data-example-id="{{example_id}}"
+                >
+          Submit
+        </button>
+      </div>
+
       <div>
         <h3>Keyboard Shortcuts</h3>
         <p>Use the following keyboard shortcuts to select an assessment:</p>

@@ -32,7 +32,7 @@
       added tasks is needed, <a href="/projects/new">create a new
       project</a> instead.
     </div>
-    <form class="project-form">
+    <div class="project-form">
       <div class="form-entry">
         <label for="imageMetadataPath">Image Metadata File Path (e.g. "gs://[bucket]/[path]"):</label><br>
         <input class="form-text" type="text" id="imageMetadataPath" name="imageMetadataPath" required>
@@ -40,7 +40,7 @@
       <div class="form-entry">
         <button data-project-id="{{project_id}}" id="reopen_project">Re-Open Project</button>
       </div>
-    </form>
+    </div>
 
     <div id="loading-spinner">
       <div class="spinner"></div>
