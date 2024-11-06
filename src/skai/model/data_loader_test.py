@@ -19,6 +19,7 @@ import tempfile
 from typing import List
 
 from absl.testing import absltest
+import ml_collections as mlc
 import numpy as np
 from skai.model import data
 import tensorflow as tf
@@ -258,6 +259,154 @@ class DataLoaderTest(absltest.TestCase):
         ),
         1 * lambda_value,
     )
+
+  def test_dataloader_from_tfrecords_post_only(self):
+    config = mlc.ConfigDict()
+    config.data = mlc.ConfigDict()
+    config.data.labeled_train_pattern = self.labeled_train_path
+    config.data.validation_pattern = self.labeled_test_path
+    config.data.use_post_disaster_only = True
+    config.data.load_small_images = False
+    dataloader = data.get_dataloader_from_tfrecord(config)
+    ds = dataloader.train_ds
+    features = next(ds.as_numpy_iterator())
+    self.assertIn('input_feature', features)
+    self.assertIn('large_image', features['input_feature'])
+    input_feature = features['input_feature']['large_image']
+    self.assertEqual(
+        input_feature.shape,
+        (RESNET_IMAGE_SIZE, RESNET_IMAGE_SIZE, 3),
+    )
+    self.assertEqual(input_feature.dtype, np.float32)
+    np.testing.assert_equal(input_feature, 1.0)
+
+  def test_dataloader_from_tfrecord_pre_post(self):
+    config = mlc.ConfigDict()
+    config.data = mlc.ConfigDict()
+    config.data.labeled_train_pattern = self.labeled_train_path
+    config.data.validation_pattern = self.labeled_test_path
+    config.data.use_post_disaster_only = False
+    config.data.load_small_images = True
+    dataloader = data.get_dataloader_from_tfrecord(config)
+    ds = dataloader.train_ds
+    features = next(ds.as_numpy_iterator())
+    self.assertIn('input_feature', features)
+    self.assertIn('large_image', features['input_feature'])
+    input_feature = features['input_feature']['large_image']
+    self.assertEqual(
+        input_feature.shape, (RESNET_IMAGE_SIZE, RESNET_IMAGE_SIZE, 6)
+    )
+    self.assertEqual(input_feature.dtype, np.float32)
+    np.testing.assert_equal(input_feature[:, :, :3], 0.0)
+    np.testing.assert_equal(input_feature[:, :, 3:], 1.0)
+
+  def test_dataloader_from_tfrecord_small_images(self):
+    config = mlc.ConfigDict()
+    config.data = mlc.ConfigDict()
+    config.data.labeled_train_pattern = self.labeled_train_path
+    config.data.validation_pattern = self.labeled_test_path
+    config.data.use_post_disaster_only = False
+    config.data.load_small_images = True
+    dataloader = data.get_dataloader_from_tfrecord(config)
+    ds = dataloader.train_ds
+    features = next(ds.as_numpy_iterator())
+    self.assertIn('input_feature', features)
+    self.assertIn('small_image', features['input_feature'])
+    self.assertIn('large_image', features['input_feature'])
+    small_image = features['input_feature']['small_image']
+    large_image = features['input_feature']['large_image']
+    self.assertEqual(
+        small_image.shape, (RESNET_IMAGE_SIZE, RESNET_IMAGE_SIZE, 6)
+    )
+    self.assertEqual(small_image.dtype, np.float32)
+    np.testing.assert_equal(small_image[:, :, :3], 0.0)
+    np.testing.assert_equal(small_image[:, :, 3:], 1.0)
+
+    self.assertEqual(
+        large_image.shape, (RESNET_IMAGE_SIZE, RESNET_IMAGE_SIZE, 6)
+    )
+    self.assertEqual(small_image.dtype, np.float32)
+    np.testing.assert_equal(large_image[:, :, :3], 0.0)
+    np.testing.assert_equal(large_image[:, :, 3:], 1.0)
+
+  def test_dataset_factory_getting_dataloader_from_tfrecord(self):
+
+    def _get_config_tfrecord_dataloader():
+      config = mlc.config_dict.ConfigDict()
+      config.data = mlc.config_dict.ConfigDict()
+      config.data.labeled_train_pattern = self.labeled_train_path
+      config.data.validation_pattern = self.labeled_test_path
+      config.data.use_post_disaster_only = False
+      config.data.load_small_images = True
+      return config
+
+    config = _get_config_tfrecord_dataloader()
+    dataloader = data.get_dataloader_from_tfrecord(config)
+    ds = dataloader.train_ds
+    features = next(ds.as_numpy_iterator())
+    self.assertIn('input_feature', features)
+    self.assertIn('small_image', features['input_feature'])
+    self.assertIn('large_image', features['input_feature'])
+    small_image = features['input_feature']['small_image']
+    large_image = features['input_feature']['large_image']
+    self.assertEqual(
+        small_image.shape, (RESNET_IMAGE_SIZE, RESNET_IMAGE_SIZE, 6)
+    )
+    self.assertEqual(small_image.dtype, np.float32)
+    np.testing.assert_equal(small_image[:, :, :3], 0.0)
+    np.testing.assert_equal(small_image[:, :, 3:], 1.0)
+
+    self.assertEqual(
+        large_image.shape, (RESNET_IMAGE_SIZE, RESNET_IMAGE_SIZE, 6)
+    )
+    self.assertEqual(small_image.dtype, np.float32)
+    np.testing.assert_equal(large_image[:, :, :3], 0.0)
+    np.testing.assert_equal(large_image[:, :, 3:], 1.0)
+
+  def test_dataset_factory_getting_dataloader_from_tensorflow_dataset(self):
+
+    def _get_config_tensorflow_dataset_dataloader():
+      config = mlc.config_dict.ConfigDict()
+      config.data = mlc.config_dict.ConfigDict()
+      config.data.name = 'skai'
+      config.data.tfds_dataset_name = 'skai_dataset'
+      config.data.tfds_data_dir = _make_temp_dir()
+      config.data.adhoc_config_name = 'skai_dataset'
+      config.data.labeled_train_pattern = self.labeled_train_path
+      config.data.validation_pattern = self.labeled_test_path
+      config.data.unlabeled_train_pattern = ''
+      config.data.use_post_disaster_only = False
+      config.data.load_small_images = True
+      config.data.num_splits = 1
+      config.data.use_splits = False
+      config.round_idx = -1
+
+      config.upsampling = mlc.config_dict.ConfigDict()
+      config.upsampling.do_upsampling = False
+      return config
+
+    config = _get_config_tensorflow_dataset_dataloader()
+    dataloader = data.get_dataloader_from_tfds(config)
+    ds = dataloader.train_ds
+    features = next(ds.as_numpy_iterator())
+    self.assertIn('input_feature', features)
+    self.assertIn('small_image', features['input_feature'])
+    self.assertIn('large_image', features['input_feature'])
+    small_image = features['input_feature']['small_image']
+    large_image = features['input_feature']['large_image']
+    self.assertEqual(
+        small_image.shape, (RESNET_IMAGE_SIZE, RESNET_IMAGE_SIZE, 6)
+    )
+    self.assertEqual(small_image.dtype, np.float32)
+    np.testing.assert_equal(small_image[:, :, :3], 0.0)
+    np.testing.assert_equal(small_image[:, :, 3:], 1.0)
+
+    self.assertEqual(
+        large_image.shape, (RESNET_IMAGE_SIZE, RESNET_IMAGE_SIZE, 6)
+    )
+    self.assertEqual(small_image.dtype, np.float32)
+    np.testing.assert_equal(large_image[:, :, :3], 0.0)
+    np.testing.assert_equal(large_image[:, :, 3:], 1.0)
 
 
 if __name__ == '__main__':

@@ -31,7 +31,6 @@ from skai.model import data
 from skai.model import generate_bias_table_lib
 ###COPYBARA_PLACEHOLDER_01
 from skai.model import models
-from skai.model import sampling_policies
 from skai.model import train_lib
 from skai.model.configs import base_config
 from skai.model.train_strategy import get_strategy
@@ -64,6 +63,13 @@ _TPU = flags.DEFINE_string(
     'tpu', '', 'The BNS address of the first TPU worker.'
 )
 
+_USE_TFDS = flags.DEFINE_bool(
+    'use_tfds',
+    True,
+    'If True the dataset will be read using tensorflow_datasets.'
+    'Otherwise, it will be read directly from tfrecord using tf.data API.',
+)
+
 
 def get_model_dir(root_dir: str) -> str:
   if FLAGS.is_vertex and FLAGS.trial_name:
@@ -91,52 +97,10 @@ def main(_) -> None:
     stream_handler = native_logging.StreamHandler(stream)
     logging.get_absl_logger().addHandler(stream_handler)
 
-  dataset_builder = data.get_dataset(config.data.name)
-  ds_kwargs = {}
-  if config.data.name == 'waterbirds10k':
-    ds_kwargs = {'corr_strength': config.data.corr_strength}
-  elif config.data.name == 'skai':
-    ds_kwargs.update({
-        'tfds_dataset_name': config.data.tfds_dataset_name,
-        'data_dir': config.data.tfds_data_dir,
-        'adhoc_config_name': config.data.adhoc_config_name,
-        'labeled_train_pattern': config.data.labeled_train_pattern,
-        'unlabeled_train_pattern': config.data.unlabeled_train_pattern,
-        'validation_pattern': config.data.validation_pattern,
-        'use_post_disaster_only': config.data.use_post_disaster_only,
-        'load_small_images': config.data.load_small_images,
-    })
-    if config.data.use_post_disaster_only:
-      config.model.num_channels = 3
-  if config.upsampling.do_upsampling:
-    ds_kwargs.update({
-        'upsampling_lambda': config.upsampling.lambda_value,
-        'upsampling_signal': config.upsampling.signal,
-    })
-
-  logging.info('Running Round %d of Training.', config.round_idx)
-  get_split_config = lambda x: x if config.data.use_splits else 1
-  if config.round_idx == 0:
-    dataloader = dataset_builder(
-        num_splits=get_split_config(config.data.num_splits),
-        initial_sample_proportion=get_split_config(
-            config.data.initial_sample_proportion),
-        subgroup_ids=config.data.subgroup_ids,
-        subgroup_proportions=config.data.subgroup_proportions, **ds_kwargs)
+  if _USE_TFDS.value:
+    dataloader = data.get_dataloader_from_tfds(config)
   else:
-    # If latter round, keep track of split generated in last round of active
-    # sampling
-    dataloader = dataset_builder(config.data.num_splits,
-                                 initial_sample_proportion=1,
-                                 subgroup_ids=(),
-                                 subgroup_proportions=(),
-                                 **ds_kwargs)
-
-    # Filter each split to only have examples from example_ids_table
-    dataloader.train_splits = [
-        dataloader.train_ds.filter(
-            generate_bias_table_lib.filter_ids_fn(ids_tab)) for
-        ids_tab in sampling_policies.convert_ids_to_table(config.ids_dir)]
+    dataloader = data.get_dataloader_from_tfrecord(config)
 
   global_batch_size = config.data.batch_size * strategy.num_replicas_in_sync
 
@@ -210,8 +174,8 @@ def main(_) -> None:
         training=False
     )
   else:
-    raise ValueError(
-        'In `config.data`, one of `(use_splits, use_filtering)` must be True.')
+    new_train_ds = dataloader.train_ds
+    val_ds = dataloader.eval_ds['val']
 
   dataloader.train_ds = new_train_ds
   dataloader.eval_ds['val'] = val_ds

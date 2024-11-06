@@ -71,15 +71,13 @@ flags.DEFINE_integer(
     ),
 )
 flags.DEFINE_string(
-    'cloud_location',
-    None,
-    'Google Cloud location (region) for vizier jobs'
+    'cloud_location', None, 'Google Cloud location (region) for vizier jobs'
 )
 flags.DEFINE_enum(
     'accelerator',
     default=None,
     help='Accelerator to use for faster computations.',
-    enum_values=['P100', 'V100', 'P4', 'T4', 'A100', 'TPU_V2', 'TPU_V3']
+    enum_values=['P100', 'V100', 'P4', 'T4', 'A100', 'TPU_V2', 'TPU_V3'],
 )
 flags.DEFINE_integer(
     'accelerator_count',
@@ -100,6 +98,12 @@ flags.DEFINE_bool(
     ' docker image.',
 )
 flags.DEFINE_string('docker_image', None, 'Pre-built docker image to use.')
+flags.DEFINE_bool(
+    'use_tfds',
+    True,
+    'If True the dataset will be read using tensorflow_datasets.'
+    'Otherwise, it will be read directly from tfrecord using tf.data API.',
+)
 
 config_flags.DEFINE_config_file('config')
 
@@ -199,8 +203,10 @@ def main(_) -> None:
         'is_vertex': True,
         'accelerator_type': accelerator_type,
         'tpu': FLAGS.tpu,
-        'config.output_dir': os.path.join(config.output_dir,
-                                          str(experiment.experiment_id)),
+        'use_tfds': FLAGS.use_tfds,
+        'config.output_dir': os.path.join(
+            config.output_dir, str(experiment.experiment_id)
+        ),
         'config.train_bias': config.train_bias,
         'config.train_stage_2_as_ensemble': False,
         'config.round_idx': 0,
@@ -257,10 +263,8 @@ def main(_) -> None:
               executable=train_executable, executor=executor, args=xm_args
           ),
           study_factory=vizier_cloud.NewStudy(
-              study_config=get_study_config(),
-              location=FLAGS.cloud_location
+              study_config=get_study_config(), location=FLAGS.cloud_location
           ),
-
           num_trials_total=100,
           num_parallel_trial_runs=3,
       ).launch()

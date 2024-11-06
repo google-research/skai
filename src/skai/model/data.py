@@ -23,10 +23,12 @@ and the label is specific to the main task.
 
 import collections
 import dataclasses
+import enum
+import functools
 import os
 from typing import Any, Iterator
 import uuid
-
+import ml_collections
 import numpy as np
 import tensorflow as tf
 import tensorflow_datasets as tfds
@@ -52,6 +54,11 @@ RESNET_IMAGE_SIZE = 224
 CROP_PADDING = 32
 
 
+class ReadingRecordStratgey(enum.Enum):
+  DIRECT_FROM_TFRECORD = 'direct_from_tfrecord'
+  USING_TFDS = 'using_tfds'
+
+
 def register_dataset(name: str):
   """Provides decorator to register functions that return dataset."""
 
@@ -74,8 +81,8 @@ def get_dataset(name: str):
 class Dataloader:
   num_subgroups: int  # Number of subgroups in data.
   subgroup_sizes: dict[str, int]  # Number of examples by subgroup.
-  train_splits: tf.data.Dataset  # Result of tfds.load with 'split' arg.
-  val_splits: tf.data.Dataset  # Result of tfds.load with 'split' arg.
+  train_splits: tf.data.Dataset | None  # Result of tfds.load with 'split' arg.
+  val_splits: tf.data.Dataset | None  # Result of tfds.load with 'split' arg.
   train_ds: tf.data.Dataset  # Dataset with all the train splits combined.
   eval_ds: dict[str, tf.data.Dataset]  # Validation and/or test datasets.
   num_train_examples: int | None = 0  # Number of training examples.
@@ -161,12 +168,14 @@ def apply_batch(dataloader, batch_size):
   """Apply batching to dataloader."""
   # TODO(jlee24): Support making splits divisible by batch_size
   #                   so that a remainder is not dropped for every split.
-  dataloader.train_splits = [
-      data.batch(batch_size) for data in dataloader.train_splits
-  ]
-  dataloader.val_splits = [
-      data.batch(batch_size) for data in dataloader.val_splits
-  ]
+  if dataloader.train_splits:
+    dataloader.train_splits = [
+        data.batch(batch_size) for data in dataloader.train_splits
+    ]
+  if dataloader.val_splits:
+    dataloader.val_splits = [
+        data.batch(batch_size) for data in dataloader.val_splits
+    ]
   dataloader.train_ds = dataloader.train_ds.batch(
       batch_size, drop_remainder=True
   )
@@ -595,6 +604,123 @@ def decode_and_resize_image(
   )
 
 
+def _decode_skai_record_bytes(
+    record_bytes: tf.Tensor,
+    image_size: int,
+    use_post_disaster_only: bool,
+    load_small_images: bool,
+) -> dict[str, Any]:
+  """Decode bytes into a dictionary of features and their tensor values.
+
+  Args:
+    record_bytes: The encoded bytes of record.
+    image_size: The size to which the image should be resized.
+    use_post_disaster_only: If True only post-disaster image will be loaded
+      otherwise both pre-disaster and post-disaster images will be loaded.
+    load_small_images: if True, small of post_image_png and pre_image_png will
+      be returned.
+
+  Returns:
+    Dictionary that represents an example in SKAI dataset.
+  """
+  features_to_read = {
+      'coordinates': tf.io.FixedLenFeature([2], dtype=tf.float32),
+      'encoded_coordinates': tf.io.FixedLenFeature([], dtype=tf.string),
+      'int64_id': tf.io.FixedLenFeature([], dtype=tf.int64),
+      'post_image_png_large': tf.io.FixedLenFeature([], dtype=tf.string),
+      'label': tf.io.FixedLenFeature([], dtype=tf.float32),
+  }
+
+  if load_small_images:
+    features_to_read.update({
+        'post_image_png': tf.io.FixedLenFeature([], dtype=tf.string),
+    })
+
+  if not use_post_disaster_only:
+    features_to_read.update(
+        {'pre_image_png_large': tf.io.FixedLenFeature([], dtype=tf.string)}
+    )
+
+    if load_small_images:
+      features_to_read.update({
+          'pre_image_png': tf.io.FixedLenFeature([], dtype=tf.string),
+      })
+
+  example = tf.io.parse_single_example(record_bytes, features_to_read)
+
+  features = {'input_feature': {}}
+  large_image_concat = decode_and_resize_image(
+      example['post_image_png_large'], image_size
+  )
+  small_image_concat = None
+  if load_small_images:
+    small_image_concat = decode_and_resize_image(
+        example['post_image_png'], image_size
+    )
+
+  if not use_post_disaster_only:
+    before_image = decode_and_resize_image(
+        example['pre_image_png_large'], image_size
+    )
+    if load_small_images:
+      before_image_small = decode_and_resize_image(
+          example['pre_image_png'], image_size
+      )
+    large_image_concat = tf.concat([before_image, large_image_concat], axis=-1)
+    if load_small_images:
+      small_image_concat = tf.concat(
+          [before_image_small, small_image_concat], axis=-1
+      )
+  features['input_feature']['large_image'] = large_image_concat
+  if load_small_images:
+    features['input_feature']['small_image'] = small_image_concat
+  features['label'] = tf.cast(example['label'], tf.int64)
+  features['example_id'] = example['int64_id']
+  features['subgroup_label'] = features['label']
+  features['coordinates'] = example['coordinates']
+  return features
+
+
+def read_skai_dataset_from_tfrecord(
+    pattern: str,
+    image_size: int,
+    use_post_disaster_only: bool,
+    load_small_images: bool,
+) -> tf.data.Dataset:
+  """Create SKAI dataset from tfrecord.
+
+  Args:
+    pattern: The file path pattern of the tfrecord.
+    image_size: The size for which the image will be resized.
+    use_post_disaster_only: If True the pre disaster images will not be loaded.
+    load_small_images: If True a smaller cropped version of the images will be
+      loaded.
+
+  Returns:
+    tf.data.Dataset that read and decode from the tfrecord.
+
+  Raises:
+    FileNotFoundError: if the pattern does exist.
+  """
+  decode_records = functools.partial(
+      _decode_skai_record_bytes,
+      image_size=image_size,
+      use_post_disaster_only=use_post_disaster_only,
+      load_small_images=load_small_images,
+  )
+  paths = tf.io.gfile.glob(pattern)
+  if not paths:
+    raise FileNotFoundError(
+        f'File pattern "{pattern}" does not match any files.'
+    )
+  dataset = (
+      tf.data.TFRecordDataset(paths)
+      .map(decode_records, num_parallel_calls=tf.data.AUTOTUNE)
+      .prefetch(tf.data.AUTOTUNE)
+  )
+  return dataset
+
+
 class SkaiDataset(tfds.core.GeneratorBasedBuilder):
   """TFDS dataset for SKAI.
 
@@ -686,66 +812,15 @@ class SkaiDataset(tfds.core.GeneratorBasedBuilder):
       )
     return splits
 
-  def _decode_record(self, record_bytes):
-
-    example = tf.io.parse_single_example(
-        record_bytes,
-        {
-            'coordinates': tf.io.FixedLenFeature([2], dtype=tf.float32),
-            'encoded_coordinates': tf.io.FixedLenFeature([], dtype=tf.string),
-            'int64_id': tf.io.FixedLenFeature([], dtype=tf.int64),
-            'pre_image_png_large': tf.io.FixedLenFeature([], dtype=tf.string),
-            'pre_image_png': tf.io.FixedLenFeature([], dtype=tf.string),
-            'post_image_png_large': tf.io.FixedLenFeature(
-                [], dtype=tf.string
-            ),
-            'post_image_png': tf.io.FixedLenFeature([], dtype=tf.string),
-            'label': tf.io.FixedLenFeature([], dtype=tf.float32),
-        },
-    )
-
-    features = {
-        'input_feature': {}
-    }
-    large_image_concat = decode_and_resize_image(
-        example['post_image_png_large'], self.builder_config.image_size
-    )
-    small_image_concat = decode_and_resize_image(
-        example['post_image_png'], self.builder_config.image_size
-    )
-
-    if not self.builder_config.use_post_disaster_only:
-      before_image = decode_and_resize_image(
-          example['pre_image_png_large'], self.builder_config.image_size
-      )
-      before_image_small = decode_and_resize_image(
-          example['pre_image_png'], self.builder_config.image_size
-      )
-      large_image_concat = tf.concat(
-          [before_image, large_image_concat], axis=-1
-      )
-      small_image_concat = tf.concat(
-          [before_image_small, small_image_concat], axis=-1
-      )
-    features['input_feature']['large_image'] = large_image_concat
-    if self.builder_config.load_small_images:
-      features['input_feature']['small_image'] = small_image_concat
-    features['label'] = tf.cast(example['label'], tf.int64)
-    features['example_id'] = example['int64_id']
-    features['subgroup_label'] = features['label']
-    features['coordinates'] = example['coordinates']
-    return features
-
   def _generate_examples(self, pattern: str):
     if not pattern:
       return
-    paths = tf.io.gfile.glob(pattern)
-    if not paths:
-      raise FileNotFoundError(
-          f'File pattern "{pattern}" does not match any files.'
-      )
-    ds = tf.data.TFRecordDataset(paths).map(
-        self._decode_record, num_parallel_calls=tf.data.AUTOTUNE)
+    ds = read_skai_dataset_from_tfrecord(
+        pattern,
+        self.builder_config.image_size,
+        self.builder_config.use_post_disaster_only,
+        self.builder_config.load_small_images,
+    )
     if self.builder_config.max_examples:
       ds = ds.take(self.builder_config.max_examples)
     for features in ds.as_numpy_iterator():
@@ -1091,3 +1166,76 @@ def get_skai_dataset(num_splits: int,
       train_ds,
       train_sample_ds=None,
       eval_ds=eval_datasets)
+
+
+def get_dataloader_from_tfrecord(config: ml_collections.ConfigDict):
+  """Create Dataloader directly from tfrecord."""
+
+  train_ds = read_skai_dataset_from_tfrecord(
+      config.data.labeled_train_pattern,
+      RESNET_IMAGE_SIZE,
+      config.data.use_post_disaster_only,
+      config.data.load_small_images,
+  )
+  val_ds = read_skai_dataset_from_tfrecord(
+      config.data.validation_pattern,
+      RESNET_IMAGE_SIZE,
+      config.data.use_post_disaster_only,
+      config.data.load_small_images,
+  )
+  subgroup_sizes = get_subgroup_sizes(train_ds)
+  return Dataloader(
+      num_subgroups=2,
+      subgroup_sizes=subgroup_sizes,
+      train_splits=None,
+      val_splits=None,
+      train_ds=train_ds,
+      eval_ds={'val': val_ds, 'test': val_ds},
+      train_sample_ds=None,
+  )
+
+
+def get_dataloader_from_tfds(config: ml_collections.ConfigDict) -> Dataloader:
+  """Create dataloader using tensorflow_datasets."""
+
+  dataset_builder = get_dataset(config.data.name)
+  ds_kwargs = {}
+  ds_kwargs.update({
+      'tfds_dataset_name': config.data.tfds_dataset_name,
+      'data_dir': config.data.tfds_data_dir,
+      'adhoc_config_name': config.data.adhoc_config_name,
+      'labeled_train_pattern': config.data.labeled_train_pattern,
+      'unlabeled_train_pattern': config.data.unlabeled_train_pattern,
+      'validation_pattern': config.data.validation_pattern,
+      'use_post_disaster_only': config.data.use_post_disaster_only,
+      'load_small_images': config.data.load_small_images,
+  })
+  if config.data.use_post_disaster_only:
+    config.model.num_channels = 3
+  if config.upsampling.do_upsampling:
+    ds_kwargs.update({
+        'upsampling_lambda': config.upsampling.lambda_value,
+        'upsampling_signal': config.upsampling.signal,
+    })
+  get_split_config = lambda x: x if config.data.use_splits else 1
+  if config.round_idx == 0:
+    dataloader = dataset_builder(
+        num_splits=get_split_config(config.data.num_splits),
+        initial_sample_proportion=get_split_config(
+            config.data.initial_sample_proportion
+        ),
+        subgroup_ids=config.data.subgroup_ids,
+        subgroup_proportions=config.data.subgroup_proportions,
+        **ds_kwargs,
+    )
+  else:
+    # If latter round, keep track of split generated in last round of active
+    # sampling
+    dataloader = dataset_builder(
+        config.data.num_splits,
+        initial_sample_proportion=1,
+        subgroup_ids=[],
+        subgroup_proportions=[],
+        **ds_kwargs,
+    )
+  return dataloader
