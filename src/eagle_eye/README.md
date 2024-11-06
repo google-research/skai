@@ -16,8 +16,9 @@ EagleEye is a simple multi-user image labeling system for use with SKAI.
   - Click "Cloud Firestore". "Firestore Database" should now appear under the
     "Project shortcuts" heading in the left sidebar.
   - Click "Create database".
-  - Leave Database ID as "(default)". Select a location that is colocated with
-    your SKAI data bucket. Click "Next".
+  - If you don't already have a default database, leave Database ID as
+    "(default)". Otherwise, enter a Database ID. Select a location that is
+    colocated with your SKAI data bucket. Click "Next".
   - Select "Start in production mode". Click "Create".
 - Register Web App
   - Visit https://console.firebase.google.com/project/\[project-name\]/overview
@@ -95,8 +96,9 @@ EagleEye is a simple multi-user image labeling system for use with SKAI.
   ```
   $ export GOOGLE_APPLICATION_CREDENTIALS=[path to your JSON key file]
   $ cd skai/src/eagle_eye
-  $ bash deploy.sh [path to your config.json]
+  $ bash deploy.sh [path to your config.json] [firestore database ID]
   ```
+  If you are using the default database, don't include the database id argument.
 
 - The output should contain lines similar to the following:
 
