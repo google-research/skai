@@ -35,13 +35,9 @@ import random
 from absl import app
 from absl import flags
 
-from skai import cloud_labeling
 from skai import labeling
 
 FLAGS = flags.FLAGS
-flags.DEFINE_string('cloud_project', None, 'GCP project name.')
-flags.DEFINE_string('cloud_location', None, 'Project location.')
-flags.DEFINE_list('cloud_dataset_ids', [], 'Dataset IDs.')
 flags.DEFINE_list('label_file_paths', [], 'List of paths to label files')
 flags.DEFINE_string('cloud_temp_dir', None, 'GCS temporary directory.')
 flags.DEFINE_list('example_patterns', None,
@@ -83,32 +79,17 @@ flags.DEFINE_integer(
 def main(unused_argv):
   if FLAGS.random_seed is not None:
     random.seed(FLAGS.random_seed)
-  if FLAGS.cloud_dataset_ids:
-    cloud_labeling.create_labeled_examples(
-        FLAGS.cloud_project,
-        FLAGS.cloud_location,
-        FLAGS.cloud_dataset_ids,
-        FLAGS.label_file_paths,
-        FLAGS.string_to_numeric_labels,
-        FLAGS.cloud_temp_dir,
-        FLAGS.example_patterns,
-        FLAGS.test_fraction,
-        FLAGS.train_output_path,
-        FLAGS.test_output_path,
-        FLAGS.connecting_distance_meters,
-        FLAGS.use_multiprocessing)
-  else:
-    labeling.create_labeled_examples(
-        FLAGS.label_file_paths,
-        FLAGS.string_to_numeric_labels,
-        FLAGS.example_patterns,
-        FLAGS.test_fraction,
-        FLAGS.train_output_path,
-        FLAGS.test_output_path,
-        FLAGS.connecting_distance_meters,
-        FLAGS.use_multiprocessing,
-        None,
-        FLAGS.max_processes)
+  labeling.create_labeled_examples(
+      FLAGS.label_file_paths,
+      FLAGS.string_to_numeric_labels,
+      FLAGS.example_patterns,
+      FLAGS.test_fraction,
+      FLAGS.train_output_path,
+      FLAGS.test_output_path,
+      FLAGS.connecting_distance_meters,
+      FLAGS.use_multiprocessing,
+      None,
+      FLAGS.max_processes)
 
 
 if __name__ == '__main__':
