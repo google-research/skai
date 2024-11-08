@@ -489,10 +489,13 @@ class GenerateExamplesTest(parameterized.TestCase):
     )
     self.assertSameElements(tfrecords, ['unlabeled-00000-of-00001.tfrecord'])
 
-  def testGenerateExamplesWithOutputMetaDataFile(self):
+  def testGenerateExamplesPipelineLabeled(self):
     output_dir = tempfile.mkdtemp(dir=absltest.TEST_TMPDIR.value)
-    _create_buildings_file(
-        [(178.482925, -16.632893), (178.482283, -16.632279)],
+    _create_labeled_buildings_file(
+        [
+            (178.482925, -16.632893, 0.0, 'no_damage'),
+            (178.482924, -16.632894, 1.0, 'destroyed'),
+        ],
         self.buildings_path,
     )
     before_image_info = [
@@ -510,7 +513,7 @@ class GenerateExamplesTest(parameterized.TestCase):
         output_dir=output_dir,
         num_output_shards=1,
         buildings_path=self.buildings_path,
-        buildings_labeled=False,
+        buildings_labeled=True,
         use_dataflow=False,
         gdal_env={},
         dataflow_job_name='test',
@@ -522,34 +525,69 @@ class GenerateExamplesTest(parameterized.TestCase):
         wait_for_dataflow_job=True,
         cloud_detector_model_path=None,
         output_metadata_file=True,
-        output_parquet=False,
+        output_parquet=True,
     )
 
     tfrecords = os.listdir(
-        os.path.join(output_dir, 'examples', 'unlabeled-large')
+        os.path.join(output_dir, 'examples', 'labeled-large')
     )
+    self.assertSameElements(tfrecords, ['labeled-00000-of-00001.tfrecord'])
     metadata_pattern = os.path.join(
         output_dir, 'examples', 'metadata', 'metadata.csv-*-of-*'
     )
-    metadata = pd.concat([pd.read_csv(p) for p in glob.glob(metadata_pattern)])
+    metadata = pd.concat([
+        pd.read_csv(p, dtype={'string_label': str})
+        for p in glob.glob(metadata_pattern)
+    ])
+    self.assertLen(metadata, 2)
+    self.assertCountEqual(
+        metadata.columns,
+        [
+            'example_id',
+            'int64_id',
+            'encoded_coordinates',
+            'longitude',
+            'latitude',
+            'post_image_id',
+            'pre_image_id',
+            'plus_code',
+            'string_label',
+            'label',
+        ],
+    )
 
     # No assert for example_id as each example_id depends on the image path
     # which varies with platforms where this test is run
-    self.assertEqual(
-        metadata.encoded_coordinates[0], 'A17B32432A1085C1'
+    np.testing.assert_equal(
+        metadata.encoded_coordinates.values,
+        ['A17B32432A1085C1', 'A17B32432B1085C1'],
     )
-    self.assertAlmostEqual(
-        metadata.latitude[0], -16.632892608642578
+    np.testing.assert_almost_equal(
+        metadata.latitude.values, [-16.632893, -16.632894], decimal=6
     )
-    self.assertAlmostEqual(
-        metadata.longitude[0], 178.48292541503906
+    np.testing.assert_almost_equal(
+        metadata.longitude.values, [178.482925, 178.482924], decimal=6
     )
-    self.assertEqual(metadata.pre_image_id[0], self.test_image_path)
-    self.assertEqual(
-        metadata.post_image_id[0], self.test_image_path
+    np.testing.assert_equal(
+        metadata.pre_image_id.values,
+        [self.test_image_path, self.test_image_path],
     )
-    self.assertEqual(metadata.plus_code[0], '5VMW9F8M+R5V8F4')
-    self.assertSameElements(tfrecords, ['unlabeled-00000-of-00001.tfrecord'])
+    np.testing.assert_equal(
+        metadata.post_image_id.values,
+        [self.test_image_path, self.test_image_path],
+    )
+    np.testing.assert_equal(
+        metadata['plus_code'].values, ['5VMW9F8M+R5V8F4', '5VMW9F8M+R5V872']
+    )
+    np.testing.assert_equal(
+        metadata['string_label'].values, ['no_damage', 'destroyed']
+    )
+    np.testing.assert_equal(metadata['label'].values, [0.0, 1.0])
+
+    parquet_files = os.listdir(
+        os.path.join(output_dir, 'examples', 'labeled-parquet')
+    )
+    self.assertSameElements(parquet_files, ['examples-00000-of-00001.parquet'])
 
   def testConfigLoadedCorrectlyFromJsonFile(self):
     config = generate_examples.ExamplesGenerationConfig.init_from_json_path(
