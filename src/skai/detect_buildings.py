@@ -816,13 +816,23 @@ def augment_overlap_region(building: Example) -> Example:
       building, detect_buildings_constants.MASK, dtype=tf.int32
   )
   overlaps = _get_regions_overlapped(mask, margin_size)
+  if not any(overlaps):
+    raise ValueError('Mask does not overlap any regions.')
+
+  augmented = tf.train.Example()
+  augmented.CopyFrom(building)
   for stage in range(4):
     feature = f'dedup_stage_{stage}_region'
-    for region in stage_to_regions[stage]:
-      if overlaps[region]:
-        building.features.feature[feature].float_list.value.extend(
-            region_coords[region])
-  return building
+    regions_touched = [r for r in stage_to_regions[stage] if overlaps[r]]
+    if len(regions_touched) == 1:
+      augmented.features.feature[feature].float_list.value[:] = region_coords[
+          regions_touched[0]
+      ]
+    if len(regions_touched) > 1:
+      raise ValueError(
+          f'In stage {stage}, mask touches multiple regions: {regions_touched}'
+      )
+  return augmented
 
 
 class _ExtractBuildingsForStage(beam.DoFn):

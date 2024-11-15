@@ -39,6 +39,7 @@ def _create_test_image_tiff_file_with_position_size(
     north: float,
     width: int,
     height: int,
+    crs: str,
     colorinterps: list[ColorInterp],
 ):
   num_channels = len(colorinterps)
@@ -52,7 +53,7 @@ def _create_test_image_tiff_file_with_position_size(
       'width': width,
       'count': num_channels,
       'dtype': 'uint8',
-      'crs': '+proj=latlong',
+      'crs': crs,
       'transform': rasterio.transform.from_origin(west, north, 0.1, 0.1),
       'colorinterp': colorinterps,
   }
@@ -68,7 +69,7 @@ def _create_test_image_tiff_file_with_position_size(
 
 def _create_test_image_tiff_file(colorinterps: list[ColorInterp]):
   return _create_test_image_tiff_file_with_position_size(
-      0, 0, 100, 100, colorinterps
+      0, 0, 100, 100, '+proj=latlong', colorinterps
   )
 
 
@@ -314,12 +315,13 @@ class ReadRasterTest(absltest.TestCase):
     np.testing.assert_equal(converted[2, 2, :], [63, 63, 63])
     np.testing.assert_equal(converted[3, 3, :], [31, 31, 31])
 
-  def test_build_vrt(self):
+  def test_build_mosaic_vrt(self):
     image1_path = _create_test_image_tiff_file_with_position_size(
         west=10,
         north=20,
         width=100,
         height=100,
+        crs='EPSG:26910',
         colorinterps=[ColorInterp.red, ColorInterp.green, ColorInterp.blue],
     )
     image2_path = _create_test_image_tiff_file_with_position_size(
@@ -327,15 +329,52 @@ class ReadRasterTest(absltest.TestCase):
         north=20,
         width=100,
         height=100,
+        crs='EPSG:26910',
         colorinterps=[ColorInterp.red, ColorInterp.green, ColorInterp.blue],
     )
-    with tempfile.NamedTemporaryFile(dir=absltest.TEST_TMPDIR.value) as f:
-      read_raster.build_vrt([image1_path, image2_path], f.name)
-      vrt_raster = rasterio.open(f.name)
-      vrt_image = vrt_raster.read()
+    vrt_paths = read_raster.build_vrts(
+        [image1_path, image2_path],
+        pathlib.Path(absltest.TEST_TMPDIR.value) / 'image',
+        0.5,
+        True,
+    )
+    vrt_raster = rasterio.open(vrt_paths[0])
+    vrt_image = vrt_raster.read()
     self.assertEqual(3, vrt_raster.count)
-    self.assertEqual((0.1, 0.1), vrt_raster.res)
-    self.assertEqual((3, 100, 200), vrt_image.shape)
+    self.assertEqual((0.5, 0.5), vrt_raster.res)
+    # resolution lowered by 5x, so pixel sizes also lowered by 5x.
+    self.assertEqual((3, 20, 40), vrt_image.shape)
+
+  def test_build_individual_vrts(self):
+    image1_path = _create_test_image_tiff_file_with_position_size(
+        west=-125,
+        north=40,
+        width=200,
+        height=100,
+        crs='EPSG:26910',
+        colorinterps=[ColorInterp.red, ColorInterp.green, ColorInterp.blue],
+    )
+    image2_path = _create_test_image_tiff_file_with_position_size(
+        west=-120,
+        north=50,
+        width=100,
+        height=200,
+        crs='EPSG:26910',
+        colorinterps=[ColorInterp.red, ColorInterp.green, ColorInterp.blue],
+    )
+    vrt_paths = read_raster.build_vrts(
+        [image1_path, image2_path],
+        pathlib.Path(absltest.TEST_TMPDIR.value) / 'image',
+        0.5,
+        False,
+    )
+    self.assertLen(vrt_paths, 2)
+    for vrt_path in vrt_paths:
+      vrt_raster = rasterio.open(vrt_path)
+      vrt_image = vrt_raster.read()
+      self.assertEqual(3, vrt_raster.count)
+      self.assertEqual((0.5, 0.5), vrt_raster.res)
+      self.assertEqual((3, 310, 310), vrt_image.shape)
 
 
 if __name__ == '__main__':

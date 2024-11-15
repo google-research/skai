@@ -137,20 +137,21 @@ def main(args):
   with tf.io.gfile.GFile(FLAGS.aoi_path, mode='rb') as f:
     gdf = gpd.read_file(f)
   aoi = gdf.geometry.values[0]
-  tiles = []
   gdal_env = read_raster.parse_gdal_env(FLAGS.gdal_env)
   image_paths = utils.expand_file_patterns(FLAGS.image_paths)
-  if FLAGS.mosaic_images:
-    vrt_path = os.path.join(temp_dir, 'image_mosaic.vrt')
-    read_raster.build_vrt(image_paths, vrt_path)
-    image_paths = [vrt_path]
   for image_path in image_paths:
     if not read_raster.raster_is_tiled(image_path):
       raise ValueError(f'Raster "{image_path}" is not tiled.')
 
+  vrt_paths = read_raster.build_vrts(
+      image_paths, os.path.join(temp_dir, 'image'), 0.5, FLAGS.mosaic_images
+  )
+
+  tiles = []
+  for path in vrt_paths:
     tiles.extend(
         extract_tiles.get_tiles_for_aoi(
-            image_path, aoi, FLAGS.tile_size, FLAGS.margin, gdal_env
+            path, aoi, FLAGS.tile_size, FLAGS.margin, gdal_env
         )
     )
   print(f'Extracting {len(tiles)} tiles total')

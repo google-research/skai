@@ -26,6 +26,7 @@ from skai import extract_tiles_constants
 from skai import utils
 import tensorflow as tf
 
+Metrics = beam.metrics.Metrics
 
 Example = tf.train.Example
 PipelineOptions = beam.options.pipeline_options.PipelineOptions
@@ -242,6 +243,9 @@ class ExtractTilesAsExamplesFn(beam.DoFn):
     raster = self._get_raster(tile.image_path)
     window = rasterio.windows.Window(tile.x, tile.y, tile.width, tile.height)
     window_data = raster.read(window=window, boundless=True, fill_value=0)
+    if not np.any(window_data):
+      Metrics.counter('skai', 'empty_tiles').inc()
+      return
     window_data = rasterio.plot.reshape_as_image(window_data)
     # Dimensions should be (row, col, channel).
     height, width, _ = window_data.shape

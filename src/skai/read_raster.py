@@ -17,6 +17,7 @@ import dataclasses
 import functools
 import logging
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -717,7 +718,28 @@ def raster_is_tiled(path: str) -> bool:
   return True
 
 
-def _run_gdalbuildvrt(image_paths: list[str], vrt_path: str):
+def _get_gdalbuildvrt_version() -> tuple[int, int, int]:
+  """Returns the version of the gdalbuildvrt binary."""
+  try:
+    version = subprocess.check_output(['gdalbuildvrt', '--version']).decode()
+  except subprocess.CalledProcessError as process_error:
+    raise RuntimeError(
+        f'Failed to run gdalbuildvrt: {process_error.output.decode()}'
+    ) from process_error
+
+  m = re.search(r'GDAL ([0-9]+)\.([0-9]+)\.([0-9]+)', version)
+  if m:
+    return (int(m.group(1)), int(m.group(2)), int(m.group(3)))
+  else:
+    raise RuntimeError('Could not determine gdalbuildvrt version.')
+
+
+def _run_gdalbuildvrt(
+    image_paths: list[str],
+    vrt_path: str,
+    resolution: float,
+    extents: list[float] | None,
+) -> None:
   """Runs gdalbuildvrt binary to create a VRT file.
 
   This function assumes that the binary "gdalbuildvrt" is installed on the
@@ -728,33 +750,78 @@ def _run_gdalbuildvrt(image_paths: list[str], vrt_path: str):
   Args:
     image_paths: Input image paths.
     vrt_path: Output VRT path.
+    resolution: The resolution of the VRT in meters per pixel.
+    extents: If not None, sets the extents of the VRT. Should by x_min, x_max,
+        y_min, y_max.
   """
   # GDAL doesn't recognize gs:// prefixes. Instead it wants /vsigs/ prefixes.
   gdal_image_paths = [
       p.replace('gs://', '/vsigs/') if p.startswith('gs://') else p
       for p in image_paths
   ]
-  try:
-    subprocess.check_call(['gdalbuildvrt', vrt_path] + gdal_image_paths)
-  except subprocess.CalledProcessError as process_error:
-    process_error.add_note(
-        f'Failed to build VRT file {vrt_path} from {len(image_paths)} rasters.'
-    )
-    raise
+  args = ['gdalbuildvrt', '-r', 'bilinear']
+  # -q           - Don't display progress bars.
+  # -r bilinear  - Use bilinear resampling algorithm.
+  args.extend(['-tr', str(resolution), str(resolution)])
+  if extents is not None:
+    args.append('-te')
+    args.extend(str(x) for x in extents)
+
+  # Only GDAL versions > 3.4.2 support the -strict flag.
+  if _get_gdalbuildvrt_version() > (3, 4, 2):
+    args.append('-strict')
+
+  with tempfile.TemporaryDirectory() as temp_dir:
+    temp_vrt_path = os.path.join(temp_dir, 'temp.vrt')
+    args.append(temp_vrt_path)
+    args.extend(gdal_image_paths)
+    try:
+      subprocess.run(args, capture_output=True, check=True, text=True)
+    except subprocess.CalledProcessError as process_error:
+      raise RuntimeError(
+          f'Failed to build VRT file {vrt_path} from'
+          f' {len(image_paths)} rasters: {process_error.stderr.decode()}'
+      ) from process_error
+    with open(temp_vrt_path, 'rb') as source, tf.io.gfile.GFile(
+        vrt_path, 'wb'
+    ) as dest:
+      shutil.copyfileobj(source, dest)
 
 
-def build_vrt(image_paths: list[str], vrt_path: str) -> None:
-  """Builds a VRT from a list of image paths.
+def build_vrts(
+    image_paths: list[str],
+    vrt_prefix: str,
+    resolution: float,
+    mosaic_images: bool,
+) -> list[str]:
+  """Builds VRTs from a list of image paths.
 
   Args:
     image_paths: Image paths.
-    vrt_path: Path to write VRT to.
+    vrt_prefix: Path prefix for generated VRTs.
+    resolution: VRT resolution in meters per pixel.
+    mosaic_images: If true, build a single VRT containing all images. If false,
+      build an individual VRT per input image.
+
+  Returns:
+    A list of paths of the generated VRTs.
   """
-  # First verify that all images have the same number of bands and resolutions.
+  # First verify that all images have the same projections and number of bands.
+  # VRTs do not support images with different projections and different numbers
+  # of bands.
+  # Input images with different resolutions are supported.
   raster = rasterio.open(image_paths[0])
   expected_crs = raster.crs
   expected_band_count = raster.count
-  expected_resolution = raster.res
+  x_bounds = [raster.bounds.left, raster.bounds.right]
+  y_bounds = [raster.bounds.bottom, raster.bounds.top]
+  if expected_crs.units_factor[0] not in ('meter', 'metre'):
+    # Requiring meters may be too strict but is simpler. If other linear units
+    # such as feet are absolutely required, we can support them as well.
+    raise ValueError(
+        'The only supported linear unit is "meter", but found'
+        f' {expected_crs.units_factor[0]}'
+    )
   for path in image_paths[1:]:
     raster = rasterio.open(path)
     if raster.crs != expected_crs:
@@ -765,15 +832,18 @@ def build_vrt(image_paths: list[str], vrt_path: str) -> None:
       raise ValueError(
           f'Expecting {expected_band_count} bands, got {raster.count}'
       )
-    if not np.allclose(raster.res, expected_resolution):
-      raise ValueError(
-          f'Expecting resolution {expected_resolution}, got {raster.res}'
-      )
+    x_bounds.extend((raster.bounds.left, raster.bounds.right))
+    y_bounds.extend((raster.bounds.bottom, raster.bounds.top))
 
-  with tempfile.TemporaryDirectory() as temp_dir:
-    temp_vrt_path = os.path.join(temp_dir, 'mosaic.vrt')
-    _run_gdalbuildvrt(image_paths, temp_vrt_path)
-    with open(temp_vrt_path, 'rb') as source, tf.io.gfile.GFile(
-        vrt_path, 'wb'
-    ) as dest:
-      shutil.copyfileobj(source, dest)
+  extents = [min(x_bounds), max(x_bounds), min(y_bounds), max(y_bounds)]
+  vrt_paths = []
+  if mosaic_images:
+    vrt_path = f'{vrt_prefix}-00000-of-00001.vrt'
+    _run_gdalbuildvrt(image_paths, vrt_path, resolution, None)
+    vrt_paths.append(vrt_path)
+  else:
+    for i, image_path in enumerate(image_paths):
+      vrt_path = f'{vrt_prefix}-{i:05d}-of-{len(image_paths):05d}.vrt'
+      _run_gdalbuildvrt([image_path], vrt_path, resolution, extents)
+      vrt_paths.append(vrt_path)
+  return vrt_paths
