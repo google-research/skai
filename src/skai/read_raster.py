@@ -721,7 +721,7 @@ def raster_is_tiled(path: str) -> bool:
 def _get_gdalbuildvrt_version() -> tuple[int, int, int]:
   """Returns the version of the gdalbuildvrt binary."""
   try:
-    version = subprocess.check_output(['gdalbuildvrt', '--version']).decode()
+    version = subprocess.check_output(['gdalbuildvrt', '--version'], text=True)
   except subprocess.CalledProcessError as process_error:
     raise RuntimeError(
         f'Failed to run gdalbuildvrt: {process_error.output.decode()}'
@@ -780,7 +780,7 @@ def _run_gdalbuildvrt(
     except subprocess.CalledProcessError as process_error:
       raise RuntimeError(
           f'Failed to build VRT file {vrt_path} from'
-          f' {len(image_paths)} rasters: {process_error.stderr.decode()}'
+          f' {len(image_paths)} rasters: {process_error.stderr}'
       ) from process_error
     with open(temp_vrt_path, 'rb') as source, tf.io.gfile.GFile(
         vrt_path, 'wb'
