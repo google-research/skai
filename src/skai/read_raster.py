@@ -455,28 +455,36 @@ def _generate_raster_points(
 
 def _get_rgb_indices(raster: rasterio.io.DatasetReader) -> tuple[int, int, int]:
   """Returns the indices of the RGB channels in the raster."""
-  index_by_color = {}
-  for i, colorinterp in enumerate(raster.colorinterp):
-    index_by_color[colorinterp] = i + 1
-  if index_by_color:
-    if rasterio.enums.ColorInterp.red not in index_by_color:
-      raise ValueError('Raster does not have a red channel.')
-    if rasterio.enums.ColorInterp.green not in index_by_color:
-      raise ValueError('Raster does not have a green channel.')
-    if rasterio.enums.ColorInterp.blue not in index_by_color:
-      raise ValueError('Raster does not have a blue channel.')
-    return (
-        index_by_color[rasterio.enums.ColorInterp.red],
-        index_by_color[rasterio.enums.ColorInterp.green],
-        index_by_color[rasterio.enums.ColorInterp.blue],
-    )
+  colors = {}
+  for band in range(raster.count):
+    color_interp = raster.colorinterp[band].name.lower()
+    band_name = raster.tags(band + 1).get('BandName', 'undefined').lower()
+    if band_name == 'undefined' and color_interp == 'undefined':
+      continue
+    elif band_name == 'undefined' and color_interp != 'undefined':
+      color = color_interp
+    elif band_name != 'undefined' and (
+        color_interp == 'undefined' or (band == 0 and color_interp == 'gray')
+    ):
+      color = band_name
+    elif band_name == color_interp:
+      color = band_name
+    else:
+      raise ValueError(
+          f'BandName = {band_name} and ColorInterp = {color_interp} conflict'
+      )
+
+    colors[color] = band + 1
 
   # If the image has no ColorInterp metadata, but it has exactly 3 bands, then
   # assume they are RGB, to maintain prior behavior.
-  if len(raster.indexes) == 3:
+  if not colors and raster.count == 3:
     return (1, 2, 3)
+  for color in ('red', 'green', 'blue'):
+    if color not in colors:
+      raise ValueError(f'Raster does not have a {color} channel.')
 
-  raise ValueError('RGB indexes cannot be determined.')
+  return (colors['red'], colors['green'], colors['blue'])
 
 
 class MakeWindow(beam.DoFn):

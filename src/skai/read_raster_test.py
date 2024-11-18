@@ -39,10 +39,11 @@ def _create_test_image_tiff_file_with_position_size(
     north: float,
     width: int,
     height: int,
+    num_channels: int,
     crs: str,
     colorinterps: list[ColorInterp],
+    tags: list[dict[str, str]],
 ):
-  num_channels = len(colorinterps)
   image = np.random.randint(
       0, 256, (height, width, num_channels), dtype=np.uint8
   )
@@ -55,21 +56,24 @@ def _create_test_image_tiff_file_with_position_size(
       'dtype': 'uint8',
       'crs': crs,
       'transform': rasterio.transform.from_origin(west, north, 0.1, 0.1),
-      'colorinterp': colorinterps,
   }
   _, image_path = tempfile.mkstemp(
       dir=absltest.TEST_TMPDIR.value, suffix='.tiff'
   )
+
   with rasterio.open(image_path, 'w', **profile) as dst:
+    for band, band_tags in enumerate(tags):
+      dst.update_tags(band + 1, **band_tags)
+
     for i in range(num_channels):
       dst.write(image[..., i], i + 1)
-    dst.colorinterp = profile['colorinterp']
+    dst.colorinterp = colorinterps
   return image_path
 
 
 def _create_test_image_tiff_file(colorinterps: list[ColorInterp]):
   return _create_test_image_tiff_file_with_position_size(
-      0, 0, 100, 100, '+proj=latlong', colorinterps
+      0, 0, 100, 100, len(colorinterps), '+proj=latlong', colorinterps, {}
   )
 
 
@@ -303,6 +307,30 @@ class ReadRasterTest(absltest.TestCase):
     ):
       read_raster._get_rgb_indices(dataset)
 
+  def test_get_rgb_indices_band_name_tags(self):
+    image_path = _create_test_image_tiff_file_with_position_size(
+        west=10,
+        north=20,
+        width=100,
+        height=100,
+        num_channels=4,
+        crs='EPSG:4326',
+        colorinterps=[
+            ColorInterp.undefined,
+            ColorInterp.undefined,
+            ColorInterp.undefined,
+            ColorInterp.undefined,
+        ],
+        tags=[
+            {'BandName': 'Alpha'},
+            {'BandName': 'Red'},
+            {'BandName': 'Green'},
+            {'BandName': 'Blue'},
+        ],
+    )
+    dataset = rasterio.open(image_path)
+    self.assertSequenceEqual(read_raster._get_rgb_indices(dataset), (2, 3, 4))
+
   def test_convert_image_to_uint8(self):
     band = np.diag([4095, 2047, 1023, 511]).astype(np.uint16)
     image = np.stack([band, band, band], axis=2)
@@ -321,16 +349,20 @@ class ReadRasterTest(absltest.TestCase):
         north=20,
         width=100,
         height=100,
+        num_channels=3,
         crs='EPSG:26910',
         colorinterps=[ColorInterp.red, ColorInterp.green, ColorInterp.blue],
+        tags={},
     )
     image2_path = _create_test_image_tiff_file_with_position_size(
         west=20,
         north=20,
         width=100,
         height=100,
+        num_channels=3,
         crs='EPSG:26910',
         colorinterps=[ColorInterp.red, ColorInterp.green, ColorInterp.blue],
+        tags={},
     )
     vrt_paths = read_raster.build_vrts(
         [image1_path, image2_path],
@@ -351,16 +383,20 @@ class ReadRasterTest(absltest.TestCase):
         north=40,
         width=200,
         height=100,
+        num_channels=3,
         crs='EPSG:26910',
         colorinterps=[ColorInterp.red, ColorInterp.green, ColorInterp.blue],
+        tags={},
     )
     image2_path = _create_test_image_tiff_file_with_position_size(
         west=-120,
         north=50,
         width=100,
         height=200,
+        num_channels=3,
         crs='EPSG:26910',
         colorinterps=[ColorInterp.red, ColorInterp.green, ColorInterp.blue],
+        tags={},
     )
     vrt_paths = read_raster.build_vrts(
         [image1_path, image2_path],
