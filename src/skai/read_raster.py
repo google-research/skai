@@ -843,7 +843,7 @@ def build_vrts(
     x_bounds.extend((raster.bounds.left, raster.bounds.right))
     y_bounds.extend((raster.bounds.bottom, raster.bounds.top))
 
-  extents = [min(x_bounds), max(x_bounds), min(y_bounds), max(y_bounds)]
+  extents = [min(x_bounds), min(y_bounds), max(x_bounds), max(y_bounds)]
   vrt_paths = []
   if mosaic_images:
     vrt_path = f'{vrt_prefix}-00000-of-00001.vrt'

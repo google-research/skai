@@ -391,8 +391,8 @@ class ReadRasterTest(absltest.TestCase):
     image2_path = _create_test_image_tiff_file_with_position_size(
         west=-120,
         north=50,
-        width=100,
-        height=200,
+        width=200,
+        height=100,
         num_channels=3,
         crs='EPSG:26910',
         colorinterps=[ColorInterp.red, ColorInterp.green, ColorInterp.blue],
@@ -410,7 +410,11 @@ class ReadRasterTest(absltest.TestCase):
       vrt_image = vrt_raster.read()
       self.assertEqual(3, vrt_raster.count)
       self.assertEqual((0.5, 0.5), vrt_raster.res)
-      self.assertEqual((3, 310, 310), vrt_image.shape)
+      # Image size is divided by 5 because resolution lowered from 0.1 to 0.5.
+      self.assertEqual((3, 40, 50), vrt_image.shape)
+      # All images should have the same bounds. The bounds is the union of the
+      # bounds of the individual images.
+      self.assertEqual((-125, 30, -100, 50), tuple(vrt_raster.bounds))
 
 
 if __name__ == '__main__':
