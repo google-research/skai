@@ -23,6 +23,7 @@ import pyproj
 import rasterio
 import rasterio.plot
 from skai import extract_tiles_constants
+from skai import read_raster
 from skai import utils
 import tensorflow as tf
 
@@ -220,13 +221,16 @@ class ExtractTilesAsExamplesFn(beam.DoFn):
   def setup(self) -> None:
     self._rasters = {}
 
-  def _get_raster(self, image_path: str):
-    raster = self._rasters.get(image_path)
-    if not raster:
+  def _get_raster(
+      self, image_path: str
+  ) -> tuple[rasterio.io.DatasetReader, tuple[int, int, int]]:
+    raster, rgb_bands = self._rasters.get(image_path, (None, None))
+    if raster is None:
       with rasterio.Env(**self._gdal_env):
         raster = rasterio.open(image_path)
-      self._rasters[image_path] = raster
-    return raster
+      rgb_bands = read_raster.get_rgb_indices(raster)
+      self._rasters[image_path] = (raster, rgb_bands)
+    return raster, rgb_bands
 
   def process(self, tile: Tile) -> Iterable[Example]:
     """Extract a tile from the source image and encode it as an Example.
@@ -240,15 +244,18 @@ class ExtractTilesAsExamplesFn(beam.DoFn):
     if tile.x < 0 or tile.y < 0:
       raise ValueError(f'Tile extents out of bounds: x={tile.x}, y={tile.y}')
 
-    raster = self._get_raster(tile.image_path)
+    raster, rgb_bands = self._get_raster(tile.image_path)
     window = rasterio.windows.Window(tile.x, tile.y, tile.width, tile.height)
-    window_data = raster.read(window=window, boundless=True, fill_value=0)
+    window_data = raster.read(
+        indexes=rgb_bands, window=window, boundless=True, fill_value=0
+    )
     if not np.any(window_data):
       Metrics.counter('skai', 'empty_tiles').inc()
       return
     window_data = rasterio.plot.reshape_as_image(window_data)
     # Dimensions should be (row, col, channel).
-    height, width, _ = window_data.shape
+    height, width, num_channels = window_data.shape
+    assert num_channels == 3, f'Expected 3 channels, got {num_channels}'
 
     # Pad to size requested by the tile, if needed.
     width_pad = tile.width - width

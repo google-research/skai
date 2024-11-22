@@ -217,7 +217,7 @@ class RasterInfo:
   def detect_raster_info(raster_path: str, gdal_env: dict[str, str]):
     with rasterio.Env(**gdal_env):
       raster = rasterio.open(raster_path)
-      rgb_bands = _get_rgb_indices(raster)
+      rgb_bands = get_rgb_indices(raster)
       bit_depth = 8
       return RasterInfo(raster_path, rgb_bands, bit_depth)
 
@@ -453,7 +453,7 @@ def _generate_raster_points(
       yield _RasterPoint(raster_path, longitude, latitude)
 
 
-def _get_rgb_indices(raster: rasterio.io.DatasetReader) -> tuple[int, int, int]:
+def get_rgb_indices(raster: rasterio.io.DatasetReader) -> tuple[int, int, int]:
   """Returns the indices of the RGB channels in the raster."""
   colors = {}
   for band in range(raster.count):
@@ -573,7 +573,7 @@ class ReadRasterWindowGroupFn(beam.DoFn):
     else:
       raster_info = self._raster_info[raster_path]
     if raster_info.rgb_bands is None:
-      raster_info.rgb_bands = _get_rgb_indices(raster)
+      raster_info.rgb_bands = get_rgb_indices(raster)
     if raster_info.bit_depth is None:
       raster_info.bit_depth = 8  # TODO(jzxu): Try to auto-detect bit depth.
     return raster
