@@ -10,8 +10,10 @@ TENSORFLOW_VERSION='2.14.0'
 
 PYTHON_DEPS=(
   earthengine-api
+  fiona
   gcsfs
   "geopandas>=0.8"
+  ml-collections
   numpy
   opencv-python
   openlocationcode
