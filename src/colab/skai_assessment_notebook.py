@@ -65,6 +65,8 @@ AFTER_IMAGE_9 = ''  # @param {type:"string"}
 SKAI_REPO = 'https://github.com/google-research/skai.git'
 OPEN_BUILDINGS_FEATURE_COLLECTION = 'GOOGLE/Research/open-buildings/v3/polygons'
 OSM_OVERPASS_URL = 'https://lz4.overpass-api.de/api/interpreter'
+TRAIN_TFRECORD_NAME = 'labeled_examples_train.tfrecord'
+TEST_TFRECORD_NAME = 'labeled_examples_test.tfrecord'
 
 # Derived variables
 SKAI_CODE_DIR = '/content/skai_src'
@@ -83,9 +85,7 @@ LABELING_EXAMPLES_TFRECORD_PATTERN = os.path.join(
     LABELING_IMAGES_DIR, '*', 'labeling_examples.tfrecord'
 )
 LABELS_CSV = os.path.join(OUTPUT_DIR, 'labels.csv')
-TRAIN_TFRECORD = os.path.join(OUTPUT_DIR, 'labeled_examples_train.tfrecord')
-TEST_TFRECORD = os.path.join(OUTPUT_DIR, 'labeled_examples_test.tfrecord')
-MODEL_DIR = os.path.join(OUTPUT_DIR, 'models')
+LABELED_EXAMPLES_ROOT = os.path.join(OUTPUT_DIR, 'labeled_examples')
 INFERENCE_CSV = os.path.join(OUTPUT_DIR, 'inference_scores.csv')
 
 
@@ -340,13 +340,39 @@ def make_download_button(path: str, file_name: str, caption: str):
   display(button)
 
 
-def find_model_dirs(model_root: str):
+def find_labeled_examples_dirs():
+  """Returns directories containing labeled TFRecords."""
+  dirs = tf.io.gfile.glob(os.path.join(LABELED_EXAMPLES_ROOT, '*'))
+  valid_dirs = []
+  for d in dirs:
+    train_path = os.path.join(d, TRAIN_TFRECORD_NAME)
+    test_path = os.path.join(d, TEST_TFRECORD_NAME)
+    valid = True
+    if not tf.io.gfile.exists(train_path):
+      print(
+          f'Warning: Train TFRecord does not exist in {d}, so not considering'
+          ' this a valid labeled dataset.'
+      )
+      valid = False
+    if not tf.io.gfile.exists(test_path):
+      print(
+          f'Warning: Test TFRecord does not exist in {d}, so not considering'
+          ' this a valid labeled dataset.'
+      )
+      valid = False
+    if not valid:
+      continue
+    valid_dirs.append(d)
+  return sorted(valid_dirs, reverse=True)
+
+
+def find_model_dirs():
   # Find all checkpoints dirs first. We only want model dirs that have at least
   # one checkpoint.
   checkpoint_dirs = tf.io.gfile.glob(
-      os.path.join(model_root, '*/*/model/epoch-*-aucpr-*'))
+      os.path.join(LABELED_EXAMPLES_ROOT, '*/models/*/*/model/epoch-*-aucpr-*'))
   model_dirs = set(os.path.dirname(os.path.dirname(p)) for p in checkpoint_dirs)
-  return model_dirs
+  return sorted(model_dirs, reverse=True)
 
 
 def find_labeling_image_metadata_files(labeling_images_dir: str):
@@ -380,6 +406,10 @@ def get_eeda_bearer_token(service_account: str) -> str:
       f' --impersonate-service-account="{service_account}"',
       shell=True,
   ).decode()
+
+
+def get_timestamp() -> str:
+  return time.strftime('%Y%m%d_%H%M%S', time.localtime())
 
 
 # %% [markdown]
@@ -422,14 +452,16 @@ def check_assessment_status():
   for p in labeling_metadata_files:
     print(f'  {p}')
   print('Label CSV uploaded:', yes_no_text(_file_exists(LABELS_CSV)))
+
+  labeled_examples_dirs = find_labeled_examples_dirs()
   print(
-      'Labeled examples generated:',
-      yes_no_text(_file_exists(TRAIN_TFRECORD) and _file_exists(TEST_TFRECORD)),
-  )
-  trained_models = find_model_dirs(MODEL_DIR)
-  print('Fine-tuned model trained:', yes_no_text(bool(trained_models)))
-  for model_dir in trained_models:
-    print(f'  {model_dir}')
+      'Labeled examples generated:', yes_no_text(bool(labeled_examples_dirs)))
+  if labeled_examples_dirs:
+    print('\n'.join([f'  {d}' for d in labeled_examples_dirs]))
+  trained_model_dirs = find_model_dirs()
+  print('Fine-tuned model trained:', yes_no_text(bool(trained_model_dirs)))
+  if trained_model_dirs:
+    print('\n'.join([f'  {d}' for d in trained_model_dirs]))
 
   print(
       'Fine-tuned inference generated:',
@@ -779,7 +811,7 @@ def create_labeling_images(
     if response.lower() not in ['y', 'yes']:
       return
 
-  timestamp = time.strftime('%Y%m%d_%H%M%S', time.localtime())
+  timestamp = get_timestamp()
   images_dir = os.path.join(output_dir, timestamp)
   metadata_csv = os.path.join(images_dir, 'image_metadata.csv')
 
@@ -853,19 +885,28 @@ upload_label_csvs(LABELS_CSV)
 
 # %% cellView="form"
 # @title Create Labeled Examples
-TEST_FRACTION = 0.2  # @param {"type":"number"}
-MINOR_IS_0 = False  # @param {"type":"boolean"}
+TEST_PERCENTAGE = 20  # @param {"type":"integer"}
+MINOR_IS_0 = True  # @param {"type":"boolean"}
 
 
 def create_labeled_examples(
     examples_pattern: str,
     labels_csv: str,
-    test_fraction: float,
-    train_path: str,
-    test_path: str,
-    minor_is_0: bool):
+    test_percent: int,
+    minor_is_0: bool,
+    labeled_examples_dir: str):
   """Creates labeled train and test TFRecords files."""
 
+  assert test_percent < 100, 'Test percentage must be less than 100%.'
+  assert test_percent >= 1, 'Test percentage must be at least 1%.'
+  train_percent = 100 - test_percent
+  timestamp = get_timestamp()
+  output_dir = os.path.join(
+      labeled_examples_dir,
+      f'{timestamp}_{train_percent:02d}_{test_percent:02d}_minor{0 if minor_is_0 else 1}',
+  )
+  train_path = os.path.join(output_dir, TRAIN_TFRECORD_NAME)
+  test_path = os.path.join(output_dir, TEST_TFRECORD_NAME)
   minor_damage_float_label = (0 if minor_is_0 else 1)
   label_mapping = [
       'bad_example=0',
@@ -879,7 +920,7 @@ def create_labeled_examples(
       label_file_paths=[labels_csv],
       string_to_numeric_labels=label_mapping,
       example_patterns=[examples_pattern],
-      test_fraction=test_fraction,
+      test_fraction=test_percent / 100,
       train_output_path=train_path,
       test_output_path=test_path,
       connecting_distance_meters=70.0,
@@ -893,10 +934,9 @@ def create_labeled_examples(
 create_labeled_examples(
     LABELING_EXAMPLES_TFRECORD_PATTERN,
     LABELS_CSV,
-    TEST_FRACTION,
-    TRAIN_TFRECORD,
-    TEST_TFRECORD,
-    MINOR_IS_0)
+    TEST_PERCENTAGE,
+    MINOR_IS_0,
+    LABELED_EXAMPLES_ROOT)
 
 
 # %% cellView="form"
@@ -937,12 +977,14 @@ def _load_examples_into_df(
 
   return pd.DataFrame(columns)
 
+
 def _format_counts_table(df: pd.DataFrame):
   for column in df.columns:
     if column != 'All':
       df[column] = [
           f'{x}  ({x/t * 100:0.2f}%)' for x, t in zip(df[column], df['All'])
       ]
+
 
 def show_label_stats(train_tfrecord: str, test_tfrecord: str):
   """Displays tables showing label count stats."""
@@ -971,7 +1013,29 @@ def show_label_stats(train_tfrecord: str, test_tfrecord: str):
   display(data_table.DataTable(float_counts))
 
 
-show_label_stats(TRAIN_TFRECORD, TEST_TFRECORD)
+def choose_dataset_show_label_stats():
+  """Allows user to choose a labeled dataset and shows stats about it."""
+  labeled_example_dirs = find_labeled_examples_dirs()
+  dir_select = widgets.Dropdown(
+      options=labeled_example_dirs,
+      description='Choose a labeled examples dir:',
+      layout={'width': 'initial'},
+  )
+  dir_select.style.description_width = 'initial'
+
+  show_stats_button = widgets.Button(description='Show Stats')
+  def show_stats(_):
+    show_stats_button.disabled = True
+    train_path = os.path.join(dir_select.value, TRAIN_TFRECORD_NAME)
+    test_path = os.path.join(dir_select.value, TEST_TFRECORD_NAME)
+    show_label_stats(train_path, test_path)
+
+  show_stats_button.on_click(show_stats)
+  display(dir_select)
+  display(show_stats_button)
+
+
+choose_dataset_show_label_stats()
 
 # %% [markdown]
 # # Fine Tuning
@@ -1034,21 +1098,42 @@ def run_training(
 
   # !bash script.sh
 
-run_training(
-    ASSESSMENT_NAME,
-    TRAIN_TFRECORD,
-    TEST_TFRECORD,
-    MODEL_DIR,
-    NUM_EPOCHS)
+
+def choose_dataset_run_training():
+  """Allows user to choose a labeled dataset and trains a model using it."""
+  labeled_example_dirs = find_labeled_examples_dirs()
+  dir_select = widgets.Dropdown(
+      options=labeled_example_dirs,
+      description='Choose a labeled examples dir:',
+      layout={'width': 'initial'},
+  )
+  dir_select.style.description_width = 'initial'
+
+  start_button = widgets.Button(description='Start Training')
+  def start_training(_):
+    start_button.disabled = True
+    train_path = os.path.join(dir_select.value, TRAIN_TFRECORD_NAME)
+    test_path = os.path.join(dir_select.value, TEST_TFRECORD_NAME)
+    model_dir = os.path.join(dir_select.value, 'models')
+    run_training(ASSESSMENT_NAME, train_path, test_path, model_dir, NUM_EPOCHS)
+
+  start_button.on_click(start_training)
+  display(dir_select)
+  display(start_button)
+
+choose_dataset_run_training()
 
 
 # %% cellView="form"
 # @title View Tensorboard
-def start_tensorboard(model_root: str):
+def start_tensorboard():
   """Shows Tensorboard visualization."""
-  tensorboard_dirs = tf.io.gfile.glob(
-      os.path.join(model_root, '*/*/tensorboard')
-  )
+  model_dirs = find_model_dirs()
+  tensorboard_dirs = [
+      tb
+      for d in model_dirs
+      if tf.io.gfile.isdir(tb := os.path.join(d, 'tensorboard'))
+  ]
   if not tensorboard_dirs:
     print(
         'No Tensorboard directories found. Either you have not trained a model'
@@ -1063,21 +1148,20 @@ def start_tensorboard(model_root: str):
   )
   dir_selection_widget.style.description_width = 'initial'
 
+  start_button = widgets.Button(description='Start')
   def run_tensorboard(_):
     # pylint:disable=unused-variable
+    start_button.disabled = True
     tensorboard_dir = dir_selection_widget.value
     # %tensorboard --load_fast=false --logdir $tensorboard_dir
     # pylint:enable=unused-variable
 
-  start_button = widgets.Button(
-      description='Start',
-  )
   start_button.on_click(run_tensorboard)
 
   display(dir_selection_widget)
   display(start_button)
 
-start_tensorboard(MODEL_DIR)
+start_tensorboard()
 
 
 # %% cellView="form"
@@ -1148,14 +1232,11 @@ def run_inference(
   # !bash {script_path}
 
 
-def do_inference(model_root: str):
+def do_inference():
   """Runs model inference."""
-  model_dirs = find_model_dirs(model_root)
+  model_dirs = find_model_dirs()
   if not model_dirs:
-    print(
-        f'No models found in directory {model_root}. Please train a model'
-        ' first.'
-    )
+    print('No trained model directories found. Please train a model first.')
     return
 
   model_selection_widget = widgets.Dropdown(
@@ -1164,8 +1245,10 @@ def do_inference(model_root: str):
       layout={'width': 'initial'},
   )
   model_selection_widget.style.description_width = 'initial'
+  start_button = widgets.Button(description='Start')
 
   def start_clicked(_):
+    start_button.disabled = True
     model_dir = os.path.join(model_selection_widget.value, 'model')
     checkpoint = get_best_checkpoint(model_dir)
     if not checkpoint:
@@ -1181,15 +1264,13 @@ def do_inference(model_root: str):
         GCP_SERVICE_ACCOUNT,
     )
 
-  start_button = widgets.Button(
-      description='Start',
-  )
   start_button.on_click(start_clicked)
 
   display(model_selection_widget)
   display(start_button)
 
-do_inference(MODEL_DIR)
+
+do_inference()
 
 # %% cellView="form"
 # @title Get assessment stats
