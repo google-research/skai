@@ -639,23 +639,7 @@ class DetectBuildingsFn(beam.DoFn):
     )
 
 
-def _overlaps_rows(sparse_tensor: SparseTensor, start_row: int,
-                   end_row: int) -> bool:
-  start = [start_row, 0]
-  size = [end_row - start_row, sparse_tensor.dense_shape[1]]
-  sparse_slice = tf.sparse.slice(sparse_tensor, start=start, size=size)
-  return bool(len(sparse_slice.indices))
-
-
-def _overlaps_columns(sparse_tensor: SparseTensor, start_col: int,
-                      end_col: int) -> bool:
-  start = [0, start_col]
-  size = [sparse_tensor.dense_shape[0], end_col - start_col]
-  sparse_slice = tf.sparse.slice(sparse_tensor, start=start, size=size)
-  return bool(len(sparse_slice.indices))
-
-
-def _get_regions_overlapped(mask: SparseTensor, margin_size: int) -> List[bool]:
+def _get_regions_overlapped(mask: SparseTensor, margin_size: int) -> list[int]:
   """Computes which tile regions a building mask overlaps.
 
   Args:
@@ -663,34 +647,56 @@ def _get_regions_overlapped(mask: SparseTensor, margin_size: int) -> List[bool]:
     margin_size: Size of the margin in pixels.
 
   Returns:
-    A list O of 9 booleans, where O[k] represents whether the building mask
-    overlaps that region.
+    A list of 9 integers, where the kth element is the number of mask pixels in
+    that region. 0 pixels means no overlap.
   """
   tile_height = mask.dense_shape[0].numpy()
   tile_width = mask.dense_shape[1].numpy()
+
+  # Region size is the margin size * 2 because the region includes the margin of
+  # the current tile AND the margin of the adjacent tile. For example, let's say
+  # there are two tiles, X and Y, and X is directly on top of Y. This diagram
+  # explains how X and Y overlap.
+  #
+  #     +-->   -----------------  Top edge of tile Y
+  #     |
+  #     |      Y's top margin
+  # Overlap
+  #  region    =================  Where the central regions of X and Y touch
+  #     |
+  #     |      X's bottom margin
+  #     |
+  #     +-->   -----------------  Bottom edge of tile X
   region_size = margin_size * 2
-  row_bands = [
-      _overlaps_rows(mask, 0, region_size),
-      _overlaps_rows(mask, region_size, tile_height - region_size),
-      _overlaps_rows(mask, tile_height - region_size, tile_height)
+
+  row_starts = [
+      0,
+      region_size,
+      tile_height - region_size,
   ]
-  column_bands = [
-      _overlaps_columns(mask, 0, region_size),
-      _overlaps_columns(mask, region_size, tile_width - region_size),
-      _overlaps_columns(mask, tile_width - region_size, tile_width)
+  col_starts = [
+      0,
+      region_size,
+      tile_width - region_size,
   ]
-  overlaps = [
-      row_bands[0] & column_bands[0],
-      row_bands[0] & column_bands[1],
-      row_bands[0] & column_bands[2],
-      row_bands[1] & column_bands[0],
-      row_bands[1] & column_bands[1],
-      row_bands[1] & column_bands[2],
-      row_bands[2] & column_bands[0],
-      row_bands[2] & column_bands[1],
-      row_bands[2] & column_bands[2],
+  row_sizes = [
+      region_size,
+      tile_height - 2 * region_size,
+      region_size,
   ]
-  return overlaps
+  col_sizes = [
+      region_size,
+      tile_width - 2 * region_size,
+      region_size,
+  ]
+  output = []
+  for region in range(9):
+    row = int(region // 3)
+    col = int(region % 3)
+    start = (row_starts[row], col_starts[col])
+    size = (row_sizes[row], col_sizes[col])
+    output.append(len(tf.sparse.slice(mask, start=start, size=size).indices))
+  return output
 
 
 def _encode_sparse_tensor(sparse_tensor: SparseTensor, example: Example,
@@ -732,7 +738,7 @@ def augment_overlap_region(building: Example) -> Example:
   """Identifies the tile region(s) that the building touches.
 
   For the purposes of parallelizing building deduplication, each tile is divided
-  into 8 regions as follows:
+  into 9 regions as follows:
 
   +---------+
   |0|  1  |2|
@@ -822,16 +828,16 @@ def augment_overlap_region(building: Example) -> Example:
   augmented = tf.train.Example()
   augmented.CopyFrom(building)
   for stage in range(4):
-    feature = f'dedup_stage_{stage}_region'
     regions_touched = [r for r in stage_to_regions[stage] if overlaps[r]]
-    if len(regions_touched) == 1:
-      augmented.features.feature[feature].float_list.value[:] = region_coords[
-          regions_touched[0]
-      ]
+    if not regions_touched:
+      continue
     if len(regions_touched) > 1:
-      raise ValueError(
-          f'In stage {stage}, mask touches multiple regions: {regions_touched}'
-      )
+      regions_touched.sort(key=lambda r: overlaps[r], reverse=True)
+      Metrics.counter('skai', 'dedup_mask_touches_multiple_regions').inc()
+    feature = f'dedup_stage_{stage}_region'
+    augmented.features.feature[feature].float_list.value[:] = region_coords[
+        regions_touched[0]
+    ]
   return augmented
 
 

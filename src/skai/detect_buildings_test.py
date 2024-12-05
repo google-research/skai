@@ -15,6 +15,7 @@
 
 from typing import List, Tuple
 
+from absl.testing import parameterized
 import apache_beam as beam
 from apache_beam.testing import test_pipeline
 from apache_beam.testing import util
@@ -196,7 +197,7 @@ def _create_fake_tile_example() -> tf.train.Example:
   return example
 
 
-class DetectBuildingsTest(tf.test.TestCase):
+class DetectBuildingsTest(tf.test.TestCase, parameterized.TestCase):
 
   def test_building_detection_empty_model_res(self):
     """Tests the Detect Buildings stage outputs zero building instances because the model returns empty detection."""
@@ -293,7 +294,105 @@ class DetectBuildingsTest(tf.test.TestCase):
 
       util.assert_that(result, _check_results)
 
-  def test_augment_overlap_region(self):
+  @parameterized.named_parameters(
+      dict(
+          testcase_name='region_0',
+          pixel_coords=[(10, 10)],
+          stage_0_region=[2.5, 6.5],
+          stage_1_region=[],
+          stage_2_region=[],
+          stage_3_region=[],
+      ),
+      dict(
+          testcase_name='region_1',
+          pixel_coords=[(10, 60)],
+          stage_0_region=[],
+          stage_1_region=[],
+          stage_2_region=[2.5, 7],
+          stage_3_region=[],
+      ),
+      dict(
+          testcase_name='region_2',
+          pixel_coords=[(10, 360)],
+          stage_0_region=[2.5, 7.5],
+          stage_1_region=[],
+          stage_2_region=[],
+          stage_3_region=[],
+      ),
+      dict(
+          testcase_name='region_3',
+          pixel_coords=[(60, 10)],
+          stage_0_region=[],
+          stage_1_region=[3, 6.5],
+          stage_2_region=[],
+          stage_3_region=[],
+      ),
+      dict(
+          testcase_name='region_4',
+          pixel_coords=[(60, 60)],
+          stage_0_region=[],
+          stage_1_region=[],
+          stage_2_region=[],
+          stage_3_region=[3, 7],
+      ),
+      dict(
+          testcase_name='region_5',
+          pixel_coords=[(60, 360)],
+          stage_0_region=[],
+          stage_1_region=[3, 7.5],
+          stage_2_region=[],
+          stage_3_region=[],
+      ),
+      dict(
+          testcase_name='region_6',
+          pixel_coords=[(460, 10)],
+          stage_0_region=[3.5, 6.5],
+          stage_1_region=[],
+          stage_2_region=[],
+          stage_3_region=[],
+      ),
+      dict(
+          testcase_name='region_7',
+          pixel_coords=[(460, 60)],
+          stage_0_region=[],
+          stage_1_region=[],
+          stage_2_region=[3.5, 7],
+          stage_3_region=[],
+      ),
+      dict(
+          testcase_name='region_8',
+          pixel_coords=[(460, 360)],
+          stage_0_region=[3.5, 7.5],
+          stage_1_region=[],
+          stage_2_region=[],
+          stage_3_region=[],
+      ),
+  )
+  def test_augment_overlap_single_region(
+      self,
+      pixel_coords: list[int],
+      stage_0_region: list[float],
+      stage_1_region: list[float],
+      stage_2_region: list[float],
+      stage_3_region: list[float],
+  ):
+    margin_size = 25
+    tile_width = 400
+    tile_height = 500
+
+    building = _create_building_example(3, 7, 0, 0, tile_height, tile_width,
+                                        margin_size, 0.5, pixel_coords)
+    building = detect_buildings.augment_overlap_region(building)
+    self.assertListEqual(
+        _get_float_feature(building, 'dedup_stage_0_region'), stage_0_region)
+    self.assertListEqual(
+        _get_float_feature(building, 'dedup_stage_1_region'), stage_1_region)
+    self.assertListEqual(
+        _get_float_feature(building, 'dedup_stage_2_region'), stage_2_region)
+    self.assertListEqual(
+        _get_float_feature(building, 'dedup_stage_3_region'), stage_3_region)
+
+  def test_augment_overlap_multi_regions(self):
     margin_size = 25
     tile_width = 400
     tile_height = 500
@@ -315,7 +414,7 @@ class DetectBuildingsTest(tf.test.TestCase):
 
     # This building is on the corner of regions 4, 5, 7, and 8, and touches all
     # of them.
-    pixel_coords2 = [(449, 349), (449, 350), (450, 349), (450, 450)]
+    pixel_coords2 = [(449, 349), (449, 350), (450, 349), (450, 350)]
     building2 = _create_building_example(3, 7, 0, 0, tile_height, tile_width,
                                          margin_size, 0.5, pixel_coords2)
     building2 = detect_buildings.augment_overlap_region(building2)
@@ -405,11 +504,10 @@ class DetectBuildingsTest(tf.test.TestCase):
     dest_dir = self.create_tempdir()
     src_subdir = src_dir.mkdir()
     # Make some files in the src directory.
-    [src_dir.create_file(file_path=file_prefix) for file_prefix in ['a', 'b']]
-    [
-        src_subdir.create_file(file_path=file_prefix)
-        for file_prefix in ['c', 'd']
-    ]
+    for file_prefix in ['a', 'b']:
+      src_dir.create_file(file_path=file_prefix)
+    for file_prefix in ['c', 'd']:
+      src_subdir.create_file(file_path=file_prefix)
     detect_buildings._recursively_copy_directory(src_dir, dest_dir)
     for src, dest in zip(gfile.walk(src_dir), gfile.walk(dest_dir)):
       src_dir_name, src_subdir, src_leaf_files = src
