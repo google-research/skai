@@ -41,6 +41,7 @@ else
 fi
 
 function setup {
+  sudo apt-get update
   sudo apt-get -y install gdal-bin
   if ! which python && which python3
   then
