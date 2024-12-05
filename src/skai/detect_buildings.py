@@ -824,14 +824,12 @@ def augment_overlap_region(building: Example) -> Example:
   for stage in range(4):
     feature = f'dedup_stage_{stage}_region'
     regions_touched = [r for r in stage_to_regions[stage] if overlaps[r]]
-    if len(regions_touched) == 1:
+    if len(regions_touched) >= 1:
       augmented.features.feature[feature].float_list.value[:] = region_coords[
           regions_touched[0]
       ]
     if len(regions_touched) > 1:
-      raise ValueError(
-          f'In stage {stage}, mask touches multiple regions: {regions_touched}'
-      )
+      Metrics.counter('skai', 'dedup_mask_touches_multiple_regions').inc()
   return augmented
 
 
