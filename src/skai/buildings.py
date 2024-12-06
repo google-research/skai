@@ -41,7 +41,12 @@ def _read_buildings_csv(path: str) -> gpd.GeoDataFrame:
   """
   with tf.io.gfile.GFile(path, 'r') as csv_file:
     df = pd.read_csv(csv_file)
-  if 'geometry' in df.columns:
+  if 'longitude' in df.columns and 'latitude' in df.columns:
+    geometries = gpd.GeoSeries(
+        gpd.points_from_xy(df['longitude'], df['latitude'])
+    )
+    df.drop(columns=['longitude', 'latitude'], inplace=True)
+  elif 'geometry' in df.columns:
     logging.info('Parsing %d WKT strings. This could take a while.', len(df))
     geometries = gpd.GeoSeries.from_wkt(df['geometry'])
     df.drop(columns=['geometry'], inplace=True)
@@ -49,13 +54,12 @@ def _read_buildings_csv(path: str) -> gpd.GeoDataFrame:
     logging.info('Parsing %d WKT strings. This could take a while.', len(df))
     geometries = gpd.GeoSeries.from_wkt(df['wkt'])
     df.drop(columns=['wkt'], inplace=True)
-  elif 'longitude' in df.columns and 'latitude' in df.columns:
-    geometries = gpd.points_from_xy(df['longitude'], df['latitude'])
-    df.drop(columns=['longitude', 'latitude'], inplace=True)
   else:
     raise ValueError(f'No geometry information found in file "{path}"')
 
-  return gpd.GeoDataFrame(df, geometry=geometries, crs=4326)
+  geometries = geometries.normalize()
+  gdf = gpd.GeoDataFrame(df, geometry=geometries, crs=4326)
+  return gdf.drop_duplicates()
 
 
 def convert_buildings_file(
@@ -177,4 +181,3 @@ def read_building_coordinates(path: str) -> pd.DataFrame:
   if df['latitude'].dtype != float:
     raise TypeError(f'latitude column in file {path} is not type float')
   return df
-
