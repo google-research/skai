@@ -632,7 +632,7 @@ def postprocess(
       else:
         geometries.append(shapely.wkt.loads(wkt))
     gdf = gpd.GeoDataFrame(
-        df.drop(columns=['footprint_wkt']), geometry=geometries
+        df.drop(columns=['footprint_wkt']), geometry=geometries, crs='EPSG:4326'
     )
     output_dir, output_file = os.path.split(output_path)
     gpkg_path = os.path.join(output_dir, f'{output_file}.gpkg')
