@@ -13,6 +13,47 @@
 # ---
 
 # %% cellView="form"
+# @title Install Libraries
+# @markdown This will take approximately 1 minute to run. After completing, you
+# @markdown may be prompted to restart the kernel. Select "Restart" and then
+# @markdown proceed to run the next cell.
+"""Notebook for running SKAI assessments."""
+
+# pylint: disable=g-statement-before-imports
+SKAI_REPO = 'https://github.com/google-research/skai.git'
+SKAI_CODE_DIR = '/content/skai_src'
+
+
+def install_requirements():
+  """Installs necessary Python libraries."""
+  # !rm -rf {SKAI_CODE_DIR}
+  # !git clone {SKAI_REPO} {SKAI_CODE_DIR}
+  # !pip install {SKAI_CODE_DIR}/src/.
+
+  requirements = [
+      'apache_beam[gcp]==2.54.0',
+      'fiona',
+      # https://github.com/apache/beam/issues/32169
+      'google-cloud-storage>=2.18.2',
+      'ml-collections',
+      'openlocationcode',
+      'rasterio',
+      'rio-cogeo',
+      'rtree',
+      'tensorflow==2.14.0',
+      'tensorflow_addons',
+      'tensorflow_text',
+      'xmanager',
+  ]
+
+  requirements_file = '/content/requirements.txt'
+  with open(requirements_file, 'w') as f:
+    f.write('\n'.join(requirements))
+  # !pip install -r {requirements_file}
+
+install_requirements()
+
+# %% cellView="form"
 # @title Configure Assessment Parameters
 
 # pylint:disable=missing-module-docstring
@@ -22,7 +63,6 @@
 
 # @markdown You must re-run this cell every time you make a change.
 import os
-import textwrap
 import ee
 from google.colab import auth
 
@@ -62,14 +102,15 @@ AFTER_IMAGE_8 = ''  # @param {type:"string"}
 AFTER_IMAGE_9 = ''  # @param {type:"string"}
 
 # Constants
-SKAI_REPO = 'https://github.com/google-research/skai.git'
 OPEN_BUILDINGS_FEATURE_COLLECTION = 'GOOGLE/Research/open-buildings/v3/polygons'
 OSM_OVERPASS_URL = 'https://lz4.overpass-api.de/api/interpreter'
 TRAIN_TFRECORD_NAME = 'labeled_examples_train.tfrecord'
 TEST_TFRECORD_NAME = 'labeled_examples_test.tfrecord'
+HIGH_RECALL = 0.7
+HIGH_PRECISION = 0.7
+INFERENCE_BATCH_SIZE = 8
 
 # Derived variables
-SKAI_CODE_DIR = '/content/skai_src'
 AOI_PATH = os.path.join(OUTPUT_DIR, 'aoi.geojson')
 BUILDINGS_FILE_LOG = os.path.join(OUTPUT_DIR, 'buildings_file_log.txt')
 EXAMPLE_GENERATION_CONFIG_PATH = os.path.join(
@@ -129,38 +170,6 @@ AFTER_IMAGES = process_image_entries([
 # #Initialization
 
 # %% cellView="form"
-# @title Install Libraries
-# @markdown This will take approximately 1 minute to run. After completing, you
-# @markdown may be prompted to restart the kernel. Select "Restart" and then
-# @markdown proceed to run the next cell.
-def install_requirements():
-  """Installs necessary Python libraries."""
-  # !rm -rf {SKAI_CODE_DIR}
-  # !git clone {SKAI_REPO} {SKAI_CODE_DIR}
-  # !pip install {SKAI_CODE_DIR}/src/.
-
-  requirements = textwrap.dedent('''
-    apache_beam[gcp]==2.54.0
-    google-cloud-storage>=2.18.2  # https://github.com/apache/beam/issues/32169
-    ml-collections
-    openlocationcode
-    rasterio
-    rio-cogeo
-    rtree
-    tensorflow==2.14.0
-    tensorflow_addons
-    tensorflow_text
-    xmanager
-  ''')
-
-  requirements_file = '/content/requirements.txt'
-  with open(requirements_file, 'w') as f:
-    f.write(requirements)
-  # !pip install -r {requirements_file}
-
-install_requirements()
-
-# %% cellView="form"
 # @title Authenticate with Google Cloud
 def authenticate():
   auth.authenticate_user()
@@ -179,6 +188,7 @@ import json
 import math
 import shutil
 import subprocess
+import textwrap
 import time
 import warnings
 
@@ -192,10 +202,13 @@ import ipywidgets as widgets
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import seaborn as sns
 import shapely.wkt
 from skai import earth_engine as skai_ee
 from skai import labeling
 from skai import open_street_map
+from skai.model import inference_lib
+import sklearn.metrics
 import tensorflow as tf
 import tqdm.notebook
 
@@ -373,6 +386,26 @@ def find_model_dirs():
       os.path.join(LABELED_EXAMPLES_ROOT, '*/models/*/*/model/epoch-*-aucpr-*'))
   model_dirs = set(os.path.dirname(os.path.dirname(p)) for p in checkpoint_dirs)
   return sorted(model_dirs, reverse=True)
+
+
+def get_best_checkpoint(model_dir: str):
+  """Finds the checkpoint subdirectory with the highest AUPRC.
+
+  Args:
+    model_dir: Model directory.
+
+  Returns:
+    Checkpoint directory path.
+  """
+  checkpoint_dirs = tf.io.gfile.glob(os.path.join(model_dir, 'epoch-*-aucpr-*'))
+  best_checkpoint = None
+  best_aucpr = 0
+  for checkpoint in checkpoint_dirs:
+    aucpr = float(checkpoint.split('-')[-1])
+    if aucpr > best_aucpr:
+      best_checkpoint = checkpoint
+      best_aucpr = aucpr
+  return best_checkpoint
 
 
 def find_labeling_image_metadata_files(labeling_images_dir: str):
@@ -1163,24 +1196,270 @@ def start_tensorboard():
 
 start_tensorboard()
 
+# %% cellView="form"
+# @title Evaluate Fine-Tuned Model
+
+def plot_precision_recall(labels: np.ndarray, scores: np.ndarray) -> None:
+  """Plots distinct precision and recall curves in a single graph.
+
+  The X-axis of the graph is the threshold value. This graph shows the
+  trade-off between precision and recall for a specific threshold value more
+  clearly than the usual PR curve.
+
+  Args:
+    labels: True labels array.
+    scores: Model scores array.
+  """
+  sklearn.metrics.PrecisionRecallDisplay.from_predictions(labels, scores)
+  plt.title('Precision and Recall vs. Threshold')
+  plt.grid()
+  plt.show()
+
+  precision, recall, thresholds = sklearn.metrics.precision_recall_curve(
+      labels, scores)
+  x = pd.DataFrame({
+      'threshold': thresholds,
+      'precision': precision[:-1],
+      'recall': recall[:-1],
+  })
+  sns.lineplot(data=x.set_index('threshold'))
+  plt.title('Precision/Recall vs. Threshold')
+  plt.grid()
+  plt.show()
+
+
+def get_recall_at_precision(
+    thresholds: np.ndarray,
+    precisions: np.ndarray,
+    recalls: np.ndarray,
+    min_precision: float) -> tuple[float, float, float]:
+  """Finds threshold that maximizes recall with a minimum precision value.
+
+  Args:
+    thresholds: List of threshold values returned by
+      sklearn.metrics.precision_recall_curve. Length N.
+    precisions: List of precision values returned by
+      sklearn.metrics.precision_recall_curve. Length N + 1.
+    recalls: List of recall values returned by
+      sklearn.metrics.precision_recall_curve. Length N + 1.
+    min_precision: Minimum precision value to maintain.
+
+  Returns:
+    Tuple of (threshold, precision, recall).
+  """
+  precisions = precisions[:-1]
+  recalls = recalls[:-1]
+  eligible = (precisions > min_precision)
+  if not any(eligible):
+    # If precision never exceeds the minimum value desired, return the threshold
+    # where it is highest.
+    eligible = (precisions == np.max(precisions))
+  i = np.argmax(recalls[eligible])
+  return thresholds[eligible][i], precisions[eligible][i], recalls[eligible][i]
+
+
+def get_precision_at_recall(
+    thresholds: np.ndarray,
+    precisions: np.ndarray,
+    recalls: np.ndarray,
+    min_recall: float) -> tuple[float, float, float]:
+  """Finds threshold that maximizes precision with a minimum recall value.
+
+  Args:
+    thresholds: List of threshold values returned by
+      sklearn.metrics.precision_recall_curve. Length N.
+    precisions: List of precision values returned by
+      sklearn.metrics.precision_recall_curve. Length N + 1.
+    recalls: List of recall values returned by
+      sklearn.metrics.precision_recall_curve. Length N + 1.
+    min_recall: Minimum recall value to maintain.
+
+  Returns:
+    Tuple of (threshold, precision, recall).
+  """
+  precisions = precisions[:-1]
+  recalls = recalls[:-1]
+  eligible = (recalls > min_recall)
+  if not any(eligible):
+    # If recall never exceeds the minimum value desired, return the threshold
+    # where it is highest.
+    eligible = (recalls == np.max(recalls))
+  i = np.argmax(precisions[eligible])
+  return thresholds[eligible][i], precisions[eligible][i], recalls[eligible][i]
+
+
+def get_max_f1_threshold(
+    scores: np.ndarray, labels: np.ndarray
+) -> tuple[float, float, float, float]:
+  """Finds the threshold that maximizes F1 score.
+
+  Args:
+    scores: Prediction scores assigned by the model.
+    labels: True labels.
+
+  Returns:
+    Tuple of best threshold and F1-score, Precision, Recall at that threshold.
+  """
+  best_f1 = 0
+  best_threshold = 0
+  best_precision = 0
+  best_recall = 0
+  for threshold in scores:
+    predictions = (scores >= threshold)
+    if (f1 := sklearn.metrics.f1_score(labels, predictions)) > best_f1:
+      best_f1 = f1
+      best_threshold = threshold
+      best_precision = sklearn.metrics.precision_score(labels, predictions)
+      best_recall = sklearn.metrics.recall_score(labels, predictions)
+  return best_threshold, best_f1, best_precision, best_recall
+
+
+def plot_score_distribution(labels: np.ndarray, scores: np.ndarray) -> None:
+  df = {'score': scores, 'label': labels}
+  sns.displot(data=df, x='score', col='label')
+  plt.show()
+
+
+def print_model_metrics(scores: np.ndarray, labels: np.ndarray) -> None:
+  """Prints evaluation metrics."""
+  precisions, recalls, thresholds = sklearn.metrics.precision_recall_curve(
+      labels, scores
+  )
+  auprc = sklearn.metrics.auc(recalls, precisions)
+  auroc = sklearn.metrics.roc_auc_score(labels, scores)
+  print(f'AUPRC:     {auprc:.4g}')
+  print(f'AUROC:     {auroc:.4g}')
+
+  threshold, f1, precision, recall = get_max_f1_threshold(scores, labels)
+  print('\nFor maximum F1-score')
+  print(f'  Threshold: {threshold}')
+  print(f'  F1-score: {f1}')
+  print(f'  Precision: {precision}')
+  print(f'  Recall: {recall}')
+
+  threshold, precision, recall = get_precision_at_recall(
+      thresholds, precisions, recalls, HIGH_RECALL
+  )
+  print(f'\nFor recall >= {HIGH_RECALL}')
+  print(f'  Threshold: {threshold}')
+  print(f'  Precision: {precision}')
+  print(f'  Recall: {recall}')
+
+  threshold, precision, recall = get_recall_at_precision(
+      thresholds, precisions, recalls, HIGH_PRECISION
+  )
+  print(f'\nFor precision >= {HIGH_PRECISION}')
+  print(f'  Threshold: {threshold}')
+  print(f'  Precision: {precision}')
+  print(f'  Recall: {recall}')
+
+  plot_precision_recall(labels, scores)
+  plot_score_distribution(labels, scores)
+
+
+def _read_examples(path: str) -> list[tf.train.Example]:
+  examples = []
+  for record in tf.data.TFRecordDataset([path]):
+    example = tf.train.Example()
+    example.ParseFromString(record.numpy())
+    examples.append(example)
+  return examples
+
+
+def _get_label(example: tf.train.Example) -> float:
+  return example.features.feature['label'].float_list.value[0]
+
+
+def _evaluate_model(model_dir: str, examples_path: str) -> None:
+  """Evaluates model on examples and prints metrics."""
+
+  print('Reading examples ...')
+  examples = _read_examples(examples_path)
+  print('Done reading examples')
+  if not examples:
+    raise ValueError('No examples')
+
+  print('Loading model ...')
+  model = inference_lib.TF2InferenceModel(
+      model_dir,
+      224,
+      False,
+      inference_lib.ModelType.CLASSIFICATION,
+  )
+  model.prepare_model()
+  print('Done loading model')
+
+  print('Running inference ...')
+  scores = []
+  labels = []
+  for batch_start in tqdm.notebook.tqdm(
+      range(0, len(examples), INFERENCE_BATCH_SIZE)
+  ):
+    batch = examples[batch_start:batch_start+INFERENCE_BATCH_SIZE]
+    scores.extend(model.predict_scores(batch).numpy())
+    labels.extend(_get_label(e) for e in batch)
+  scores = np.array(scores)
+  labels = np.array(labels)
+  print_model_metrics(scores, labels)
+
+
+def evaluate_model_on_test_examples():
+  """Lets user evaluate a model on chosen trained model and test examples.
+  """
+  labeled_example_dirs = find_labeled_examples_dirs()
+  examples_select = widgets.Dropdown(
+      options=labeled_example_dirs,
+      description='Choose a labeled examples dir:',
+      layout={'width': 'initial'},
+  )
+  examples_select.style.description_width = 'initial'
+
+  model_dirs = find_model_dirs()
+  if not model_dirs:
+    print('No trained model directories found. Please train a model first.')
+    return
+
+  model_select = widgets.Dropdown(
+      options=model_dirs,
+      description='Choose a model:',
+      layout={'width': 'initial'},
+  )
+  model_select.style.description_width = 'initial'
+  run_button = widgets.Button(description='Run')
+
+  def run_button_clicked(_):
+    run_button.disabled = True
+    test_path = os.path.join(examples_select.value, TEST_TFRECORD_NAME)
+    model_dir = os.path.join(model_select.value, 'model')
+    checkpoint = get_best_checkpoint(model_dir)
+    if not checkpoint:
+      print('Model directory does not contain a valid checkpoint directory.')
+      return
+    _evaluate_model(checkpoint, test_path)
+
+  run_button.on_click(run_button_clicked)
+
+  display(model_select)
+  display(examples_select)
+  display(run_button)
+
+
+evaluate_model_on_test_examples()
 
 # %% cellView="form"
 # @title Run inference
-def get_best_checkpoint(model_dir: str):
-  checkpoint_dirs = tf.io.gfile.glob(os.path.join(model_dir, 'epoch-*-aucpr-*'))
-  best_checkpoint = None
-  best_aucpr = 0
-  for checkpoint in checkpoint_dirs:
-    aucpr = float(checkpoint.split('-')[-1])
-    if aucpr > best_aucpr:
-      best_checkpoint = checkpoint
-      best_aucpr = aucpr
-  return best_checkpoint
+# @markdown These should be changed to the thresholds chosen in the eval cell.
+DEFAULT_THRESHOLD = 0.5  # @param {"type":"number"}
+HIGH_PRECISION_THRESHOLD = 0.6  # @param {"type":"number"}
+HIGH_RECALL_THRESHOLD = 0.4  # @param {"type":"number"}
 
 
 def run_inference(
     examples_pattern: str,
     model_dir: str,
+    default_threshold: float,
+    high_precision_threshold: float,
+    high_recall_threshold: float,
     output_dir: str,
     output_path: str,
     cloud_project: str,
@@ -1220,9 +1499,9 @@ def run_inference(
       --cloud_region='{cloud_region}' \
       --dataflow_temp_dir='{temp_dir}' \
       --worker_service_account='{service_account}' \
-      --threshold=0.5 \
-      --high_precision_threshold=0.75 \
-      --high_recall_threshold=0.4 \
+      --threshold={default_threshold} \
+      --high_precision_threshold={high_precision_threshold} \
+      --high_recall_threshold={high_recall_threshold} \
       --max_dataflow_workers=4 {accelerator_flags}
   ''')
 
@@ -1257,6 +1536,9 @@ def do_inference():
     run_inference(
         UNLABELED_TFRECORD_PATTERN,
         checkpoint,
+        DEFAULT_THRESHOLD,
+        HIGH_PRECISION_THRESHOLD,
+        HIGH_RECALL_THRESHOLD,
         OUTPUT_DIR,
         INFERENCE_CSV,
         GCP_PROJECT,
