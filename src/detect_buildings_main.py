@@ -54,7 +54,6 @@ from skai import beam_utils
 from skai import detect_buildings
 from skai import extract_tiles
 from skai import read_raster
-from skai import utils
 
 import tensorflow as tf
 
@@ -138,15 +137,9 @@ def main(args):
     gdf = gpd.read_file(f)
   aoi = gdf.geometry.values[0]
   gdal_env = read_raster.parse_gdal_env(FLAGS.gdal_env)
-  image_paths = utils.expand_file_patterns(FLAGS.image_paths)
-  for image_path in image_paths:
-    if not read_raster.raster_is_tiled(image_path):
-      raise ValueError(f'Raster "{image_path}" is not tiled.')
-
-  vrt_paths = read_raster.build_vrts(
-      image_paths, os.path.join(temp_dir, 'image'), 0.5, FLAGS.mosaic_images
+  vrt_paths = read_raster.prepare_building_detection_input_images(
+      FLAGS.image_paths, os.path.join(temp_dir, 'vrts'), gdal_env
   )
-
   tiles = []
   for path in vrt_paths:
     tiles.extend(

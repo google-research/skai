@@ -203,13 +203,19 @@ def get_tiles_for_aoi(image_path: str,
 
   Yields:
     A grid of tiles that covers the AOI.
+
+  Raises:
+    RuntimeError: If the image file does not exist.
   """
+  if not rasterio.shutil.exists(image_path):
+    raise RuntimeError(f'File {image_path} does not exist')
+
   with rasterio.Env(**gdal_env):
     image = rasterio.open(image_path)
-    x_min, y_min, x_max, y_max = _get_pixel_bounds_for_aoi(image, aoi)
-    yield from get_tiles(
-        image_path, x_min, y_min, x_max, y_max, tile_size, margin
-    )
+  x_min, y_min, x_max, y_max = _get_pixel_bounds_for_aoi(image, aoi)
+  yield from get_tiles(
+      image_path, x_min, y_min, x_max, y_max, tile_size, margin
+  )
 
 
 class ExtractTilesAsExamplesFn(beam.DoFn):
@@ -227,7 +233,10 @@ class ExtractTilesAsExamplesFn(beam.DoFn):
     raster, rgb_bands = self._rasters.get(image_path, (None, None))
     if raster is None:
       with rasterio.Env(**self._gdal_env):
-        raster = rasterio.open(image_path)
+        try:
+          raster = rasterio.open(image_path)
+        except rasterio.errors.RasterioIOError as error:
+          raise ValueError(f'Error opening raster {image_path}') from error
       rgb_bands = read_raster.get_rgb_indices(raster)
       self._rasters[image_path] = (raster, rgb_bands)
     return raster, rgb_bands

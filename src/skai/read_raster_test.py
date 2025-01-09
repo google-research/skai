@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
 import pathlib
 import tempfile
 from absl.testing import absltest
@@ -35,14 +36,15 @@ _WindowGroup = read_raster._WindowGroup
 
 
 def _create_test_image_tiff_file_with_position_size(
-    west: float,
-    north: float,
+    x: float,
+    y: float,
     width: int,
     height: int,
     num_channels: int,
     crs: str,
     colorinterps: list[ColorInterp],
     tags: list[dict[str, str]],
+    resolution: float = 0.1,
 ):
   image = np.random.randint(
       0, 256, (height, width, num_channels), dtype=np.uint8
@@ -55,7 +57,9 @@ def _create_test_image_tiff_file_with_position_size(
       'count': num_channels,
       'dtype': 'uint8',
       'crs': crs,
-      'transform': rasterio.transform.from_origin(west, north, 0.1, 0.1),
+      'transform': rasterio.transform.from_origin(
+          x, y, resolution, resolution
+      ),
   }
   _, image_path = tempfile.mkstemp(
       dir=absltest.TEST_TMPDIR.value, suffix='.tiff'
@@ -75,6 +79,36 @@ def _create_test_image_tiff_file(colorinterps: list[ColorInterp]):
   return _create_test_image_tiff_file_with_position_size(
       0, 0, 100, 100, len(colorinterps), '+proj=latlong', colorinterps, {}
   )
+
+
+def _create_test_image_at_path(
+    path: str,
+    x: float,
+    y: float,
+    width: int,
+    height: int,
+    num_channels: int,
+    crs: str,
+    resolution: float,
+):
+  image = np.random.randint(
+      0, 256, (height, width, num_channels), dtype=np.uint8
+  )
+
+  profile = {
+      'driver': 'GTiff',
+      'height': height,
+      'width': width,
+      'count': num_channels,
+      'dtype': 'uint8',
+      'crs': crs,
+      'transform': rasterio.transform.from_origin(
+          x, y, resolution, resolution
+      ),
+  }
+  with rasterio.open(path, 'w', **profile) as dst:
+    for i in range(num_channels):
+      dst.write(image[..., i], i + 1)
 
 
 def _create_buildings_file(
@@ -309,8 +343,8 @@ class ReadRasterTest(absltest.TestCase):
 
   def test_get_rgb_indices_band_name_tags(self):
     image_path = _create_test_image_tiff_file_with_position_size(
-        west=10,
-        north=20,
+        x=10,
+        y=20,
         width=100,
         height=100,
         num_channels=4,
@@ -345,8 +379,8 @@ class ReadRasterTest(absltest.TestCase):
 
   def test_build_mosaic_vrt(self):
     image1_path = _create_test_image_tiff_file_with_position_size(
-        west=10,
-        north=20,
+        x=10,
+        y=20,
         width=100,
         height=100,
         num_channels=3,
@@ -355,8 +389,8 @@ class ReadRasterTest(absltest.TestCase):
         tags={},
     )
     image2_path = _create_test_image_tiff_file_with_position_size(
-        west=20,
-        north=20,
+        x=20,
+        y=20,
         width=100,
         height=100,
         num_channels=3,
@@ -369,6 +403,7 @@ class ReadRasterTest(absltest.TestCase):
         pathlib.Path(absltest.TEST_TMPDIR.value) / 'image',
         0.5,
         True,
+        {},
     )
     vrt_raster = rasterio.open(vrt_paths[0])
     vrt_image = vrt_raster.read()
@@ -379,22 +414,22 @@ class ReadRasterTest(absltest.TestCase):
 
   def test_build_individual_vrts(self):
     image1_path = _create_test_image_tiff_file_with_position_size(
-        west=-125,
-        north=40,
+        x=581370,
+        y=4141960,
         width=200,
         height=100,
         num_channels=3,
-        crs='EPSG:26910',
+        crs='EPSG:32610',
         colorinterps=[ColorInterp.red, ColorInterp.green, ColorInterp.blue],
         tags={},
     )
     image2_path = _create_test_image_tiff_file_with_position_size(
-        west=-120,
-        north=50,
+        x=581375,
+        y=4141970,
         width=200,
         height=100,
         num_channels=3,
-        crs='EPSG:26910',
+        crs='EPSG:32610',
         colorinterps=[ColorInterp.red, ColorInterp.green, ColorInterp.blue],
         tags={},
     )
@@ -403,6 +438,7 @@ class ReadRasterTest(absltest.TestCase):
         pathlib.Path(absltest.TEST_TMPDIR.value) / 'image',
         0.5,
         False,
+        {},
     )
     self.assertLen(vrt_paths, 2)
     for vrt_path in vrt_paths:
@@ -411,10 +447,121 @@ class ReadRasterTest(absltest.TestCase):
       self.assertEqual(3, vrt_raster.count)
       self.assertEqual((0.5, 0.5), vrt_raster.res)
       # Image size is divided by 5 because resolution lowered from 0.1 to 0.5.
-      self.assertEqual((3, 40, 50), vrt_image.shape)
+      self.assertEqual((3, 41, 51), vrt_image.shape)
       # All images should have the same bounds. The bounds is the union of the
       # bounds of the individual images.
-      self.assertEqual((-125, 30, -100, 50), tuple(vrt_raster.bounds))
+      np.testing.assert_allclose(
+          (581370, 4141949.5, 581395.5, 4141970), tuple(vrt_raster.bounds)
+      )
+
+  def test_build_individual_vrts_diff_crs(self):
+    image1_path = _create_test_image_tiff_file_with_position_size(
+        x=581370,
+        y=4141960,
+        width=200,
+        height=100,
+        num_channels=3,
+        crs='EPSG:32610',
+        colorinterps=[ColorInterp.red, ColorInterp.green, ColorInterp.blue],
+        tags={},
+    )
+    image2_path = _create_test_image_tiff_file_with_position_size(
+        x=-122.08034382,
+        y=37.42096571,
+        width=200,
+        height=100,
+        num_channels=3,
+        crs='EPSG:4326',
+        colorinterps=[ColorInterp.red, ColorInterp.green, ColorInterp.blue],
+        tags={},
+        resolution=0.0000010198723355,  # About 0.1m
+    )
+    vrt_paths = read_raster.build_vrts(
+        [image1_path, image2_path],
+        pathlib.Path(absltest.TEST_TMPDIR.value) / 'image',
+        0.5,
+        False,
+        {},
+    )
+    self.assertLen(vrt_paths, 2)
+    for vrt_path in vrt_paths:
+      vrt_raster = rasterio.open(vrt_path)
+      vrt_image = vrt_raster.read()
+      self.assertEqual(3, vrt_raster.count)
+      self.assertEqual((0.5, 0.5), vrt_raster.res)
+      # Image size is divided by 5 because resolution lowered from 0.1 to 0.5.
+      self.assertEqual((3, 41, 47), vrt_image.shape)
+      # All images should have the same bounds. The bounds is the union of the
+      # bounds of the individual images.
+      np.testing.assert_allclose(
+          (581370, 4141949.675, 581393.5, 4141970.175), tuple(vrt_raster.bounds)
+      )
+
+  def test_prepare_building_detection_input_images(self):
+    images_dir = self.create_tempdir()
+    _create_test_image_at_path(
+        path=os.path.join(images_dir, 'image1.tif'),
+        x=581370,
+        y=4141960,
+        width=200,
+        height=100,
+        num_channels=3,
+        crs='EPSG:26910',
+        resolution=1.0,
+    )
+    _create_test_image_at_path(
+        path=os.path.join(images_dir, 'image2.tif'),
+        x=581380,
+        y=4141970,
+        width=200,
+        height=100,
+        num_channels=3,
+        crs='EPSG:26910',
+        resolution=0.5,
+    )
+    _create_test_image_at_path(
+        path=os.path.join(images_dir, 'standalone_image.tif'),
+        x=-122.08034382,
+        y=37.42096571,
+        width=500,
+        height=500,
+        num_channels=3,
+        crs='EPSG:4326',
+        resolution=0.000006,
+    )
+    image_paths = [
+        os.path.join(images_dir, 'image*.tif'),
+        os.path.join(images_dir, 'standalone_image.tif'),
+    ]
+    vrt_dir = self.create_tempdir()
+    vrt_paths = read_raster.prepare_building_detection_input_images(
+        image_paths, vrt_dir, {}
+    )
+    self.assertLen(vrt_paths, 2)
+    vrt1 = rasterio.open(vrt_paths[0])
+    self.assertEqual(vrt1.crs.to_epsg(), 32610)
+    self.assertEqual(vrt1.res, (0.5, 0.5))
+    vrt2 = rasterio.open(vrt_paths[1])
+    self.assertEqual(vrt2.crs.to_epsg(), 32610)
+    self.assertEqual(vrt2.res, (0.5, 0.5))
+    self.assertEqual(vrt1.width, vrt2.width)
+    self.assertEqual(vrt1.height, vrt2.height)
+    self.assertEqual(vrt1.transform, vrt2.transform)
+
+    self.assertCountEqual(
+        os.listdir(vrt_dir),
+        [
+            'mosaics',
+            'input-00000-of-00002.vrt',
+            'input-00001-of-00002.vrt',
+        ],
+    )
+    self.assertCountEqual(
+        os.listdir(os.path.join(vrt_dir, 'mosaics')),
+        [
+            'mosaic-00000.vrt',
+        ],
+    )
 
 
 if __name__ == '__main__':
