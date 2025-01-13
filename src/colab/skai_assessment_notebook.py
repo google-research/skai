@@ -102,6 +102,7 @@ AFTER_IMAGE_8 = ''  # @param {type:"string"}
 AFTER_IMAGE_9 = ''  # @param {type:"string"}
 
 # Constants
+SKAI_CODE_DIR = '/content/skai_src'
 OPEN_BUILDINGS_FEATURE_COLLECTION = 'GOOGLE/Research/open-buildings/v3/polygons'
 OSM_OVERPASS_URL = 'https://lz4.overpass-api.de/api/interpreter'
 TRAIN_TFRECORD_NAME = 'labeled_examples_train.tfrecord'
