@@ -77,6 +77,7 @@ BUILDING_SEGMENTATION_MODEL_PATH = ''  # @param {type:"string"}
 ASSESSMENT_NAME = ''  # @param {type:"string"}
 EVENT_DATE = ''  # @param {type:"date"}
 OUTPUT_DIR = ''  # @param {type:"string"}
+EXAMPLE_RESOLUTION = 0.5  # @param {type:"number"}
 
 # @markdown ---
 BEFORE_IMAGE_0 = ''  # @param {type:"string"}
@@ -119,6 +120,9 @@ EXAMPLE_GENERATION_CONFIG_PATH = os.path.join(
 )
 UNLABELED_TFRECORD_PATTERN = os.path.join(
     OUTPUT_DIR, 'examples', 'unlabeled-large', 'unlabeled-*-of-*.tfrecord'
+)
+UNLABELED_PARQUET_PATTERN = os.path.join(
+    OUTPUT_DIR, 'examples', 'unlabeled-parquet', 'examples-*-of-*.parquet'
 )
 ZERO_SHOT_DIR = os.path.join(OUTPUT_DIR, 'zero_shot_model')
 ZERO_SHOT_SCORES = os.path.join(ZERO_SHOT_DIR, 'dataset_0_output.csv')
@@ -470,8 +474,12 @@ def check_assessment_status():
       yes_no_text(_file_exists(EXAMPLE_GENERATION_CONFIG_PATH)),
   )
   print(
-      'Unlabeled examples generated:',
+      'Unlabeled tfrecord files generated:',
       yes_no_text(_file_exists(UNLABELED_TFRECORD_PATTERN)),
+  )
+  print(
+      'Unlabeled parquet files generated:',
+      yes_no_text(_file_exists(UNLABELED_PARQUET_PATTERN)),
   )
   print(
       'Zero-shot assessment generated:',
@@ -671,13 +679,14 @@ def write_example_generation_config(path: str) -> None:
       'output_dir': OUTPUT_DIR,
       'buildings_method': 'file',
       'buildings_file': buildings_file,
-      'resolution': 0.5,
+      'resolution': EXAMPLE_RESOLUTION,
       'use_dataflow': True,
       'cloud_project': GCP_PROJECT,
       'cloud_region': GCP_LOCATION,
       'worker_service_account': GCP_SERVICE_ACCOUNT,
       'max_dataflow_workers': 100,
       'output_shards': 100,
+      'output_parquet': True,
       'output_metadata_file': True,
       'before_image_patterns': BEFORE_IMAGES,
       'after_image_patterns': AFTER_IMAGES,
@@ -819,12 +828,20 @@ def visualize_labeling_images(images_dir: str, num: int):
 
 
 def create_labeling_images(
-    examples_pattern: str,
+    tfrecord_pattern: str,
+    parquet_pattern: str,
     scores_file: str,
     output_dir: str,
     max_images: int,
 ):
   """Creates labeling images."""
+
+  # Prefer using Parquet dataset over TFRecords.
+  if tf.io.gfile.glob(parquet_pattern):
+    examples_pattern = parquet_pattern
+  else:
+    examples_pattern = tfrecord_pattern
+
   if not tf.io.gfile.glob(examples_pattern):
     print(
         f'No files match "{examples_pattern}". Please run example generation'
@@ -878,6 +895,7 @@ def create_labeling_images(
 
 create_labeling_images(
     UNLABELED_TFRECORD_PATTERN,
+    UNLABELED_PARQUET_PATTERN,
     ZERO_SHOT_SCORES,
     LABELING_IMAGES_DIR,
     MAX_LABELING_IMAGES,
