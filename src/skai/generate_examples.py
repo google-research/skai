@@ -330,7 +330,9 @@ def download_building_footprints(
     )
   elif config.buildings_method == 'open_buildings':
     if not earth_engine.initialize(
-        config.earth_engine_service_account, config.earth_engine_private_key
+        config.cloud_project,
+        config.earth_engine_service_account,
+        config.earth_engine_private_key,
     ):
       raise NotInitializedEarthEngineError()
     logging.info('Querying Open Buildings centroids. This may take a while.')

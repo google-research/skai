@@ -156,7 +156,9 @@ def get_open_buildings(regions: list[ShapelyGeometry],
     )
 
 
-def initialize(service_account: str, private_key: str | None) -> bool:
+def initialize(
+    cloud_project: str, service_account: str, private_key: str | None
+) -> bool:
   """Initializes EE server connection.
 
   When not using a service account, this function assumes that the user has
@@ -164,6 +166,7 @@ def initialize(service_account: str, private_key: str | None) -> bool:
   "earthengine authenticate".
 
   Args:
+    cloud_project: Google Cloud project id.
     service_account: If not empty, the service account to use. Otherwise
       defaults to caller's personal account.
     private_key: Private key for service account.
@@ -174,9 +177,9 @@ def initialize(service_account: str, private_key: str | None) -> bool:
   try:
     if service_account:
       credentials = ee.ServiceAccountCredentials(service_account, private_key)
-      ee.Initialize(credentials)
+      ee.Initialize(credentials=credentials, project=cloud_project)
     else:
-      ee.Initialize()
+      ee.Initialize(project=cloud_project)
   except ee.EEException as e:
     logging.error('Error initializing Earth Engine: %s', e)
     return False
