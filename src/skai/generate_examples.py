@@ -1124,6 +1124,8 @@ def _example_to_dict(
     features['post_image_png_large'] = utils.get_bytes_feature(
         e, 'post_image_png_large'
     )[0]
+    features['pre_image_png'] = utils.get_bytes_feature(e, 'pre_image_png')[0]
+    features['post_image_png'] = utils.get_bytes_feature(e, 'post_image_png')[0]
   return features
 
 
@@ -1169,6 +1171,8 @@ def _write_examples_to_parquet(
       ('label', pyarrow.float64()),
       ('pre_image_png_large', pyarrow.binary()),
       ('post_image_png_large', pyarrow.binary()),
+      ('pre_image_png', pyarrow.binary()),
+      ('post_image_png', pyarrow.binary()),
   ])
   _ = (
       examples
