@@ -111,6 +111,7 @@ TEST_TFRECORD_NAME = 'labeled_examples_test.tfrecord'
 HIGH_RECALL = 0.7
 HIGH_PRECISION = 0.7
 INFERENCE_BATCH_SIZE = 8
+INFERENCE_SUBDIR = 'inference'
 
 # Derived variables
 AOI_PATH = os.path.join(OUTPUT_DIR, 'aoi.geojson')
@@ -130,9 +131,7 @@ LABELING_IMAGES_DIR = os.path.join(OUTPUT_DIR, 'labeling_images')
 LABELING_EXAMPLES_TFRECORD_PATTERN = os.path.join(
     LABELING_IMAGES_DIR, '*', 'labeling_examples.tfrecord'
 )
-LABELS_CSV = os.path.join(OUTPUT_DIR, 'labels.csv')
 LABELED_EXAMPLES_ROOT = os.path.join(OUTPUT_DIR, 'labeled_examples')
-INFERENCE_CSV = os.path.join(OUTPUT_DIR, 'inference_scores.csv')
 
 
 def process_image_entries(entries: list[str]) -> list[str]:
@@ -413,6 +412,15 @@ def get_best_checkpoint(model_dir: str):
   return best_checkpoint
 
 
+def find_inference_csvs():
+  inference_csvs = []
+  for model_dir in find_model_dirs():
+    inference_csvs.extend(
+        tf.io.gfile.glob(os.path.join(model_dir, INFERENCE_SUBDIR, '*.csv'))
+    )
+  return inference_csvs
+
+
 def find_labeling_image_metadata_files(labeling_images_dir: str):
   return tf.io.gfile.glob(os.path.join(
       labeling_images_dir, '*', 'image_metadata.csv'))
@@ -493,7 +501,6 @@ def check_assessment_status():
   )
   for p in labeling_metadata_files:
     print(f'  {p}')
-  print('Label CSV uploaded:', yes_no_text(_file_exists(LABELS_CSV)))
 
   labeled_examples_dirs = find_labeled_examples_dirs()
   print(
@@ -505,10 +512,11 @@ def check_assessment_status():
   if trained_model_dirs:
     print('\n'.join([f'  {d}' for d in trained_model_dirs]))
 
-  print(
-      'Fine-tuned inference generated:',
-      yes_no_text(_file_exists(INFERENCE_CSV)),
-  )
+  inference_csvs = find_inference_csvs()
+  print('Inference CSVs generated:', yes_no_text(bool(inference_csvs)))
+  if inference_csvs:
+    print('\n'.join([f'  {f}' for f in inference_csvs]))
+
 
 check_assessment_status()
 
@@ -649,8 +657,14 @@ def download_buildings(aoi_path: str, output_dir: str) -> None:
   with _open_file(path, 'rb') as f:
     if path.endswith('.csv'):
       df = pd.read_csv(f)
-      df['geometry'] = df['wkt'].apply(shapely.wkt.loads)
-      gdf = gpd.GeoDataFrame(df.drop(columns=['wkt']), crs='EPSG:4326')
+      if 'wkt' in df.columns:
+        df['geometry'] = df['wkt'].apply(shapely.wkt.loads)
+        gdf = gpd.GeoDataFrame(df.drop(columns=['wkt']), crs='EPSG:4326')
+      elif 'longitude' in df.columns and 'latitude' in df.columns:
+        df['geometry'] = gpd.points_from_xy(df['longitude'], df['latitude'])
+        gdf = gpd.GeoDataFrame(
+            df.drop(columns=['longitude', 'latitude']), crs='EPSG:4326'
+        )
     elif path.endswith('.parquet'):
       gdf = gpd.read_parquet(f)
     else:
@@ -901,29 +915,38 @@ create_labeling_images(
     MAX_LABELING_IMAGES,
 )
 
-
 # %% [markdown]
 # When the labeling project is complete, download the CSV from the labeling tool
-# and upload it to your assessment directory using the following cell.
+# and upload them here to create labeled examples.
 #
 # You may upload multiple CSV files at once, in case you wish to combine labels
 # from multiple rounds of labeling.
 
 # %% cellView="form"
-# @title Upload Label CSV
-def upload_label_csvs(output_path: str):
+# @title Create Labeled Examples
+TEST_PERCENTAGE = 20  # @param {"type":"integer"}
+MINOR_IS_0 = True  # @param {"type":"boolean"}
+
+
+def upload_label_csvs(output_path: str) -> bool:
   """Lets the user upload the labeling CSV file from their computer."""
+
+  print('Choose labels CSV to create labeled examples from.')
   uploaded = files.upload()
+  if not uploaded:
+    print('Upload cancelled')
+    return False
+
   dfs = []
   for filename in uploaded.keys():
     f = io.BytesIO(uploaded[filename])
     df = pd.read_csv(f)
     if 'example_id' not in df.columns:
       print('"example_id" column not found in {filename}')
-      return
+      return False
     if 'string_label' not in df.columns:
       print('"string_label" column not found in {filename}')
-      return
+      return False
     dfs.append(df)
     print(f'Read {len(df)} rows from {filename}')
 
@@ -932,18 +955,12 @@ def upload_label_csvs(output_path: str):
   with tf.io.gfile.GFile(output_path, 'wb') as f:
     f.closed = False
     combined.to_csv(f, index=False)
-
-upload_label_csvs(LABELS_CSV)
-
-# %% cellView="form"
-# @title Create Labeled Examples
-TEST_PERCENTAGE = 20  # @param {"type":"integer"}
-MINOR_IS_0 = True  # @param {"type":"boolean"}
+  print(f'Wrote {len(combined)} labels to {output_path}')
+  return True
 
 
 def create_labeled_examples(
     examples_pattern: str,
-    labels_csv: str,
     test_percent: int,
     minor_is_0: bool,
     labeled_examples_dir: str):
@@ -957,6 +974,10 @@ def create_labeled_examples(
       labeled_examples_dir,
       f'{timestamp}_{train_percent:02d}_{test_percent:02d}_minor{0 if minor_is_0 else 1}',
   )
+  labels_path = os.path.join(output_dir, 'labels.csv')
+  if not upload_label_csvs(labels_path):
+    return
+
   train_path = os.path.join(output_dir, TRAIN_TFRECORD_NAME)
   test_path = os.path.join(output_dir, TEST_TFRECORD_NAME)
   minor_damage_float_label = (0 if minor_is_0 else 1)
@@ -968,8 +989,9 @@ def create_labeled_examples(
       'destroyed=1',
   ]
 
+  print('Creating labeled examples. This may take a while.')
   labeling.create_labeled_examples(
-      label_file_paths=[labels_csv],
+      label_file_paths=[labels_path],
       string_to_numeric_labels=label_mapping,
       example_patterns=[examples_pattern],
       test_fraction=test_percent / 100,
@@ -985,7 +1007,6 @@ def create_labeled_examples(
 
 create_labeled_examples(
     LABELING_EXAMPLES_TFRECORD_PATTERN,
-    LABELS_CSV,
     TEST_PERCENTAGE,
     MINOR_IS_0,
     LABELED_EXAMPLES_ROOT)
@@ -1471,39 +1492,41 @@ evaluate_model_on_test_examples()
 DEFAULT_THRESHOLD = 0.5  # @param {"type":"number"}
 HIGH_PRECISION_THRESHOLD = 0.6  # @param {"type":"number"}
 HIGH_RECALL_THRESHOLD = 0.4  # @param {"type":"number"}
+INFERENCE_FILE_NAME = 'inference_test.csv'  # @param {"type":"string"}
 
 
 def run_inference(
     examples_pattern: str,
-    model_dir: str,
+    checkpoint_dir: str,
     default_threshold: float,
     high_precision_threshold: float,
     high_recall_threshold: float,
     output_dir: str,
-    output_path: str,
     cloud_project: str,
     cloud_region: str,
     service_account: str) -> None:
   """Starts model inference job."""
+
+  output_path = os.path.join(output_dir, INFERENCE_FILE_NAME)
+  if tf.io.gfile.exists(output_path):
+    if input(f'File {output_path} exists. Overwrite? (y/n)').lower() not in (
+        'y',
+        'yes',
+    ):
+      print('Cancelled')
+      return
+
   temp_dir = os.path.join(output_dir, 'inference_temp')
   print(
-      f'Running inference with model checkpoint "{model_dir}" on examples'
+      f'Running inference with model checkpoint "{checkpoint_dir}" on examples'
       f' matching "{examples_pattern}"'
   )
   print(f'Output will be written to {output_path}')
 
-  # accelerator_flags = ' '.join([
-  #     '--worker_machine_type=n1-highmem-8',
-  #     '--accelerator=nvidia-tesla-t4',
-  #     '--accelerator_count=1'])
-
-  # Currently, Colab only supports Python 3.10. However, the docker images we
-  # need for GPU acceleration are based on Tensorflow 2.14.0 images, which are
-  # based on Python 3.11. If we try to launch an inference job with GPU
-  # acceleration, Dataflow will complain about a Python version mismatch.
-  # Therefore, we can only use CPU inference until Colab upgrades to Python 3.11
-  # (which should be sometime within 2024).
-  accelerator_flags = ''
+  accelerator_flags = ' '.join([
+      '--worker_machine_type=n1-highmem-8',
+      '--accelerator=nvidia-tesla-t4',
+      '--accelerator_count=1'])
 
   script = textwrap.dedent(f'''
     cd {SKAI_CODE_DIR}/src
@@ -1511,7 +1534,7 @@ def run_inference(
     export GOOGLE_CLOUD_PROJECT={cloud_project}
     python skai/model/inference.py \
       --examples_pattern='{examples_pattern}' \
-      --image_model_dir='{model_dir}' \
+      --image_model_dir='{checkpoint_dir}' \
       --output_path='{output_path}' \
       --use_dataflow \
       --cloud_project='{cloud_project}' \
@@ -1548,18 +1571,18 @@ def do_inference():
   def start_clicked(_):
     start_button.disabled = True
     model_dir = os.path.join(model_selection_widget.value, 'model')
-    checkpoint = get_best_checkpoint(model_dir)
-    if not checkpoint:
+    checkpoint_dir = get_best_checkpoint(model_dir)
+    output_dir = os.path.join(model_selection_widget.value, INFERENCE_SUBDIR)
+    if not checkpoint_dir:
       print('Model directory does not contain a valid checkpoint directory.')
       return
     run_inference(
         UNLABELED_TFRECORD_PATTERN,
-        checkpoint,
+        checkpoint_dir,
         DEFAULT_THRESHOLD,
         HIGH_PRECISION_THRESHOLD,
         HIGH_RECALL_THRESHOLD,
-        OUTPUT_DIR,
-        INFERENCE_CSV,
+        output_dir,
         GCP_PROJECT,
         GCP_LOCATION,
         GCP_SERVICE_ACCOUNT,
@@ -1577,9 +1600,46 @@ do_inference()
 # @title Get assessment stats
 DAMAGE_SCORE_THRESHOLD = 0.5  # @param {type:"number"}
 
-make_download_button(
-    INFERENCE_CSV,
-    f'{ASSESSMENT_NAME}_assessment.csv',
-    'Download CSV')
-show_inference_stats(AOI_PATH, INFERENCE_CSV, DAMAGE_SCORE_THRESHOLD)
-show_assessment_heatmap(AOI_PATH, INFERENCE_CSV, DAMAGE_SCORE_THRESHOLD, False)
+
+def get_assessment_stats():
+  """Get assessment statistics."""
+  inference_csvs = find_inference_csvs()
+  if not inference_csvs:
+    print('No inference CSVs found.')
+    return
+
+  selection_widget = widgets.Dropdown(
+      options=inference_csvs,
+      description='Choose an inference CSV:',
+      layout={'width': 'initial'},
+  )
+  selection_widget.style.description_width = 'initial'
+
+  def stats_clicked(_):
+    stats_button.disabled = True
+    inference_csv = selection_widget.value
+    show_inference_stats(AOI_PATH, inference_csv, DAMAGE_SCORE_THRESHOLD)
+    show_assessment_heatmap(
+        AOI_PATH, inference_csv, DAMAGE_SCORE_THRESHOLD, False
+    )
+
+  def download_clicked(_):
+    inference_csv = selection_widget.value
+    file_name = os.path.basename(inference_csv)
+    temp_path = f'/tmp/{file_name}'
+    with _open_file(inference_csv, 'rb') as src:
+      with open(temp_path, 'wb') as dst:
+        shutil.copyfileobj(src, dst)
+    files.download(temp_path)
+
+  stats_button = widgets.Button(description='Get Stats')
+  stats_button.on_click(stats_clicked)
+  download_button = widgets.Button(description='Download')
+  download_button.on_click(download_clicked)
+
+  display(selection_widget)
+  display(stats_button)
+  display(download_button)
+
+
+get_assessment_stats()
