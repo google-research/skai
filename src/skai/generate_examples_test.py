@@ -134,6 +134,37 @@ def _create_labeled_geojson(
   return path
 
 
+def _create_rectangle_at_point(
+    point: tuple[float, float],
+) -> shapely.Polygon:
+  half_length = 0.0000001  # In degrees, approximately equal to 1 meter.
+  return shapely.Polygon([
+      (point[0] - half_length, point[1] - half_length),
+      (point[0] + half_length, point[1] - half_length),
+      (point[0] + half_length, point[1] + half_length),
+      (point[0] - half_length, point[1] + half_length),
+  ])
+
+
+def _create_buildings_file_with_footprints(
+    coordinates: list[tuple[float, float]],
+    output_path: str,
+) -> None:
+  longitudes = [c[0] for c in coordinates]
+  latitudes = [c[1] for c in coordinates]
+  footprints = [
+      _create_rectangle_at_point((x, y)) for x, y in zip(longitudes, latitudes)
+  ]
+  gdf = gpd.GeoDataFrame(
+      {
+          'area_in_meters': [0.0] * len(coordinates),
+      },
+      geometry=footprints,
+      crs=4326,
+  )
+  buildings.write_buildings_file(gdf, output_path)
+
+
 def _check_examples(
     before_image_id: str,
     after_image_id: str,
@@ -143,7 +174,9 @@ def _check_examples(
     expected_string_labels: list[str],
     expected_plus_codes: list[str],
     expect_blank_before: bool,
-    expect_large_patch: bool):
+    expect_large_patch: bool,
+    expect_footprint: bool,
+):
   """Validates examples generated from beam pipeline.
 
   Args:
@@ -156,6 +189,7 @@ def _check_examples(
     expected_plus_codes: List of plus codes that examples should have.
     expect_blank_before: If true, the before image should be all zeros.
     expect_large_patch: If true, the examples should contain large patches.
+    expect_footprint: If true, the examples should contain footprints.
 
   Returns:
     Function for validating examples.
@@ -168,30 +202,44 @@ def _check_examples(
     expected_small_shape = (small_patch_size, small_patch_size, 3)
     expected_large_shape = (large_patch_size, large_patch_size, 3)
 
+    expected_feature_names = set([
+        'pre_image_png',
+        'pre_image_id',
+        'post_image_png',
+        'post_image_id',
+        'coordinates',
+        'encoded_coordinates',
+        'label',
+        'example_id',
+        'int64_id',
+        'plus_code',
+        'string_label',
+        'area_in_meters',
+        'post_footprint_x_shift_meters',
+        'post_footprint_y_shift_meters',
+        'post_footprint_match_score',
+    ])
+    if expect_large_patch:
+      expected_feature_names.update(
+          ['pre_image_png_large', 'post_image_png_large']
+      )
+    if expect_footprint:
+      expected_feature_names.update(['footprint_wkb'])
+      expected_feature_names.update(['post_footprint_wkb'])
+
     for example in actual_examples:
       feature_names = set(example.features.feature.keys())
-      # TODO(jzxu): Use constants for these feature name strings.
-      expected_feature_names = set([
-          'pre_image_png',
-          'pre_image_id',
-          'post_image_png',
-          'post_image_id',
-          'coordinates',
-          'encoded_coordinates',
-          'label',
-          'example_id',
-          'int64_id',
-          'plus_code',
-          'string_label',
-          'area_in_meters',
-      ])
-      if expect_large_patch:
-        expected_feature_names.update(
-            ['pre_image_png_large', 'post_image_png_large']
+
+      if feature_names != expected_feature_names:
+        extra_features = feature_names - expected_feature_names
+        missing_features = expected_feature_names - feature_names
+        raise ValueError(
+            'Feature set does not match.\nExpected:' +
+            f' {" ".join(expected_feature_names)}.\n' +
+            f'Got: {" ".join(feature_names)}.\n' +
+            f'Extra features: {" ".join(extra_features)}.\n' +
+            f'Missing features: {" ".join(missing_features)}'
         )
-      assert (
-          feature_names == expected_feature_names
-      ), f'Feature set does not match. Got: {" ".join(feature_names)}'
 
       actual_before_id = (
           example.features.feature['pre_image_id'].bytes_list.value[0].decode()
@@ -283,7 +331,7 @@ class GenerateExamplesTest(parameterized.TestCase):
   def testGenerateExamplesFn(self):
     """Tests GenerateExamplesFn class."""
 
-    _create_buildings_file(
+    _create_buildings_file_with_footprints(
         [(178.482925, -16.632893), (178.482283, -16.632279)],
         self.buildings_path,
     )
@@ -320,6 +368,7 @@ class GenerateExamplesTest(parameterized.TestCase):
               [''],
               ['5VMW9F8M+R5V8F4'],
               False,
+              True,
               True,
           ),
           label='assert_examples',
@@ -367,6 +416,7 @@ class GenerateExamplesTest(parameterized.TestCase):
               ['5VMW9F8M+R5V8F4', '5VMW9F8M+R5V872'],
               False,
               True,
+              False,
           ),
           label='assert_examples',
       )
@@ -411,6 +461,7 @@ class GenerateExamplesTest(parameterized.TestCase):
               ['abc'],
               False,
               True,
+              False,
           ),
           label='assert_examples',
       )
@@ -444,6 +495,7 @@ class GenerateExamplesTest(parameterized.TestCase):
               ['5VMW9F8M+R5V8F4'],
               True,
               True,
+              False,
           ),
           label='assert_examples',
       )
@@ -553,6 +605,9 @@ class GenerateExamplesTest(parameterized.TestCase):
             'plus_code',
             'string_label',
             'label',
+            'post_footprint_x_shift_meters',
+            'post_footprint_y_shift_meters',
+            'post_footprint_match_score',
         ],
     )
 
@@ -780,6 +835,50 @@ class GenerateExamplesTest(parameterized.TestCase):
         ],
     )
 
+  def test_align_after_image(self):
+    after_image = np.zeros((128, 128, 3), dtype=np.uint8)
+    before_image_size = 64
+
+    # These are the offsets if the before image is aligned exactly at the center
+    # of the after image.
+    centered_i = (after_image.shape[0] - before_image_size) // 2
+    centered_j = (after_image.shape[1] - before_image_size) // 2
+
+    # These are the offsets for the best alignment.
+    i = 13
+    j = 17
+
+    after_image[i:i + before_image_size, j:j + before_image_size, :] = 255
+    after_image[i + before_image_size // 2, j + before_image_size // 2, :] = 0
+    before_image = after_image[
+        i : i + before_image_size, j : j + before_image_size, :
+    ]
+    aligned_image, row_shift, col_shift, match_score = (
+        generate_examples.align_after_image(before_image, after_image)
+    )
+    self.assertEqual(
+        aligned_image.shape, (before_image_size, before_image_size, 3)
+    )
+    np.testing.assert_array_equal(aligned_image, before_image)
+    self.assertEqual(row_shift, i - centered_i)
+    self.assertEqual(col_shift, j - centered_j)
+    self.assertEqual(match_score, 1.0)
+
+  def test_shift_footprint(self):
+    footprint = shapely.geometry.Polygon(
+        [(1, 1), (1, 2), (2, 2), (2, 1)],
+    )
+    footprint_wkb = shapely.to_wkb(footprint)
+    shifted_footprint_wkb = generate_examples._shift_footprint(
+        footprint_wkb, 111000, 222000
+    )
+    shifted_footprint = shapely.from_wkb(shifted_footprint_wkb)
+    self.assertTrue(
+        shifted_footprint.equals_exact(
+            shapely.geometry.Polygon([(2, 3), (2, 4), (3, 4), (3, 3)]),
+            0.1,
+        )
+    )
 
 if __name__ == '__main__':
   absltest.main()

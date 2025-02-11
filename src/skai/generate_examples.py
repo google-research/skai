@@ -24,7 +24,7 @@ import pickle
 import struct
 import time
 import typing
-from typing import Any, Dict, Iterable, Iterator, List, Optional, Tuple
+from typing import Any, Iterable, Iterator, Optional
 
 import apache_beam as beam
 import apache_beam.dataframe.convert
@@ -34,6 +34,8 @@ import geopandas as gpd
 import numpy as np
 from openlocationcode import openlocationcode
 import pyarrow
+import shapely
+import shapely.affinity
 import shapely.geometry
 import shapely.wkb
 from skai import beam_utils
@@ -82,7 +84,7 @@ class ExamplesGenerationConfig:
   - before_image_config / after_image_config: Paths to files containing image
     patterns. Useful for when there are too many images to specify.
 
-  - before_image_info / after_image_info: Lists of RasterInfo objects containing
+  - before_image_info / after_image_info: lists of RasterInfo objects containing
     the path to the file as well as information about how to interpret the
     data in the image, such as which bands correspond to RGB and the bit depth
     of the pixel values.
@@ -160,10 +162,10 @@ class ExamplesGenerationConfig:
 
   dataset_name: str
   output_dir: str
-  before_image_patterns: Optional[List[str]] = dataclasses.field(
+  before_image_patterns: Optional[list[str]] = dataclasses.field(
       default_factory=list
   )
-  after_image_patterns: Optional[List[str]] = dataclasses.field(
+  after_image_patterns: Optional[list[str]] = dataclasses.field(
       default_factory=list
   )
   before_image_config: Optional[str] = None
@@ -195,7 +197,7 @@ class ExamplesGenerationConfig:
   earth_engine_private_key: Optional[str] = None
   labels_file: Optional[str] = None
   label_property: Optional[str] = None
-  labels_to_classes: Optional[List[str]] = None
+  labels_to_classes: Optional[list[str]] = None
   num_keep_labeled_examples: int = None
   configuration_path: Optional[str] = None
   cloud_detector_model_path: Optional[str] = None
@@ -283,9 +285,9 @@ class _FeatureUnion:
     before_image: Before image. Should be a tuple of (image_path, image array).
     after_image: After image. Should be a tuple of (image_path, image array).
   """
-  scalar_features: Dict[str, Any] = None
-  before_image: Tuple[str, np.ndarray] = None
-  after_image: Tuple[str, np.ndarray] = None
+  scalar_features: dict[str, Any] = None
+  before_image: tuple[str, np.ndarray] = None
+  after_image: tuple[str, np.ndarray] = None
 
 
 class NoBuildingFoundError(Exception):
@@ -351,7 +353,9 @@ def _to_grayscale(image: np.ndarray) -> np.ndarray:
   return cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
 
 
-def align_after_image(before_image: np.ndarray, after_image: np.ndarray):
+def align_after_image(
+    before_image: np.ndarray, after_image: np.ndarray
+) -> tuple[np.ndarray, int, int, float]:
   """Aligns after image to before image.
 
   Uses OpenCV template matching algorithm to align before and after
@@ -365,17 +369,19 @@ def align_after_image(before_image: np.ndarray, after_image: np.ndarray):
 
   Returns:
     A crop of after_image that is the same size as before_image and is best
-    aligned to it.
+    aligned to it, and the row and column shifts of the alignment.
   """
   result = cv2.matchTemplate(
       _to_grayscale(after_image), _to_grayscale(before_image),
       _ALIGNMENT_METHOD)
-  _, _, _, max_location = cv2.minMaxLoc(result)
+  _, max_value, _, max_location = cv2.minMaxLoc(result)
   j, i = max_location
   rows = before_image.shape[0]
   cols = before_image.shape[1]
   aligned_after = after_image[i:i + rows, j:j + cols, :]
-  return aligned_after
+  row_shift = i - (after_image.shape[0] - rows) // 2
+  col_shift = j - (after_image.shape[1] - cols) // 2
+  return aligned_after, row_shift, col_shift, max_value
 
 
 def _mostly_blank(image: np.ndarray) -> bool:
@@ -448,6 +454,31 @@ def _make_int64_id(example_id: str) -> int:
   return struct.unpack('<q', binascii.a2b_hex(example_id[:16]))[0]
 
 
+def _shift_footprint(
+    footprint_wkb: bytes, x_shift_meters: float, y_shift_meters: float
+) -> bytes:
+  """Shifts a building footprint.
+
+  Args:
+    footprint_wkb: Footprint in WKB format.
+    x_shift_meters: Meters to shift footprint on x axis.
+    y_shift_meters: Meters to shift footprint on y axis.
+
+  Returns:
+    Shifted footprint in WKB format.
+  """
+  footprint = shapely.from_wkb(footprint_wkb)
+  centroid = shapely.centroid(footprint)
+  utm_crs = utils.get_utm_crs(centroid.x, centroid.y)
+  gdf = gpd.GeoDataFrame(geometry=[footprint], crs='EPSG:4326').to_crs(utm_crs)
+  gdf.iloc[0].geometry = shapely.affinity.translate(
+      gdf.iloc[0].geometry,
+      xoff=x_shift_meters,
+      yoff=y_shift_meters,
+  )
+  return shapely.to_wkb(gdf.to_crs('EPSG:4326').iloc[0].geometry)
+
+
 class GenerateExamplesFn(beam.DoFn):
   """DoFn that extracts patches from before and after images into examples.
 
@@ -471,6 +502,7 @@ class GenerateExamplesFn(beam.DoFn):
       self,
       large_patch_size: int,
       example_patch_size: int,
+      resolution: float,
       use_before_image: bool,
       use_after_image: bool,
       cloud_detector_model_path: Optional[str] = None,
@@ -478,6 +510,7 @@ class GenerateExamplesFn(beam.DoFn):
     self._cloud_detector_model_path = cloud_detector_model_path
     self._large_patch_size = large_patch_size
     self._example_patch_size = example_patch_size
+    self._resolution = resolution
     self._use_before_image = use_before_image
     self._use_after_image = use_after_image
 
@@ -503,7 +536,7 @@ class GenerateExamplesFn(beam.DoFn):
       before_image: np.ndarray,
       after_image_id: str,
       after_image: np.ndarray,
-      scalar_features: Dict[str, List[Any]],
+      scalar_features: dict[str, list[Any]],
   ) -> Optional[Example]:
     """Create Tensorflow Example from inputs.
 
@@ -518,8 +551,19 @@ class GenerateExamplesFn(beam.DoFn):
     Returns:
       Tensorflow Example.
     """
+    example = Example()
+    post_footprint_x_shift_meters = 0.0
+    post_footprint_y_shift_meters = 0.0
+    post_footprint_match_score = 0.0
     if self._use_before_image and self._use_after_image:
-      after_image = align_after_image(before_image, after_image)
+      after_image, row_shift, col_shift, post_footprint_match_score = (
+          align_after_image(before_image, after_image)
+      )
+      post_footprint_x_shift_meters = col_shift * self._resolution
+      # Row indexes increase going downward, while Y values increase going
+      # upward. So Y shift is the negative of the row shift.
+      post_footprint_y_shift_meters = -row_shift * self._resolution
+
     before_crop = _center_crop(before_image, self._example_patch_size)
     if self._use_before_image and _mostly_blank(before_crop):
       self._before_patch_blank_count.inc()
@@ -531,7 +575,6 @@ class GenerateExamplesFn(beam.DoFn):
       self._bad_example_count.inc()
       return None
 
-    example = Example()
     # TODO(jzxu): Use constants for these feature name strings.
 
     utils.add_bytes_feature(
@@ -564,7 +607,32 @@ class GenerateExamplesFn(beam.DoFn):
         'post_image_png', tf.io.encode_png(after_crop).numpy(), example
     )
     utils.add_bytes_feature('post_image_id', after_image_id.encode(), example)
-
+    utils.add_float_feature(
+        'post_footprint_x_shift_meters', post_footprint_x_shift_meters, example
+    )
+    utils.add_float_feature(
+        'post_footprint_y_shift_meters', post_footprint_y_shift_meters, example
+    )
+    utils.add_float_feature(
+        'post_footprint_match_score', post_footprint_match_score, example
+    )
+    if 'footprint_wkb' in scalar_features:
+      if (
+          post_footprint_x_shift_meters != 0.0
+          or post_footprint_y_shift_meters != 0.0
+      ):
+        post_footprint_wkb = _shift_footprint(
+            scalar_features['footprint_wkb'][0],
+            post_footprint_x_shift_meters,
+            post_footprint_y_shift_meters,
+        )
+      else:
+        post_footprint_wkb = scalar_features['footprint_wkb'][0]
+      utils.add_bytes_feature(
+          'post_footprint_wkb',
+          post_footprint_wkb,
+          example,
+      )
     if self.cloud_detector:
       before_image_cloudiness = self.cloud_detector.detect_single(before_crop)
       after_image_cloudiness = self.cloud_detector.detect_single(after_crop)
@@ -589,7 +657,7 @@ class GenerateExamplesFn(beam.DoFn):
     return example
 
   def process(
-      self, grouped_features: Tuple[str, Iterable[_FeatureUnion]]
+      self, grouped_features: tuple[str, Iterable[_FeatureUnion]]
   ) -> Iterator[Example]:
     """Extract patches from before and after images and output as tf Example.
 
@@ -689,10 +757,10 @@ def _generate_examples(
     large_patch_size: int,
     example_patch_size: int,
     resolution: float,
-    gdal_env: Dict[str, str],
+    gdal_env: dict[str, str],
     stage_prefix: str,
     cloud_detector_model_path: Optional[str] = None,
-) -> Tuple[beam.PCollection, beam.PCollection]:
+) -> tuple[beam.PCollection, beam.PCollection]:
   """Generates examples and labeling images from source images.
 
   Args:
@@ -768,6 +836,7 @@ def _generate_examples(
           GenerateExamplesFn(
               large_patch_size,
               example_patch_size,
+              resolution,
               use_before_image,
               use_after_image,
               cloud_detector_model_path,
@@ -781,7 +850,7 @@ def _generate_examples(
 def read_labels_file(
     path: str,
     label_property: str,
-    labels_to_classes: List[str],
+    labels_to_classes: list[str],
     max_points: int,
     output_path: str,
 ) -> None:
@@ -854,7 +923,7 @@ def _generate_examples_pipeline(
     buildings_path: str,
     buildings_labeled: bool,
     use_dataflow: bool,
-    gdal_env: Dict[str, str],
+    gdal_env: dict[str, str],
     dataflow_job_name: Optional[str],
     cloud_project: Optional[str],
     cloud_region: Optional[str],
@@ -955,7 +1024,7 @@ def _generate_examples_pipeline(
     result.wait_until_finish()
 
 
-def _read_image_config(path: str) -> List[str]:
+def _read_image_config(path: str) -> list[str]:
   with tf.io.gfile.GFile(path, 'r') as f:
     return [line.strip() for line in f.readlines()]
 
@@ -1104,6 +1173,15 @@ def _example_to_dict(
       'pre_image_id': utils.get_bytes_feature(e, 'pre_image_id')[0].decode(),
       'post_image_id': utils.get_bytes_feature(e, 'post_image_id')[0].decode(),
       'plus_code': utils.get_bytes_feature(e, 'plus_code')[0].decode(),
+      'post_footprint_x_shift_meters': utils.get_float_feature(
+          e, 'post_footprint_x_shift_meters'
+      )[0],
+      'post_footprint_y_shift_meters': utils.get_float_feature(
+          e, 'post_footprint_y_shift_meters'
+      )[0],
+      'post_footprint_match_score': utils.get_float_feature(
+          e, 'post_footprint_match_score'
+      )[0],
   }
   if 'string_label' in e.features.feature.keys():
     features['string_label'] = utils.get_bytes_feature(e, 'string_label')[
@@ -1130,6 +1208,7 @@ def _example_to_dict(
 
 
 class ExampleMetadata(typing.NamedTuple):
+  """Class for holding all metadata (i.e. non-image) features for an example."""
   example_id: str
   int64_id: int
   encoded_coordinates: str
@@ -1140,6 +1219,9 @@ class ExampleMetadata(typing.NamedTuple):
   plus_code: str
   string_label: str
   label: float
+  post_footprint_x_shift_meters: float
+  post_footprint_y_shift_meters: float
+  post_footprint_match_score: float
 
 
 def _get_example_metadata(example: tf.train.Example) -> ExampleMetadata:
@@ -1173,6 +1255,9 @@ def _write_examples_to_parquet(
       ('post_image_png_large', pyarrow.binary()),
       ('pre_image_png', pyarrow.binary()),
       ('post_image_png', pyarrow.binary()),
+      ('post_footprint_x_shift_meters', pyarrow.float64()),
+      ('post_footprint_y_shift_meters', pyarrow.float64()),
+      ('post_footprint_match_score', pyarrow.float64()),
   ])
   _ = (
       examples
