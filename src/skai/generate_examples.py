@@ -758,7 +758,6 @@ def _generate_examples(
     example_patch_size: int,
     resolution: float,
     gdal_env: dict[str, str],
-    stage_prefix: str,
     cloud_detector_model_path: Optional[str] = None,
 ) -> tuple[beam.PCollection, beam.PCollection]:
   """Generates examples and labeling images from source images.
@@ -773,7 +772,6 @@ def _generate_examples(
     example_patch_size: Size of patches to extract into examples. Typically 64.
     resolution: Desired resolution of image patches.
     gdal_env: GDAL environment configuration.
-    stage_prefix: Beam stage name prefix.
     cloud_detector_model_path: Path to tflite cloud detector model.
 
   Returns:
@@ -781,10 +779,10 @@ def _generate_examples(
   """
   scalar_features = (
       pipeline
-      | stage_prefix + 'encode_buildings_path' >> beam.Create(
-          [buildings_path])
-      | stage_prefix + 'create_scalar_features' >> beam.FlatMap(
-          _extract_scalar_features_from_buildings_file))
+      | 'encode_buildings_path' >> beam.Create([buildings_path])
+      | 'create_scalar_features'
+      >> beam.FlatMap(_extract_scalar_features_from_buildings_file)
+  )
 
   input_collections = [scalar_features]
   after_image_size = large_patch_size
@@ -806,8 +804,11 @@ def _generate_examples(
     )
     before_image_features = (
         before_patches
-        | stage_prefix + '_before_to_feature' >> beam.MapTuple(
-            lambda key, value: (key, _FeatureUnion(before_image=value))))
+        | 'before_to_feature'
+        >> beam.MapTuple(
+            lambda key, value: (key, _FeatureUnion(before_image=value))
+        )
+    )
     input_collections.append(before_image_features)
 
   use_after_image = bool(after_image_info)
@@ -821,17 +822,16 @@ def _generate_examples(
         gdal_env,
         'after',
     )
-    after_image_features = (
-        after_patches
-        | stage_prefix + '_after_to_feature' >> beam.MapTuple(
-            lambda key, value: (key, _FeatureUnion(after_image=value))))
+    after_image_features = after_patches | 'after_to_feature' >> beam.MapTuple(
+        lambda key, value: (key, _FeatureUnion(after_image=value))
+    )
     input_collections.append(after_image_features)
 
   examples = (
       input_collections
-      | stage_prefix + '_merge_features' >> beam.Flatten()
-      | stage_prefix + '_group_by_example_id' >> beam.GroupByKey()
-      | stage_prefix + '_generate_examples'
+      | 'merge_features' >> beam.Flatten()
+      | 'group_by_example_id' >> beam.GroupByKey()
+      | 'generate_examples'
       >> beam.ParDo(
           GenerateExamplesFn(
               large_patch_size,
@@ -993,9 +993,16 @@ def _generate_examples_pipeline(
 
   pipeline = beam.Pipeline(options=pipeline_options)
   examples = _generate_examples(
-      pipeline, before_image_info, after_image_info, buildings_path,
-      large_patch_size, example_patch_size, resolution, gdal_env,
-      'generate_examples', cloud_detector_model_path)
+      pipeline,
+      before_image_info,
+      after_image_info,
+      buildings_path,
+      large_patch_size,
+      example_patch_size,
+      resolution,
+      gdal_env,
+      cloud_detector_model_path,
+  )
 
   _ = (
       examples
