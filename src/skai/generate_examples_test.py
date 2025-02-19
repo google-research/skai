@@ -352,7 +352,6 @@ class GenerateExamplesTest(parameterized.TestCase):
           32,
           0.5,
           {},
-          'unlabeled',
       )
 
       # Example at second input coordinate should be dropped because its patch
@@ -401,7 +400,6 @@ class GenerateExamplesTest(parameterized.TestCase):
           32,
           0.5,
           {},
-          'labeled',
       )
 
       test_util.assert_that(
@@ -444,7 +442,6 @@ class GenerateExamplesTest(parameterized.TestCase):
           32,
           0.5,
           {},
-          'unlabeled',
       )
 
       # Example at second input coordinate should be dropped because its patch
@@ -478,8 +475,8 @@ class GenerateExamplesTest(parameterized.TestCase):
     ]
     with test_pipeline.TestPipeline() as pipeline:
       examples = generate_examples._generate_examples(
-          pipeline, [], after_image_info, self.buildings_path, 62, 32,
-          0.5, {}, 'unlabeled')
+          pipeline, [], after_image_info, self.buildings_path, 62, 32, 0.5, {}
+      )
 
       # Example at second input coordinate should be dropped because its patch
       # falls mostly outside the before and after image bounds.
