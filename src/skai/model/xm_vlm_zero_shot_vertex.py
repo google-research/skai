@@ -20,6 +20,7 @@ from absl import flags
 from skai.model import docker_instructions
 from xmanager import xm
 from xmanager import xm_local
+from xmanager.cloud import vertex as xm_vertex
 
 
 _OUTPUT_DIR = flags.DEFINE_string(
@@ -96,10 +97,18 @@ _DOCKER_IMAGE = flags.DEFINE_string(
     'docker_image', None, 'Pre-built Docker image to use.'
 )
 
+_CLOUD_LOCATION = flags.DEFINE_string(
+    'cloud_location', None, 'Google Cloud region to run jobs in.'
+)
+
 _DEFAULT_DOCKER_IMAGE = 'gcr.io/disaster-assessment/skai-ml-tpu:latest'
 
 
 def main(_) -> None:
+  if _CLOUD_LOCATION.value is None:
+    raise ValueError('Google Cloud location must be set')
+  xm_vertex.set_default_client(xm_vertex.Client(location=_CLOUD_LOCATION.value))
+
   experiment_name = []
   experiment_name.append(_MODEL_VARIANT.value)
   experiment_name.append(str(_IMAGE_SIZE.value))
@@ -126,14 +135,13 @@ def main(_) -> None:
           ),
       ])
 
-    resources_args = {
-        'TPU_V3': 8,
-        'RAM': 64 * xm.GiB,
-        'CPU': 8 * xm.vCPU,
-    }
     executor = xm_local.Vertex(
         requirements=xm.JobRequirements(
-            service_tier=xm.ServiceTier.PROD, **resources_args
+            service_tier=xm.ServiceTier.PROD,
+            location=_CLOUD_LOCATION.value,
+            cpu=8 * xm.vCPU,
+            ram=64 * xm.GiB,
+            TPU_V3=8,
         ),
     )
 
