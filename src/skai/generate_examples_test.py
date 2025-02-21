@@ -29,6 +29,7 @@ import shapely.geometry
 from skai import buildings
 from skai import generate_examples
 from skai import read_raster
+from skai import utils
 import tensorflow as tf
 
 
@@ -328,7 +329,7 @@ class GenerateExamplesTest(parameterized.TestCase):
         TEST_MISSING_OUPTUT_DIR_CONFIG_PATH
     )
 
-  def testGenerateExamplesFn(self):
+  def test_generate_examples_fn(self):
     """Tests GenerateExamplesFn class."""
 
     _create_buildings_file_with_footprints(
@@ -373,7 +374,7 @@ class GenerateExamplesTest(parameterized.TestCase):
           label='assert_examples',
       )
 
-  def testGenerateExamplesFnLabeled(self):
+  def test_generate_examples_fn_labeled(self):
     """Tests GenerateExamplesFn class."""
 
     _create_labeled_buildings_file(
@@ -419,7 +420,7 @@ class GenerateExamplesTest(parameterized.TestCase):
           label='assert_examples',
       )
 
-  def testGenerateExamplesFnWithPlusCodes(self):
+  def test_generate_examples_fn_with_plus_codes(self):
     """Tests GenerateExamplesFn class."""
 
     _create_buildings_file_with_plus_code(
@@ -463,7 +464,7 @@ class GenerateExamplesTest(parameterized.TestCase):
           label='assert_examples',
       )
 
-  def testGenerateExamplesFnNoBefore(self):
+  def test_generate_examples_fn_no_before(self):
     """Tests GenerateExamplesFn class without before image."""
 
     _create_buildings_file(
@@ -497,7 +498,7 @@ class GenerateExamplesTest(parameterized.TestCase):
           label='assert_examples',
       )
 
-  def testGenerateExamplesPipeline(self):
+  def test_generate_examples_pipeline(self):
     output_dir = tempfile.mkdtemp(dir=absltest.TEST_TMPDIR.value)
     _create_buildings_file(
         [(178.482925, -16.632893), (178.482283, -16.632279)],
@@ -538,7 +539,7 @@ class GenerateExamplesTest(parameterized.TestCase):
     )
     self.assertSameElements(tfrecords, ['unlabeled-00000-of-00001.tfrecord'])
 
-  def testGenerateExamplesPipelineLabeled(self):
+  def test_generate_examples_pipeline_labeled(self):
     output_dir = tempfile.mkdtemp(dir=absltest.TEST_TMPDIR.value)
     _create_labeled_buildings_file(
         [
@@ -641,7 +642,7 @@ class GenerateExamplesTest(parameterized.TestCase):
     )
     self.assertSameElements(parquet_files, ['examples-00000-of-00001.parquet'])
 
-  def testConfigLoadedCorrectlyFromJsonFile(self):
+  def test_config_loaded_correctly_from_json_file(self):
     config = generate_examples.ExamplesGenerationConfig.init_from_json_path(
         self.test_config_path
     )
@@ -685,7 +686,7 @@ class GenerateExamplesTest(parameterized.TestCase):
     self.assertIsNone(config.num_keep_labeled_examples)
     self.assertIsNone(config.configuration_path)
 
-  def testConfigRaiseErrorOnMissingDatasetName(self):
+  def test_config_raise_error_on_missing_dataset_name(self):
     with self.assertRaisesRegex(KeyError, ''):
       generate_examples.ExamplesGenerationConfig.init_from_json_path(
           self.test_missing_dataset_name_config_path
@@ -832,7 +833,7 @@ class GenerateExamplesTest(parameterized.TestCase):
         ],
     )
 
-  def test_align_after_image(self):
+  def test_align_images(self):
     after_image = np.zeros((128, 128, 3), dtype=np.uint8)
     before_image_size = 64
 
@@ -850,16 +851,183 @@ class GenerateExamplesTest(parameterized.TestCase):
     before_image = after_image[
         i : i + before_image_size, j : j + before_image_size, :
     ]
-    aligned_image, row_shift, col_shift, match_score = (
-        generate_examples.align_after_image(before_image, after_image)
+    row_shift, col_shift, match_score = generate_examples._align_images(
+        before_image, after_image
     )
-    self.assertEqual(
-        aligned_image.shape, (before_image_size, before_image_size, 3)
-    )
-    np.testing.assert_array_equal(aligned_image, before_image)
     self.assertEqual(row_shift, i - centered_i)
     self.assertEqual(col_shift, j - centered_j)
     self.assertEqual(match_score, 1.0)
+
+  def test_align_image_pairs(self):
+    blank_image = np.zeros((128, 128, 3), dtype=np.uint8)
+    features = [
+        generate_examples._FeatureUnion(
+            before_image=('before1', blank_image)
+        ),
+        generate_examples._FeatureUnion(
+            before_image=('before2', blank_image)
+        ),
+        generate_examples._FeatureUnion(
+            after_image=('after1', blank_image)
+        ),
+        generate_examples._FeatureUnion(
+            after_image=('after2', blank_image)
+        ),
+    ]
+    longitude = 123
+    latitude = 78
+    encoded_coordinates = utils.encode_coordinates(longitude, latitude)
+    alignments = list(
+        generate_examples._align_image_pairs((encoded_coordinates, features))
+    )
+    self.assertLen(alignments, 4)
+    for (before_image_id, after_image_id), alignment in alignments:
+      self.assertIn(before_image_id, ['before1', 'before2'])
+      self.assertIn(after_image_id, ['after1', 'after2'])
+      self.assertEqual(alignment.before_image_id, before_image_id)
+      self.assertEqual(alignment.after_image_id, after_image_id)
+      self.assertAlmostEqual(alignment.longitude, longitude)
+      self.assertAlmostEqual(alignment.latitude, latitude)
+      self.assertEqual(alignment.encoded_coordinates, encoded_coordinates)
+
+  def test_fix_alignments(self):
+    alignments = [
+        generate_examples._Alignment(
+            before_image_id='before1',
+            after_image_id='after1',
+            encoded_coordinates='aaa',
+            longitude=123,
+            latitude=78,
+            row_shift=7,
+            col_shift=9,
+            match_score=0.01,
+        ),
+        generate_examples._Alignment(
+            before_image_id='before1',
+            after_image_id='after1',
+            encoded_coordinates='bbb',
+            longitude=123.0000001,
+            latitude=78.0000001,
+            row_shift=11,
+            col_shift=13,
+            match_score=0.5,
+        ),
+        generate_examples._Alignment(
+            before_image_id='before1',
+            after_image_id='after1',
+            encoded_coordinates='ccc',
+            longitude=124,
+            latitude=79,
+            row_shift=1,
+            col_shift=2,
+            match_score=0.7,
+        ),
+    ]
+    fixed_alignments = list(
+        generate_examples._fix_alignments((('before1', 'after1'), alignments))
+    )
+    self.assertCountEqual(
+        fixed_alignments,
+        [
+            (
+                ('before1', 'after1', 'aaa'),
+                generate_examples._Alignment(
+                    before_image_id='before1',
+                    after_image_id='after1',
+                    encoded_coordinates='aaa',
+                    longitude=123,
+                    latitude=78,
+                    row_shift=11,
+                    col_shift=13,
+                    match_score=0.01,
+                ),
+            ),
+            (
+                ('before1', 'after1', 'bbb'),
+                generate_examples._Alignment(
+                    before_image_id='before1',
+                    after_image_id='after1',
+                    encoded_coordinates='bbb',
+                    longitude=123.0000001,
+                    latitude=78.0000001,
+                    row_shift=11,
+                    col_shift=13,
+                    match_score=0.5,
+                ),
+            ),
+            (
+                ('before1', 'after1', 'ccc'),
+                generate_examples._Alignment(
+                    before_image_id='before1',
+                    after_image_id='after1',
+                    encoded_coordinates='ccc',
+                    longitude=124,
+                    latitude=79,
+                    row_shift=1,
+                    col_shift=2,
+                    match_score=0.7,
+                ),
+            ),
+        ],
+    )
+
+  def test_fix_alignments_no_good_matches(self):
+    alignments = [
+        generate_examples._Alignment(
+            before_image_id='before1',
+            after_image_id='after1',
+            encoded_coordinates='aaa',
+            longitude=123,
+            latitude=78,
+            row_shift=7,
+            col_shift=9,
+            match_score=0.01,
+        ),
+        generate_examples._Alignment(
+            before_image_id='before1',
+            after_image_id='after1',
+            encoded_coordinates='bbb',
+            longitude=123.0000001,
+            latitude=78.0000001,
+            row_shift=11,
+            col_shift=13,
+            match_score=0.01,
+        ),
+    ]
+    fixed_alignments = list(
+        generate_examples._fix_alignments((('before1', 'after1'), alignments))
+    )
+    self.assertCountEqual(
+        fixed_alignments,
+        [
+            (
+                ('before1', 'after1', 'aaa'),
+                generate_examples._Alignment(
+                    before_image_id='before1',
+                    after_image_id='after1',
+                    encoded_coordinates='aaa',
+                    longitude=123,
+                    latitude=78,
+                    row_shift=7,
+                    col_shift=9,
+                    match_score=0.01,
+                ),
+            ),
+            (
+                ('before1', 'after1', 'bbb'),
+                generate_examples._Alignment(
+                    before_image_id='before1',
+                    after_image_id='after1',
+                    encoded_coordinates='bbb',
+                    longitude=123.0000001,
+                    latitude=78.0000001,
+                    row_shift=11,
+                    col_shift=13,
+                    match_score=0.01,
+                ),
+            ),
+        ],
+    )
 
   def test_shift_footprint(self):
     footprint = shapely.geometry.Polygon(
