@@ -320,7 +320,7 @@ def _construct_output_examples(
     instance_masks: A tensor of shape [num instances, height, width, 1].
     instance_scores: A tensor of shape [num instances].
     input_example: The example passed to the stage containing information that
-      we want to preserve in the ouptut.
+      we want to preserve in the output.
 
   Yields:
     An example for each building instance.
@@ -329,6 +329,9 @@ def _construct_output_examples(
   if num_detections == 0:
     return
 
+  image_path = utils.get_bytes_feature(
+      input_example, extract_tiles_constants.IMAGE_PATH
+  )[0].decode()
   pixel_x_offset = utils.get_int64_feature(
       input_example, extract_tiles_constants.X_OFFSET
   )[0]
@@ -344,10 +347,9 @@ def _construct_output_examples(
   tile_col = utils.get_int64_feature(
       input_example, extract_tiles_constants.TILE_COL
   )[0]
-  crs_bytes = utils.get_bytes_feature(
+  crs = utils.get_bytes_feature(
       input_example, extract_tiles_constants.CRS
-  )[0]
-  crs_str = crs_bytes.decode()
+  )[0].decode()
   affine_transform = input_example.features.feature[
       extract_tiles_constants.AFFINE_TRANSFORM
   ].float_list.value
@@ -369,7 +371,7 @@ def _construct_output_examples(
         instance_mask.numpy().astype(np.uint8),
         pixel_x_offset,
         pixel_y_offset,
-        crs_str,
+        crs,
         affine_transform,
     )
     if not mask_polygon:
@@ -384,7 +386,7 @@ def _construct_output_examples(
     longitude, latitude = _pixel_xy_to_long_lat(
         [pixel_x_offset + centroid_x],
         [pixel_y_offset + centroid_y],
-        crs_str,
+        crs,
         affine_transform,
     )[0]
 
@@ -430,6 +432,11 @@ def _construct_output_examples(
     utils.add_int64_feature('centroid_y', centroid_y, output_example)
 
     # Pass through tile data.
+    utils.add_bytes_feature(
+        detect_buildings_constants.IMAGE_PATH,
+        image_path.encode(),
+        output_example,
+    )
     utils.add_int64_feature(detect_buildings_constants.TILE_PIXEL_COL,
                             pixel_x_offset, output_example)
     utils.add_int64_feature(detect_buildings_constants.TILE_PIXEL_ROW,
@@ -441,7 +448,7 @@ def _construct_output_examples(
     utils.add_int64_feature(detect_buildings_constants.MARGIN_SIZE,
                             margin_size, output_example)
     utils.add_bytes_feature(
-        detect_buildings_constants.CRS, crs_bytes, output_example
+        detect_buildings_constants.CRS, crs.encode(), output_example
     )
     utils.add_float_list_feature(detect_buildings_constants.AFFINE_TRANSFORM,
                                  affine_transform, output_example)
@@ -1074,19 +1081,26 @@ def write_csv(buildings: PCollection, csv_path: str) -> None:
   """
 
   # pylint: disable=g-long-lambda
-  centroid_rows = (
-      buildings
-      | 'ToRows' >> beam.Map(lambda example: beam.Row(
-          longitude=example.features.feature[
-              detect_buildings_constants.LONGITUDE].float_list.value[0],
-          latitude=example.features.feature[
-              detect_buildings_constants.LATITUDE].float_list.value[0],
-          confidence=example.features.feature[
-              detect_buildings_constants.CONFIDENCE].float_list.value[0],
-          area=example.features.feature[
-              detect_buildings_constants.AREA].float_list.value[0],
-          wkt=example.features.feature['mask_wkt'].bytes_list.value[0].decode()
-      )))
+  centroid_rows = buildings | 'ToRows' >> beam.Map(
+      lambda example: beam.Row(
+          longitude=utils.get_float_feature(
+              example, detect_buildings_constants.LONGITUDE
+          )[0],
+          latitude=utils.get_float_feature(
+              example, detect_buildings_constants.LATITUDE
+          )[0],
+          confidence=utils.get_float_feature(
+              example, detect_buildings_constants.CONFIDENCE
+          )[0],
+          area=utils.get_float_feature(
+              example, detect_buildings_constants.AREA
+          )[0],
+          wkt=utils.get_bytes_feature(example, 'mask_wkt')[0].decode(),
+          image_path=utils.get_bytes_feature(
+              example, detect_buildings_constants.IMAGE_PATH
+          )[0].decode(),
+      )
+  )
   # pylint: enable=g-long-lambda
 
   centroids_df = to_dataframe(centroid_rows)

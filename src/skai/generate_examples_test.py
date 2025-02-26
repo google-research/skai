@@ -219,6 +219,7 @@ def _check_examples(
         'post_footprint_x_shift_meters',
         'post_footprint_y_shift_meters',
         'post_footprint_match_score',
+        'building_image_id',
     ])
     if expect_large_patch:
       expected_feature_names.update(
@@ -606,6 +607,7 @@ class GenerateExamplesTest(parameterized.TestCase):
             'post_footprint_x_shift_meters',
             'post_footprint_y_shift_meters',
             'post_footprint_match_score',
+            'building_image_id',
         ],
     )
 

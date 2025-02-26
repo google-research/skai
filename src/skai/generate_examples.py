@@ -768,6 +768,10 @@ class GenerateExamplesFn(beam.DoFn):
           post_footprint_wkb,
           example,
       )
+    building_image_id = scalar_features['building_image_id'][0]
+    utils.add_bytes_feature(
+        'building_image_id', building_image_id.encode(), example
+    )
     if self.cloud_detector:
       before_image_cloudiness = self.cloud_detector.detect_single(before_crop)
       after_image_cloudiness = self.cloud_detector.detect_single(after_crop)
@@ -876,10 +880,12 @@ def _extract_scalar_features_from_buildings_file(buildings_path: str):
     label = row['label'] if 'label' in row.index else -1.0
     string_label = row['string_label'] if 'string_label' in row.index else ''
     encoded_coords = utils.encode_coordinates(longitude, latitude)
+    building_image_id = row['image_path'] if 'image_path' in row.index else ''
     scalar_features = {
         'coordinates': [longitude, latitude],
         'label': [label],
-        'string_label': [string_label]
+        'string_label': [string_label],
+        'building_image_id': [building_image_id]
     }
     if 'full_plus_code' in row.index:
       scalar_features['plus_code'] = [row['full_plus_code']]
@@ -1346,6 +1352,9 @@ def _example_to_dict(
       'post_footprint_match_score': utils.get_float_feature(
           e, 'post_footprint_match_score'
       )[0],
+      'building_image_id': utils.get_bytes_feature(e, 'building_image_id')[
+          0
+      ].decode(),
   }
   if 'string_label' in e.features.feature.keys():
     features['string_label'] = utils.get_bytes_feature(e, 'string_label')[
@@ -1386,6 +1395,7 @@ class ExampleMetadata(typing.NamedTuple):
   post_footprint_x_shift_meters: float
   post_footprint_y_shift_meters: float
   post_footprint_match_score: float
+  building_image_id: str
 
 
 def _get_example_metadata(example: tf.train.Example) -> ExampleMetadata:
@@ -1422,6 +1432,7 @@ def _write_examples_to_parquet(
       ('post_footprint_x_shift_meters', pyarrow.float64()),
       ('post_footprint_y_shift_meters', pyarrow.float64()),
       ('post_footprint_match_score', pyarrow.float64()),
+      ('building_image_id', pyarrow.string()),
   ])
   _ = (
       examples

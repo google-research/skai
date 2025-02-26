@@ -28,6 +28,7 @@ LONGITUDE = 'longitude'
 LATITUDE = 'latitude'
 AREA = 'area'
 ON_EDGE = 'on_edge'
+IMAGE_PATH = 'image_path'
 
 # Output TF Example feature specification.
 FEATURES = {

@@ -13,6 +13,8 @@
 # limitations under the License.
 """Tests functions in detect_buildings module."""
 
+import os
+
 from typing import List, Tuple
 
 from absl.testing import parameterized
@@ -20,6 +22,7 @@ import apache_beam as beam
 from apache_beam.testing import test_pipeline
 from apache_beam.testing import util
 import numpy as np
+import pandas as pd
 import PIL.Image
 from skai import detect_buildings
 from skai import detect_buildings_constants
@@ -68,6 +71,9 @@ def _create_building_example(tile_row: int, tile_col: int, tile_pixel_row: int,
   e.features.feature[
       detect_buildings_constants.ON_EDGE
   ].int64_list.value.append(0)
+  e.features.feature[
+      detect_buildings_constants.IMAGE_PATH
+  ].bytes_list.value.append(b'image_path')
 
   mask_tensor = _create_building_mask(tile_height, tile_width, indices)
   detect_buildings._encode_sparse_tensor(mask_tensor, e,
@@ -194,6 +200,9 @@ def _create_fake_tile_example() -> tf.train.Example:
   utils.add_bytes_feature(extract_tiles_constants.CRS, b'epsg:4326', example)
   utils.add_float_list_feature(extract_tiles_constants.AFFINE_TRANSFORM,
                                [1., 0., 0., 0., 1., 0.], example)
+  utils.add_bytes_feature(
+      extract_tiles_constants.IMAGE_PATH, b'image_path', example
+  )
   return example
 
 
@@ -257,6 +266,33 @@ class DetectBuildingsTest(tf.test.TestCase, parameterized.TestCase):
     def _check_results(results):
       self.assertNotEmpty(results)
       for instance in results:
+        self.assertCountEqual(
+            instance.features.feature.keys(),
+            [
+                'affine_transform',
+                'area',
+                'centroid_x',
+                'centroid_y',
+                'confidence',
+                'crs',
+                'image',
+                'image_path',
+                'latitude',
+                'longitude',
+                'margin_size',
+                'mask',
+                'mask_wkt',
+                'max_x',
+                'max_y',
+                'min_x',
+                'min_y',
+                'on_edge',
+                'tile_col',
+                'tile_pixel_col',
+                'tile_pixel_row',
+                'tile_row',
+            ],
+        )
         # Average building confidence must be > .5 or otherwise it would have
         # been classified as background.
         self.assertGreater(
@@ -293,6 +329,42 @@ class DetectBuildingsTest(tf.test.TestCase, parameterized.TestCase):
       )
 
       util.assert_that(result, _check_results)
+
+  def test_write_csv(self):
+    """Tests the Detect Buildings stage outputs correct building instances."""
+
+    example_tiles = [_create_fake_tile_example() for x in range(3)]
+    temp_dir = self.create_tempdir().full_path
+    csv_path = os.path.join(temp_dir, 'dedup_buildings.csv')
+    with test_pipeline.TestPipeline() as pipeline:
+      buildings = (
+          pipeline
+          | 'CreateInput' >> beam.Create(example_tiles)
+          | 'Inference'
+          >> beam.ParDo(
+              detect_buildings.DetectBuildingsFn(
+                  _create_test_model_checkpoint(
+                      temp_dir, empty_detection=False
+                  ),
+                  detection_confidence_threshold=0.2,
+              )
+          )
+      )
+      detect_buildings.write_csv(buildings, csv_path)
+
+    df = pd.read_csv(f'{csv_path}-00000-of-00001')
+    self.assertNotEmpty(df)
+    self.assertCountEqual(
+        df.columns,
+        [
+            'area',
+            'confidence',
+            'image_path',
+            'latitude',
+            'longitude',
+            'wkt',
+        ],
+    )
 
   @parameterized.named_parameters(
       dict(
