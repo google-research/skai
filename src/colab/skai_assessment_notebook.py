@@ -782,7 +782,8 @@ def run_zero_shot_model():
 
     xmanager launch skai/model/xm_vlm_zero_shot_vertex.py -- \
       --example_patterns={UNLABELED_TFRECORD_PATTERN} \
-      --output_dir={ZERO_SHOT_DIR}
+      --output_dir={ZERO_SHOT_DIR} \
+      --cloud_location={GCP_LOCATION}
     ''')
 
   print(

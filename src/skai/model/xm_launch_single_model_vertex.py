@@ -37,6 +37,7 @@ from ml_collections import config_flags
 from skai.model import docker_instructions
 from xmanager import xm
 from xmanager import xm_local
+from xmanager.cloud import vertex as xm_vertex
 from xmanager.vizier import vizier_cloud
 
 parameter_spec = aip.StudySpec.ParameterSpec
@@ -71,7 +72,7 @@ flags.DEFINE_integer(
     ),
 )
 flags.DEFINE_string(
-    'cloud_location', None, 'Google Cloud location (region) for vizier jobs'
+    'cloud_location', None, 'Google Cloud region to run jobs in.'
 )
 flags.DEFINE_enum(
     'accelerator',
@@ -157,6 +158,10 @@ def get_study_config() -> aip.StudySpec:
 
 
 def main(_) -> None:
+  if FLAGS.cloud_location is None:
+    raise ValueError('Google Cloud location must be set')
+  xm_vertex.set_default_client(xm_vertex.Client(location=FLAGS.cloud_location))
+
   config = FLAGS.config
   config_path = config_flags.get_config_filename(FLAGS['config'])
 
@@ -243,16 +248,15 @@ def main(_) -> None:
     job_args['config.training.num_epochs'] = config.training.num_epochs
 
     xm_args = xm.merge_args(['/skai/src/skai/model/train.py'], job_args)
-    if FLAGS.cloud_location is None:
-      raise ValueError('Google Cloud location is either None or invalid.')
-
     resources_args = {'RAM': FLAGS.ram * xm.GiB, 'CPU': FLAGS.cpu * xm.vCPU}
     if FLAGS.accelerator:
       resources_args[FLAGS.accelerator] = FLAGS.accelerator_count
 
     executor = xm_local.Vertex(
         requirements=xm.JobRequirements(
-            service_tier=xm.ServiceTier.PROD, **resources_args
+            service_tier=xm.ServiceTier.PROD,
+            location=FLAGS.cloud_location,
+            **resources_args,
         ),
     )
 
