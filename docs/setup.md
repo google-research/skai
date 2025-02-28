@@ -53,7 +53,7 @@ When asked to choose a location, you should choose "Region" for location type, a
 
 
 *   If you are located in the United States: us-central1
-*   If you are located in Europe: europe-west1
+*   If you are located in Europe: europe-west4
 *   If you are located in Asia: asia-east1
 *   For other locations, please read the following documentation to choose a suitable region:
     *   https://cloud.google.com/storage/docs/locations
