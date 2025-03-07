@@ -1121,7 +1121,7 @@ def combine_csvs(pattern: str, output_prefix: str) -> None:
       ignore_index=True,
   )
   with tf.io.gfile.GFile(f'{output_prefix}.csv', 'w') as f:
-    combined_df.to_csv(f)
+    combined_df.to_csv(f, index=False)
 
   combined_df['geometry'] = combined_df['wkt'].apply(shapely.wkt.loads)
   gdf = gpd.GeoDataFrame(combined_df.drop(columns=['wkt']), crs='EPSG:4326')
