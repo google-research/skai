@@ -1050,21 +1050,21 @@ def deduplicate_buildings_simple(buildings: PCollection) -> PCollection:
 
 
 def write_tfrecords(
-    buildings: PCollection,
+    examples: PCollection,
     output_prefix: str,
     num_shards: int,
     stage_prefix: str,
 ) -> None:
-  """Writes building examples as sharded TFRecords.
+  """Writes examples as sharded TFRecords.
 
   Args:
-    buildings: PCollection of buildings in tf.Example format.
+    examples: PCollection of Tensorflow Examples.
     output_prefix: Output path prefix.
     num_shards: Number of shards to write.
     stage_prefix: Beam stage name prefix.
   """
   _ = (
-      buildings
+      examples
       | stage_prefix + 'Serialize' >> beam.Map(lambda e: e.SerializeToString())
       | stage_prefix + 'WriteOutput' >> beam.io.tfrecordio.WriteToTFRecord(
           output_prefix,
@@ -1121,7 +1121,7 @@ def combine_csvs(pattern: str, output_prefix: str) -> None:
       ignore_index=True,
   )
   with tf.io.gfile.GFile(f'{output_prefix}.csv', 'w') as f:
-    combined_df.to_csv(f)
+    combined_df.to_csv(f, index=False)
 
   combined_df['geometry'] = combined_df['wkt'].apply(shapely.wkt.loads)
   gdf = gpd.GeoDataFrame(combined_df.drop(columns=['wkt']), crs='EPSG:4326')
