@@ -459,10 +459,27 @@ def _generate_raster_points(
 
 def get_rgb_indices(raster: rasterio.io.DatasetReader) -> tuple[int, int, int]:
   """Returns the indices of the RGB channels in the raster."""
+  color_interps = [
+      raster.colorinterp[band].name.lower() for band in range(raster.count)
+  ]
+  band_names = [
+      raster.tags(band + 1).get('BandName', 'undefined').lower()
+      for band in range(raster.count)
+  ]
+
+  # Special case for ArcGIS exported images.
+  if color_interps == [
+      'undefined',
+      'undefined',
+      'undefined',
+      'alpha',
+  ] and band_names == ['red', 'green', 'blue', 'blue']:
+    return (1, 2, 3)
+
   colors = {}
-  for band in range(raster.count):
-    color_interp = raster.colorinterp[band].name.lower()
-    band_name = raster.tags(band + 1).get('BandName', 'undefined').lower()
+  for band, (color_interp, band_name) in enumerate(
+      zip(color_interps, band_names)
+  ):
     if band_name == 'undefined' and color_interp == 'undefined':
       continue
     elif band_name == 'undefined' and color_interp != 'undefined':
