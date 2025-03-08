@@ -106,6 +106,7 @@ flags.DEFINE_list(
         'where each element has the form "var=value".'
     ),
 )
+flags.DEFINE_bool('log_tiles', False, 'If true, log tiles to disk.')
 
 PipelineOptions = beam.options.pipeline_options.PipelineOptions
 
@@ -150,11 +151,23 @@ def main(args):
   print(f'Extracting {len(tiles)} tiles total')
 
   with beam.Pipeline(options=pipeline_options) as pipeline:
-    buildings = (
+    extracted_tiles = (
         pipeline
         | 'CreateTiles' >> beam.Create(tiles)
         | 'ExtractTiles'
         >> beam.ParDo(extract_tiles.ExtractTilesAsExamplesFn({}))
+    )
+
+    if FLAGS.log_tiles:
+      detect_buildings.write_tfrecords(
+          extracted_tiles,
+          os.path.join(FLAGS.output_dir, 'tiles'),
+          1,
+          'write_tiles',
+      )
+
+    buildings = (
+        extracted_tiles
         | 'DetectBuildings'
         >> beam.ParDo(
             detect_buildings.DetectBuildingsFn(

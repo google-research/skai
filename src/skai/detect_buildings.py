@@ -1050,21 +1050,21 @@ def deduplicate_buildings_simple(buildings: PCollection) -> PCollection:
 
 
 def write_tfrecords(
-    buildings: PCollection,
+    examples: PCollection,
     output_prefix: str,
     num_shards: int,
     stage_prefix: str,
 ) -> None:
-  """Writes building examples as sharded TFRecords.
+  """Writes examples as sharded TFRecords.
 
   Args:
-    buildings: PCollection of buildings in tf.Example format.
+    examples: PCollection of Tensorflow Examples.
     output_prefix: Output path prefix.
     num_shards: Number of shards to write.
     stage_prefix: Beam stage name prefix.
   """
   _ = (
-      buildings
+      examples
       | stage_prefix + 'Serialize' >> beam.Map(lambda e: e.SerializeToString())
       | stage_prefix + 'WriteOutput' >> beam.io.tfrecordio.WriteToTFRecord(
           output_prefix,
