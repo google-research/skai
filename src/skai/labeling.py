@@ -767,6 +767,8 @@ def _parquet_row_to_example(row: pd.Series) -> tf.train.Example:
   utils.add_bytes_feature(
       'post_image_id', row['post_image_id'].encode(), example
   )
+  utils.add_bytes_feature('pre_image_png', row['pre_image_png'], example)
+  utils.add_bytes_feature('post_image_png', row['post_image_png'], example)
   utils.add_bytes_feature(
       'pre_image_png_large', row['pre_image_png_large'], example
   )
