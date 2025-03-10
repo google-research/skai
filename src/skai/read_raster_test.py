@@ -128,6 +128,9 @@ class ReadRasterTest(absltest.TestCase):
     super().setUp()
     current_dir = pathlib.Path(__file__).parent
     self.test_image_path = str(current_dir / TEST_IMAGE_PATH)
+    self.bad_alpha_test_image_path = str(
+        current_dir / 'test_data/bad_alpha_channel.tif'
+    )
 
   def test_generate_raster_points(self):
     coordinates = [
@@ -364,6 +367,10 @@ class ReadRasterTest(absltest.TestCase):
     )
     dataset = rasterio.open(image_path)
     self.assertSequenceEqual(read_raster.get_rgb_indices(dataset), (2, 3, 4))
+
+  def test_get_rgb_indices_bad_alpha_channel(self):
+    raster = rasterio.open(self.bad_alpha_test_image_path)
+    self.assertSequenceEqual(read_raster.get_rgb_indices(raster), (1, 2, 3))
 
   def test_convert_image_to_uint8(self):
     band = np.diag([4095, 2047, 1023, 511]).astype(np.uint16)
