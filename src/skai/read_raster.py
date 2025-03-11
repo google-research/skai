@@ -671,6 +671,7 @@ def extract_patches_from_rasters(
       >> beam.Create([r.path for r in raster_info])
       | stage_prefix + '_generate_raster_points'
       >> beam.FlatMap(_generate_raster_points, buildings_path)
+      | stage_prefix + '_reshuffle_raster_points' >> beam.Reshuffle()
       | stage_prefix + '_make_windows'
       >> beam.ParDo(MakeWindow(patch_size, resolution, gdal_env))
       | stage_prefix + '_group_by_raster_bin' >> beam.GroupByKey()
