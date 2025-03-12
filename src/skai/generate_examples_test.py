@@ -886,17 +886,12 @@ class GenerateExamplesTest(parameterized.TestCase):
     for (before_image_id, after_image_id), alignment in alignments:
       self.assertIn(before_image_id, ['before1', 'before2'])
       self.assertIn(after_image_id, ['after1', 'after2'])
-      self.assertEqual(alignment.before_image_id, before_image_id)
-      self.assertEqual(alignment.after_image_id, after_image_id)
       self.assertAlmostEqual(alignment.longitude, longitude)
       self.assertAlmostEqual(alignment.latitude, latitude)
-      self.assertEqual(alignment.encoded_coordinates, encoded_coordinates)
 
   def test_fix_alignments(self):
     alignments = [
         generate_examples._Alignment(
-            before_image_id='before1',
-            after_image_id='after1',
             encoded_coordinates='aaa',
             longitude=123,
             latitude=78,
@@ -905,8 +900,6 @@ class GenerateExamplesTest(parameterized.TestCase):
             match_score=0.01,
         ),
         generate_examples._Alignment(
-            before_image_id='before1',
-            after_image_id='after1',
             encoded_coordinates='bbb',
             longitude=123.0000001,
             latitude=78.0000001,
@@ -915,8 +908,6 @@ class GenerateExamplesTest(parameterized.TestCase):
             match_score=0.5,
         ),
         generate_examples._Alignment(
-            before_image_id='before1',
-            after_image_id='after1',
             encoded_coordinates='ccc',
             longitude=124,
             latitude=79,
@@ -932,10 +923,8 @@ class GenerateExamplesTest(parameterized.TestCase):
         fixed_alignments,
         [
             (
-                ('before1', 'after1', 'aaa'),
+                b'`\x0f\x9b2\xf8\xbcY\xa0c\x83\x18o\xb3\xdb\xc4\xfa',
                 generate_examples._Alignment(
-                    before_image_id='before1',
-                    after_image_id='after1',
                     encoded_coordinates='aaa',
                     longitude=123,
                     latitude=78,
@@ -945,10 +934,8 @@ class GenerateExamplesTest(parameterized.TestCase):
                 ),
             ),
             (
-                ('before1', 'after1', 'bbb'),
+                b'\xcb\xa7\xf0\xe0\xd6\xab\xf4\xa7\x19>\x07V\x9dp\xba1',
                 generate_examples._Alignment(
-                    before_image_id='before1',
-                    after_image_id='after1',
                     encoded_coordinates='bbb',
                     longitude=123.0000001,
                     latitude=78.0000001,
@@ -958,10 +945,8 @@ class GenerateExamplesTest(parameterized.TestCase):
                 ),
             ),
             (
-                ('before1', 'after1', 'ccc'),
+                b'\xbb\xfa\xe4Ig\xe4\xe9\xad\xfd1m[zrq\xd6',
                 generate_examples._Alignment(
-                    before_image_id='before1',
-                    after_image_id='after1',
                     encoded_coordinates='ccc',
                     longitude=124,
                     latitude=79,
@@ -976,8 +961,6 @@ class GenerateExamplesTest(parameterized.TestCase):
   def test_fix_alignments_no_good_matches(self):
     alignments = [
         generate_examples._Alignment(
-            before_image_id='before1',
-            after_image_id='after1',
             encoded_coordinates='aaa',
             longitude=123,
             latitude=78,
@@ -986,8 +969,6 @@ class GenerateExamplesTest(parameterized.TestCase):
             match_score=0.01,
         ),
         generate_examples._Alignment(
-            before_image_id='before1',
-            after_image_id='after1',
             encoded_coordinates='bbb',
             longitude=123.0000001,
             latitude=78.0000001,
@@ -1003,10 +984,8 @@ class GenerateExamplesTest(parameterized.TestCase):
         fixed_alignments,
         [
             (
-                ('before1', 'after1', 'aaa'),
+                b'`\x0f\x9b2\xf8\xbcY\xa0c\x83\x18o\xb3\xdb\xc4\xfa',
                 generate_examples._Alignment(
-                    before_image_id='before1',
-                    after_image_id='after1',
                     encoded_coordinates='aaa',
                     longitude=123,
                     latitude=78,
@@ -1016,10 +995,8 @@ class GenerateExamplesTest(parameterized.TestCase):
                 ),
             ),
             (
-                ('before1', 'after1', 'bbb'),
+                b'\xcb\xa7\xf0\xe0\xd6\xab\xf4\xa7\x19>\x07V\x9dp\xba1',
                 generate_examples._Alignment(
-                    before_image_id='before1',
-                    after_image_id='after1',
                     encoded_coordinates='bbb',
                     longitude=123.0000001,
                     latitude=78.0000001,
