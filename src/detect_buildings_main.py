@@ -94,7 +94,7 @@ flags.DEFINE_integer('tile_size', 540, 'Tile size in pixels.')
 flags.DEFINE_integer('margin', 50, 'Margin size in pixels.')
 flags.DEFINE_float(
     'detection_confidence_threshold',
-    0.2,
+    0.65,
     'Confidence threshold for building detection. All instances below this'
     ' detection score will be dropped.',
 )
