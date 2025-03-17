@@ -300,8 +300,6 @@ class _FeatureUnion:
 class _Alignment:
   """Class that holds the result of an alignment operation.
   """
-  before_image_id: str
-  after_image_id: str
   encoded_coordinates: str
   longitude: float
   latitude: float
@@ -433,8 +431,6 @@ def _align_image_pairs(
         before_image, after_image
     )
     alignment_info = _Alignment(
-        before_image_id=before_image_id,
-        after_image_id=after_image_id,
         encoded_coordinates=encoded_coordinates,
         longitude=longitude,
         latitude=latitude,
@@ -445,9 +441,18 @@ def _align_image_pairs(
     yield ((before_image_id, after_image_id), alignment_info)
 
 
+def _make_alignment_key(
+    before_image_id: str, after_image_id: str, encoded_coordinates: str
+) -> bytes:
+  """Makes a key for grouping alignments."""
+  return hashlib.md5(
+      f'{before_image_id} {after_image_id} {encoded_coordinates}'.encode()
+  ).digest()
+
+
 def _fix_alignments(
     grouped_alignments: tuple[tuple[str, str], Iterable[_Alignment]],
-) -> Iterator[tuple[tuple[str, str, str], _Alignment]]:
+) -> Iterator[tuple[bytes, _Alignment]]:
   """Fixes bad alignments.
 
   For each bad image pair alignment, finds the nearest good alignment, and
@@ -460,8 +465,10 @@ def _fix_alignments(
     grouped_alignments: All the alignments for a specific image pair.
 
   Yields:
-    Tuples of (before image id, after image id, encoded coordinates), alignment.
+    Tuples of (key, alignment). The key is a hash of the pre-image id, the
+        post-image id, and the encoded coordinates.
   """
+  before_image_id, after_image_id = grouped_alignments[0]
   df = pd.DataFrame([dataclasses.asdict(a) for a in grouped_alignments[1]])
   geometries = gpd.points_from_xy(df['longitude'], df['latitude'])
   gdf = utils.convert_to_utm(
@@ -480,14 +487,10 @@ def _fix_alignments(
   gdf.loc[joined.index, 'row_shift'] = joined['row_shift_right']
   gdf.loc[joined.index, 'col_shift'] = joined['col_shift_right']
   for _, row in gdf.iterrows():
-    key = (
-        row['before_image_id'],
-        row['after_image_id'],
-        row['encoded_coordinates'],
+    key = _make_alignment_key(
+        before_image_id, after_image_id, row['encoded_coordinates']
     )
     yield key, _Alignment(
-        before_image_id=row['before_image_id'],
-        after_image_id=row['after_image_id'],
         encoded_coordinates=row['encoded_coordinates'],
         longitude=row['longitude'],
         latitude=row['latitude'],
@@ -646,6 +649,9 @@ class GenerateExamplesFn(beam.DoFn):
         'skai', 'before_patch_blank_count')
     self._after_patch_blank_count = Metrics.counter(
         'skai', 'after_patch_blank_count')
+    self._no_alignment_info_count = Metrics.counter(
+        'skai', 'no_alignment_info_count'
+    )
 
   def setup(self):
     if self._cloud_detector_model_path:
@@ -798,7 +804,7 @@ class GenerateExamplesFn(beam.DoFn):
   def process(
       self,
       grouped_features: tuple[str, Iterable[_FeatureUnion]],
-      alignment_infos: Mapping[tuple[str, str, str], _Alignment],
+      alignment_infos: Mapping[bytes, _Alignment],
   ) -> Iterator[Example]:
     """Extract patches from before and after images and output as tf Example.
 
@@ -847,9 +853,15 @@ class GenerateExamplesFn(beam.DoFn):
                                   range(len(after_images))):
       before_image_id, before_image = before_images[i]
       after_image_id, after_image = after_images[j]
-      alignment_info = alignment_infos.get(
-          (before_image_id, after_image_id, encoded_coordinates)
+      alignment_key = _make_alignment_key(
+          before_image_id,
+          after_image_id,
+          encoded_coordinates,
       )
+      alignment_info = alignment_infos.get(alignment_key)
+      if alignment_info is None:
+        self._no_alignment_info_count.inc()
+
       example = self._create_example(
           encoded_coordinates,
           before_image_id,
