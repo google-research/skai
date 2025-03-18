@@ -1189,7 +1189,7 @@ def _generate_examples_pipeline(
           num_shards=num_output_shards))
 
   if output_parquet:
-    _write_examples_to_parquet(examples, parquet_prefix, num_output_shards)
+    _write_examples_to_parquet(examples, parquet_prefix)
 
   if output_metadata_file:
     rows = (
@@ -1417,14 +1417,12 @@ def _get_example_metadata(example: tf.train.Example) -> ExampleMetadata:
 def _write_examples_to_parquet(
     examples: beam.PCollection,
     parquet_prefix: str,
-    num_output_shards: int,
 ) -> None:
   """Writes a PCollection of Examples into parquet files.
 
   Args:
     examples: PCollection of examples.
     parquet_prefix: Path prefix for output Parquet files.
-    num_output_shards: Number of shards to output.
   """
   schema = pyarrow.schema([
       ('int64_id', pyarrow.int64()),
@@ -1457,7 +1455,6 @@ def _write_examples_to_parquet(
           file_name_suffix='.parquet',
           row_group_buffer_size=1,
           record_batch_size=100,
-          num_shards=num_output_shards,
       )
   )
 
@@ -1497,5 +1494,5 @@ def convert_tfrecords_to_parquet(
   examples = pipeline | 'read_tfrecords' >> beam.io.tfrecordio.ReadFromTFRecord(
       tfrecords_pattern, coder=beam.coders.ProtoCoder(tf.train.Example)
   )
-  _write_examples_to_parquet(examples, parquet_prefix, 100)
+  _write_examples_to_parquet(examples, parquet_prefix)
   _ = pipeline.run()
