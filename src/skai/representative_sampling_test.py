@@ -9,24 +9,11 @@ from skai import representative_sampling
 
 class SampleExamplesForLabelingLibTest(absltest.TestCase):
 
-  def test_divide_aoi_into_grid_small_area(self):
-    """Tests when the AOI is too small to be divided into 16 cells."""
-    aoi_gdf = gpd.GeoDataFrame(
-        data=[
-            [92.850449, 20.85050],
-            [92.850449, 20.85051],
-            [92.85050, 20.85051],
-            [92.85050, 20.85050],
-        ] * 4,
-        columns=['longitude', 'latitude'],
-    )
-    aoi_gdf = representative_sampling._divide_aoi_into_grid(aoi_gdf)
-    # The points are too close to each other to be divided into 16 separate
-    # cells, so they should be categorized in the same grid cell.
-    self.assertEqual(aoi_gdf['grid_cell'].value_counts()[0], 16)
-
   def test_divide_aoi_into_grid_empty_cells(self):
     """Tests four clusters of points with empty cells in between."""
+    # Four clusters of points arranged in a square. So they should occupy the
+    # top left, top right, bottom left, and bottom right cells of the grid.
+    # In a 4x4 grid, these correspond to grid cell ids 0, 3, 12, 15.
     aoi_gdf = gpd.GeoDataFrame(
         data=[
             # Cluster 0
@@ -52,9 +39,10 @@ class SampleExamplesForLabelingLibTest(absltest.TestCase):
         ],
         columns=['longitude', 'latitude'],
     )
-    aoi_gdf = representative_sampling._divide_aoi_into_grid(aoi_gdf)
-    self.assertLen(aoi_gdf['grid_cell'].value_counts(), 4)
-    self.assertEqual(set(aoi_gdf['grid_cell'].unique()), set([0, 1, 4, 5]))
+    aoi_gdf = representative_sampling._divide_aoi_into_grid(aoi_gdf, 4, 4)
+    cell_id_counts = aoi_gdf['grid_cell'].value_counts()
+    self.assertCountEqual(cell_id_counts.index, [0, 3, 12, 15])
+    self.assertCountEqual(cell_id_counts.values, [4, 4, 4, 4])
 
   def test_get_quartile_gdf(self):
     """Tests getting examples that belong to a given quartile from a cell."""
@@ -155,7 +143,7 @@ class SampleExamplesForLabelingLibTest(absltest.TestCase):
         geometry=gpd.points_from_xy(df.longitude, df.latitude),
         crs='EPSG:4326',
     )
-    gdf = representative_sampling._divide_aoi_into_grid(gdf)
+    gdf = representative_sampling._divide_aoi_into_grid(gdf, 1, 1)
     sampled_idx = representative_sampling.sample_examples(
         gdf, 5, 2, gdf['grid_cell'].unique(), 80
     )
@@ -171,7 +159,7 @@ class SampleExamplesForLabelingLibTest(absltest.TestCase):
         ],
         columns=['longitude', 'latitude', 'damage_score'],
     )
-    gdf = representative_sampling._divide_aoi_into_grid(gdf)
+    gdf = representative_sampling._divide_aoi_into_grid(gdf, 1, 1)
     sampled_idx = representative_sampling.sample_examples(
         gdf, 5, 1, gdf['grid_cell'].unique(), 80
     )
@@ -192,41 +180,65 @@ class SampleExamplesForLabelingLibTest(absltest.TestCase):
         ],
         columns=['longitude', 'latitude'],
     )
-    df = representative_sampling._divide_aoi_into_grid(df)
-    self.assertRaises(
-        ValueError,
-        representative_sampling.run_representative_sampling,
-        df,
-        5,
-        2,
-        df['grid_cell'].unique(),
-        80
+    with self.assertRaises(ValueError):
+      representative_sampling.run_representative_sampling(
+          df,
+          100,
+          2,
+          1,
+          1,
+          0.5,
+          80,
+      )
+
+  def test_train_test_intersection(self):
+    """Tests that algorithm does not allow intersecting train and test sets."""
+
+    # The input consists of two points that are very close together. Once the
+    # training example is chosen, the remaining example should be excluded from
+    # being added to the test set.
+    gdf = gpd.GeoDataFrame(
+        data=[
+            [92.850449, 20.148951, 1.0, False],
+            [92.850450, 20.148950, 1.0, False]],
+        columns=['longitude', 'latitude', 'damage_score', 'is_cloudy'],
     )
+    train_df, test_df = representative_sampling.run_representative_sampling(
+        scores_df=gdf,
+        num_examples_to_sample_total=2,
+        num_examples_to_take_from_top=0,
+        grid_rows=1,
+        grid_cols=1,
+        train_ratio=0.5,
+        buffer_meters=80,
+    )
+    self.assertLen(train_df, 1)
+    self.assertEmpty(test_df)
 
   def test_run_representative_sampling(self):
     """Tests the run_representative_sampling function."""
     gdf = gpd.GeoDataFrame(
         data=[
-            [92.850449, 20.148951, 0.11, False],
-            [92.889694, 20.157515, 0.29, True],
-            [92.889740, 20.157454, 0.36, True],
-            [92.850479, 20.148664, 0.05, False],
-            [92.898537, 20.150021, 0.99, False],
-            [92.898537, 20.160021, 0.72, True],
-            [92.868537, 20.170021, 0.61, True],
-            [92.878537, 20.180021, 0.57, False],
-            [92.898537, 20.160021, 0.48, False],
-            [92.878537, 20.180021, 0.12, False],
-            [92.898537, 20.160021, 0.22, False],
-            [92.878537, 20.180021, 0.83, False],
-            [92.898537, 20.160021, 0.89, False],
-            [92.878537, 20.180021, 0.52, False],
-            [92.898537, 20.160021, 0.93, False],
+            [0, 0, 0.11, False],
+            [1, 0, 0.29, True],
+            [2, 0, 0.36, True],
+            [3, 0, 0.05, False],
+            [4, 0, 0.99, False],
+            [5, 0, 0.72, True],
+            [6, 0, 0.61, True],
+            [7, 0, 0.57, False],
+            [0, 1, 0.48, False],
+            [1, 1, 0.12, False],
+            [2, 1, 0.22, False],
+            [3, 1, 0.83, False],
+            [4, 1, 0.89, False],
+            [5, 1, 0.52, False],
+            [6, 1, 0.93, False],
         ],
         columns=['longitude', 'latitude', 'damage_score', 'is_cloudy'],
     )
     train_df, test_df = representative_sampling.run_representative_sampling(
-        gdf, 8, 1, 0.5, 80
+        gdf, 8, 1, 1, 1, 0.5, 0
     )
     self.assertLen(train_df, 4)
     self.assertLen(test_df, 4)

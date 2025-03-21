@@ -33,7 +33,6 @@ python representative_sampling_main.py \
 """
 
 from collections.abc import Sequence
-import os
 
 from absl import app
 from absl import flags
@@ -50,8 +49,8 @@ _PREDICTIONS_FILE = flags.DEFINE_string(
     'CSV file containing zero-shot output scores.',
     required=True,
 )
-_OUTPUT_DIR = flags.DEFINE_string(
-    'output_dir', None, 'Directory to write output CSV to.', required=True
+_OUTPUT_PATH = flags.DEFINE_string(
+    'output_path', None, 'Path to write output CSV to.', required=True
 )
 _NUM_EXAMPLES_TO_SAMPLE_TOTAL = flags.DEFINE_integer(
     'num_examples_to_sample_total', 500, 'Number of examples to sample.'
@@ -65,10 +64,16 @@ _NUM_EXAMPLES_TO_TAKE_FROM_TOP = flags.DEFINE_integer(
 _TRAIN_RATIO = flags.DEFINE_float(
     'train_ratio', 0.7, 'Ratio of examples to sample for the train set.'
 )
-_BUFFER_METERS = flags.DEFINE_integer(
+_BUFFER_METERS = flags.DEFINE_float(
     'buffer_meters',
     80,
     'Buffer distance between two examples to consider them overlapping.',
+)
+_GRID_ROWS = flags.DEFINE_integer(
+    'grid_rows', 4, 'Number of rows to divide the AOI into.'
+)
+_GRID_COLS = flags.DEFINE_integer(
+    'grid_cols', 4, 'Number of columns to divide the AOI into.'
 )
 
 
@@ -82,18 +87,15 @@ def main(argv: Sequence[str]) -> None:
       scores_df,
       _NUM_EXAMPLES_TO_SAMPLE_TOTAL.value,
       _NUM_EXAMPLES_TO_TAKE_FROM_TOP.value,
+      _GRID_ROWS.value,
+      _GRID_COLS.value,
       _TRAIN_RATIO.value,
       _BUFFER_METERS.value,
   )
   # Combine the train and test sets and save to one output CSV.
   sampled_df = pd.concat([train_df, test_df])
-  sampled_df.to_csv(
-      os.path.join(
-          _OUTPUT_DIR.value,
-          f'{_NUM_EXAMPLES_TO_SAMPLE_TOTAL.value}_sampled_examples.csv',
-      ),
-      index=False,
-  )
+  with tf.io.gfile.GFile(_OUTPUT_PATH.value, 'w') as f:
+    sampled_df.to_csv(f, index=False)
 
 
 if __name__ == '__main__':

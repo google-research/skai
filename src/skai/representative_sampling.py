@@ -20,10 +20,6 @@ import numpy as np
 import pandas as pd
 from skai import utils
 
-# The AOI gets split up into a grid of cells, and the method samples from each
-# cell. By default, the AOI divided into a square 4x4 grid for 16 cells total.
-_GRID_WIDTH = 4
-_GRID_HEIGHT = 4
 # For each cell, we identify the examples that fall in it and get its score
 # distribution. The score distribution is then divided into quartiles, and each
 # quartile is divided into 4 equally sized buckets. The method samples from each
@@ -33,7 +29,9 @@ _GRID_HEIGHT = 4
 _NUM_BUCKETS_PER_QUARTILE = 4
 
 
-def _divide_aoi_into_grid(aoi_gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
+def _divide_aoi_into_grid(
+    aoi_gdf: gpd.GeoDataFrame, grid_rows: int, grid_cols: int
+) -> gpd.GeoDataFrame:
   """Creates a grid to represent the geographic area covered by the AOI.
 
   Adds a 'grid_cell_id' column to the dataframe.
@@ -41,34 +39,32 @@ def _divide_aoi_into_grid(aoi_gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
   Args:
     aoi_gdf: A dataframe of buildings across entire AOI, where each row
       represents a building.
+    grid_rows: Number of rows to divide the AOI into.
+    grid_cols: Number of columns to divide the AOI into.
 
   Returns:
     The dataframe with an additional 'grid_cell_id' column.
   """
-  min_longitude = aoi_gdf['longitude'].min()
-  max_longitude = aoi_gdf['longitude'].max()
-  min_latitude = aoi_gdf['latitude'].min()
-  max_latitude = aoi_gdf['latitude'].max()
-
   # Calculate grid cell boundaries.
-  longitude_step = math.ceil((max_longitude - min_longitude) / _GRID_WIDTH)
-  latitude_step = math.ceil((max_latitude - min_latitude) / _GRID_HEIGHT)
-
+  x_borders = np.linspace(
+      aoi_gdf['longitude'].min(), aoi_gdf['longitude'].max(), grid_cols + 1
+  )
+  x_borders[-1] += 0.000001  # Add small offset to include points on the edge.
+  y_borders = np.linspace(
+      aoi_gdf['latitude'].min(), aoi_gdf['latitude'].max(), grid_rows + 1
+  )
+  y_borders[-1] += 0.000001  # Add small offset to include points on the edge.
   grid_cells = []
-  for i in range(_GRID_WIDTH):
-    for j in range(_GRID_HEIGHT):
-      min_lon = min_longitude + i * longitude_step
-      max_lon = min_longitude + (i + 1) * longitude_step
-      min_lat = min_latitude + j * latitude_step
-      max_lat = min_latitude + (j + 1) * latitude_step
-      grid_cells.append((min_lon, max_lon, min_lat, max_lat))
-
   print('Grid Cell Boundaries: ')
-  for i, cell in enumerate(grid_cells):
-    print(
-        f'Grid Cell {i}: Longitude ({cell[0]:.4f}, {cell[1]:.4f}), Latitude'
-        f' ({cell[2]:.4f}, {cell[3]:.4f})'
-    )
+  for i in range(grid_cols):
+    for j in range(grid_rows):
+      cell = (x_borders[i], x_borders[i + 1], y_borders[j], y_borders[j + 1])
+      grid_cells.append(cell)
+      print(
+          f'Grid Cell {len(grid_cells) - 1}: Longitude ({cell[0]:.4f},'
+          f' {cell[1]:.4f}), Latitude ({cell[2]:.4f}, {cell[3]:.4f})'
+      )
+
   aoi_gdf['grid_cell'] = aoi_gdf.apply(
       lambda row: _get_grid_cell(row['longitude'], row['latitude'], grid_cells),
       axis=1,
@@ -154,13 +150,11 @@ def _get_bucket_gdf(
   Returns:
     A Geodataframe of rows that belong to the given bucket.
   """
-  start_of_bucket_score = (
-      quartile_start + bucket_idx * bucket_score_increment
-  )
-  end_of_bucket_score = start_of_bucket_score + bucket_score_increment
+  min_score = quartile_start + bucket_idx * bucket_score_increment
+  max_score = min_score + bucket_score_increment
+  inclusive = 'both' if bucket_idx == _NUM_BUCKETS_PER_QUARTILE - 1 else 'left'
   bucket_gdf = quartile_gdf[
-      (quartile_gdf['damage_score'] >= start_of_bucket_score)
-      & (quartile_gdf['damage_score'] < end_of_bucket_score)
+      quartile_gdf['damage_score'].between(min_score, max_score, inclusive)
   ]
   if all_samples:
     bucket_gdf = bucket_gdf[
@@ -172,7 +166,7 @@ def _get_bucket_gdf(
 def _drop_points_within_sample(
     sample: gpd.array.GeometryArray,
     bucket_gdf: gpd.GeoDataFrame,
-    buffer_meters: int,
+    buffer_meters: float,
 ) -> gpd.GeoDataFrame:
   """Drops points within a buffer distance of the sampled point.
 
@@ -197,7 +191,7 @@ def _sample_from_bucket(
     num_to_sample_from_bucket: int,
     num_to_sample_total: int,
     all_samples: list[int],
-    buffer_meters: int):
+    buffer_meters: float):
   """Samples from a bucket and excludes any already sampled examples."""
   for _ in range(num_to_sample_from_bucket):
     sample = bucket_gdf.sample(1)
@@ -216,8 +210,7 @@ def sample_examples(
     num_to_sample_total: int,
     num_top_examples: int,
     grid_cell_idx: list[int],
-    buffer_meters: int,
-    is_train: bool = True,
+    buffer_meters: float,
 ) -> list[int]:
   """Samples a given number of examples from a dataframe evenly across a grid.
 
@@ -237,22 +230,19 @@ def sample_examples(
     grid_cell_idx: A list of grid cell indices from highest to lowest count.
     buffer_meters: The buffer distance between two examples to consider them
       overlapping.
-    is_train: Whether to sample for the train or test set.
 
   Returns:
-    A list of indices of thesampled examples.
+    A list of indices of the sampled examples.
   """
-  num_to_sample_per_cell = num_to_sample_total // len(grid_cell_idx)
+  num_to_sample_per_cell = int(
+      math.ceil(num_to_sample_total / len(grid_cell_idx))
+  )
   # For every cell, we sample a certain number evenly over the quartile-based
-  # buckets, then collect from the remaining top-scoring buildings if collecting
-  # for the train set.
-  num_to_sample_from_top = 0
-  num_to_sample_from_buckets = num_to_sample_per_cell
-  if is_train:
-    num_to_sample_from_top = num_top_examples // len(grid_cell_idx)
-    num_to_sample_from_buckets -= num_to_sample_from_top
+  # buckets, then collect from the remaining top-scoring buildings
+  num_to_sample_from_top = int(math.ceil(num_top_examples / len(grid_cell_idx)))
+  num_to_sample_from_buckets = num_to_sample_per_cell - num_to_sample_from_top
   num_to_sample_per_bucket = max(
-      math.ceil(num_to_sample_from_buckets / len(grid_cell_idx)), 1
+      math.ceil(num_to_sample_from_buckets / (4 * _NUM_BUCKETS_PER_QUARTILE)), 1
   )
   print(f'Number of Populated Grid Cells: {len(grid_cell_idx)}')
 
@@ -299,7 +289,7 @@ def sample_examples(
 
       # Step 4: Now get the top-scoring examples from the remaining buildings
       # if we're collecting for the train set.
-      if is_train:
+      if num_to_sample_from_top > 0:
         remain_gdf = cell_gdf[~cell_gdf.index.isin(all_samples)]
         top_gdf = remain_gdf.nlargest(
             min(num_to_sample_from_top, num_to_sample_total - len(all_samples)),
@@ -319,6 +309,8 @@ def sample_examples(
       print('No more examples to sample.')
       break
     all_samples_count_in_previous_round = len(all_samples)
+  if len(set(all_samples)) < len(all_samples):
+    raise ValueError('Duplicate samples found.')
   return all_samples
 
 
@@ -326,8 +318,10 @@ def run_representative_sampling(
     scores_df: pd.DataFrame,
     num_examples_to_sample_total: int,
     num_examples_to_take_from_top: int,
+    grid_rows: int,
+    grid_cols: int,
     train_ratio: float,
-    buffer_meters: int
+    buffer_meters: float,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
   """Creates a train and test dataset with representative sampling.
 
@@ -341,12 +335,14 @@ def run_representative_sampling(
     num_examples_to_sample_total: The total number of examples to sample.
     num_examples_to_take_from_top: The number of examples to take from the top
       of the score distribution after ranking.
+    grid_rows: Number of rows to divide the AOI into.
+    grid_cols: Number of columns to divide the AOI into.
     train_ratio: The ratio of examples to sample for the train set.
     buffer_meters: The buffer distance between two examples to consider them
       overlapping.
 
   Returns:
-    A tuple containing the dataframes for the train and test sets, respectively. 
+    A tuple containing the dataframes for the train and test sets, respectively.
   """
   if 'damage_score' not in scores_df.columns:
     raise ValueError(
@@ -375,8 +371,7 @@ def run_representative_sampling(
       )
   )
 
-  # Divide the AOI into a _GRID_WIDTH x _GRID_HEIGHT grid.
-  scores_gdf = _divide_aoi_into_grid(scores_gdf)
+  scores_gdf = _divide_aoi_into_grid(scores_gdf, grid_rows, grid_cols)
   # Sort the grid cells from highest to lowest count and drop any empty ones.
   grid_cell_counts = (
       scores_gdf['grid_cell'].value_counts().sort_values(ascending=False)
@@ -395,19 +390,26 @@ def run_representative_sampling(
       grid_cell_idx,
       buffer_meters
   )
+  train_set = scores_gdf.loc[train_index]
+  train_set['split'] = 'train'
+  train_set_buffer = gpd.GeoDataFrame(geometry=train_set.buffer(buffer_meters))
+  close_to_train_set = scores_gdf.sjoin(train_set_buffer, how='inner')
+  remaining = scores_gdf.drop(index=close_to_train_set.index)
   test_index = sample_examples(
-      scores_gdf,
+      remaining,
       num_test_examples,
-      num_examples_to_take_from_top,
+      0,
       grid_cell_idx,
       buffer_meters,
-      is_train=False
   )
+  test_set = scores_gdf.loc[test_index]
+  test_set['split'] = 'test'
+  train_test_intersection = test_set.sjoin(train_set_buffer, how='inner')
+  if not train_test_intersection.empty:
+    raise ValueError('Train and test sets have overlapping examples.')
   print(f'Number of Train Examples Sampled: {len(train_index)}')
-  print(f'Numbe of Test Examples Sampled: {len(test_index)}')
-  train_df = pd.DataFrame(scores_gdf.loc[train_index])
-  test_df = pd.DataFrame(scores_gdf.loc[test_index])
-  train_df['split'] = 'train'
-  test_df['split'] = 'test'
-  return train_df, test_df
-
+  print(f'Number of Test Examples Sampled: {len(test_index)}')
+  return (
+      train_set.drop(columns=['geometry']),
+      test_set.drop(columns=['geometry']),
+  )
