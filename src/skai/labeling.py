@@ -1226,6 +1226,7 @@ def create_labeled_examples(
     label_file_paths: list[str],
     string_to_numeric_labels: list[str],
     example_patterns: list[str],
+    splits_path: str,
     test_fraction: float,
     train_output_path: str,
     test_output_path: str,
@@ -1240,6 +1241,7 @@ def create_labeled_examples(
     string_to_numeric_labels: List of strings in the form
       "<string label>=<numeric label>", e.g. "no_damage=0"
     example_patterns: Patterns for unlabeled examples.
+    splits_path: Path to CSV mapping example ids to train/test splits.
     test_fraction: Fraction of examples to write to test output.
     train_output_path: Path to training examples TFRecord output.
     test_output_path: Path to test examples TFRecord output.
@@ -1306,9 +1308,33 @@ def create_labeled_examples(
           )
         all_labeled_examples.append(example)
 
-  train_examples, test_examples = _split_examples(
-      all_labeled_examples, test_fraction, connecting_distance_meters
-  )
+  if splits_path:
+    with tf.io.gfile.GFile(splits_path) as f:
+      df = pd.read_csv(f)
+      if 'example_id' not in df.columns:
+        raise ValueError('Splits CSV must contain "example_id" column.')
+      if 'split' not in df.columns:
+        raise ValueError('Splits CSV must contain "split" column.')
+    example_id_to_split = {r.example_id: r.split for r in df.itertuples()}
+    train_examples = []
+    test_examples = []
+    for e in all_labeled_examples:
+      example_id = (
+          e.features.feature['example_id'].bytes_list.value[0].decode()
+      )
+      split = example_id_to_split.get(example_id, None)
+      if split is None:
+        raise ValueError(f'Example id {example_id} not found in splits CSV.')
+      if split == 'train':
+        train_examples.append(e)
+      elif split == 'test':
+        test_examples.append(e)
+      else:
+        raise ValueError(f'Unknown split: {split}')
+  else:
+    train_examples, test_examples = _split_examples(
+        all_labeled_examples, test_fraction, connecting_distance_meters
+    )
 
   _write_tfrecord(train_examples, train_output_path)
   _write_tfrecord(test_examples, test_output_path)
