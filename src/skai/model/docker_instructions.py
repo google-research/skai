@@ -15,6 +15,7 @@
 """Functions to generate docker build instructions."""
 
 import pathlib
+from typing import Optional
 
 from xmanager import xm
 
@@ -84,7 +85,14 @@ def tpuvm_docker_instructions() -> list[str]:
 
 
 def get_docker_instructions(accelerator: str) -> tuple[str, list[str]]:
-  """Returns the docker instructions and base image for `accelerator`."""
+  """Returns the docker instructions and base image for `accelerator`.
+
+  Args:
+    accelerator: The type of accelerator to build the image for (cpu, gpu, tpu).
+
+  Returns:
+    A tuple of the base image and the docker instructions.
+  """
   if (accelerator == 'tpu') or (accelerator in TPU_ACCELERATORS):
     # Required by TPU vm.
     base_image = TPU_BASE_IMAGE
@@ -120,11 +128,31 @@ def get_docker_instructions(accelerator: str) -> tuple[str, list[str]]:
   ]
   docker_instructions.extend(BIG_VISION_DOCKER_INSTRUCTIONS)
   docker_instructions.extend(SKAI_DOCKER_INSTRUCTIONS)
-
   return base_image, docker_instructions
 
 
-def get_xm_executable_spec(accelerator: str):
+def get_geofm_docker_instructions() -> tuple[str, list[str]]:
+  """Returns the docker instructions and base image for `accelerator`.
+
+  Returns:
+    A tuple of the base image and the docker instructions.
+  """
+  base_image = 'tensorflow/tensorflow:2.19.0'
+  docker_instructions = [
+      'RUN apt-get update && apt-get install -y python3-pip wget',
+      'RUN pip install ml-collections',
+      'RUN pip install pandas>=2',
+      'RUN pip install geopandas>=0.8',
+      'RUN pip install pillow',
+      'RUN pip install rasterio==1.3.9',
+      'RUN pip install tqdm',
+      'COPY skai /skai',
+      'RUN pip install /skai/src/.',
+    ]
+  return base_image, docker_instructions
+
+
+def get_xm_executable_spec(accelerator: str, model_type: Optional[str] = None):
   """Returns a Xmanager executable spec that can be used to build docker images.
 
   The image has a default entrypoint that launches a Python script. The script
@@ -137,12 +165,17 @@ def get_xm_executable_spec(accelerator: str):
 
   Args:
     accelerator: The type of accelerator to build the image for (cpu, gpu, tpu).
+    model_type: The type of model to build the image for (siglip, geofm). Only
+      used when running inference pipeline with vlm_zero_shot_vertex.py.
 
   Returns:
     Xmanager executable spec.
   """
   source_path = str(pathlib.Path(__file__).parents[3])  # SKAI root directory.
-  base_image, instructions = get_docker_instructions(accelerator)
+  if model_type == 'siglip':
+    base_image, instructions = get_docker_instructions(accelerator)
+  else:
+    base_image, instructions = get_geofm_docker_instructions()
   return xm.PythonContainer(
       path=source_path,
       base_image=base_image,
