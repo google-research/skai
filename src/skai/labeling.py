@@ -221,6 +221,24 @@ def sample_with_buffer(
   return sample
 
 
+def _read_sharded_metadata(pattern: str) -> pd.DataFrame:
+  """Reads sharded metadata files matching pattern and merges them."""
+  paths = tf.io.gfile.glob(pattern)
+  if not paths:
+    raise ValueError(f'File pattern {pattern} did not match any files.')
+  dfs = []
+  for path in paths:
+    with tf.io.gfile.GFile(path, 'r') as f:
+      if '.parquet' in path:
+        df = pd.read_parquet(f)
+      elif '.csv' in path:
+        df = pd.read_csv(f)
+      else:
+        raise ValueError(f'Unsupported metadata file type: {path}')
+      dfs.append(df)
+  return pd.concat(dfs, ignore_index=True)
+
+
 def _read_sharded_csvs(pattern: str) -> pd.DataFrame:
   """Reads CSV shards matching pattern and merges them."""
   paths = tf.io.gfile.glob(pattern)
@@ -242,7 +260,7 @@ def _read_sharded_csvs(pattern: str) -> pd.DataFrame:
 
 
 def get_buffered_example_ids(
-    examples_pattern: str,
+    metadata_pattern: str,
     buffered_sampling_radius: float,
     excluded_example_ids: set[str],
     max_examples: int | None = None,
@@ -250,7 +268,7 @@ def get_buffered_example_ids(
   """Gets a set of allowed example ids.
 
   Args:
-    examples_pattern: File pattern for input TFRecords.
+    metadata_pattern: File pattern for input metadata files.
     buffered_sampling_radius: The minimum distance between two examples for the
       two examples to be in the labeling task.
     excluded_example_ids: Set of example ids to be excluded prior to generating
@@ -259,20 +277,7 @@ def get_buffered_example_ids(
   Returns:
     Set of allowed example ids.
   """
-  root_dir = '/'.join(examples_pattern.split('/')[:-2])
-  single_csv_pattern = str(os.path.join(root_dir, 'metadata_examples.csv'))
-  if tf.io.gfile.exists(single_csv_pattern):
-    metadata = _read_sharded_csvs(single_csv_pattern)
-  else:
-    sharded_csv_pattern = str(
-        os.path.join(
-            root_dir,
-            'metadata',
-            'metadata.csv-*-of-*',
-        )
-    )
-    metadata = _read_sharded_csvs(sharded_csv_pattern)
-
+  metadata = _read_sharded_metadata(metadata_pattern)
   metadata = metadata[
       ~metadata['example_id'].isin(excluded_example_ids)
   ].reset_index(drop=True)
@@ -316,7 +321,9 @@ def _deduplicate_labeling_examples(
 
 
 def create_labeling_images(
-    examples_pattern: str,
+    metadata_pattern: str,
+    images_dir: str | None,
+    examples_pattern: str | None,
     max_images: int,
     allowed_example_ids_path: str,
     excluded_import_file_patterns: list[str],
@@ -326,8 +333,8 @@ def create_labeling_images(
     max_processes: int,
     buffered_sampling_radius: float,
     score_bins_to_sample_fraction: dict[tuple[float, float], float],
-    scores_path: str | None = None,
-    filter_by_column: str | None = None,
+    scores_path: str | None,
+    filter_by_column: str | None,
 ) -> int:
   """Samples labeling examples and creates PNG images for the labeling task.
 
@@ -364,7 +371,12 @@ def create_labeling_images(
     - tfrecord_source_path: Path to the TFRecord file that contains the example.
 
   Args:
-    examples_pattern: File pattern for input TFRecords.
+    metadata_pattern: The file pattern of either CSV or parquet example metadata
+      files created by example generation pipeline.
+    images_dir: Path to directory containing pre/post PNG images. If not none,
+      this directory will be preferred over the examples pattern.
+    examples_pattern: File pattern for input TFRecords or parquet files
+      containing examples. Only used if images_dir is None.
     max_images: Maximum number of images to create.
     allowed_example_ids_path: Path of file containing example ids that are
       allowed to be in the labeling set. The file should have one example id per
@@ -394,11 +406,6 @@ def create_labeling_images(
     raise ValueError(
         'scores_path and allowed_example_ids_path cannot be set at the same'
         ' time.'
-    )
-  example_files = tf.io.gfile.glob(examples_pattern)
-  if not example_files:
-    raise ValueError(
-        f'Example pattern {examples_pattern} did not match any files.'
     )
   excluded_example_ids = set()
   if excluded_import_file_patterns:
@@ -443,26 +450,38 @@ def create_labeling_images(
 
   else:
     allowed_example_ids = get_buffered_example_ids(
-        examples_pattern,
+        metadata_pattern,
         buffered_sampling_radius,
         excluded_example_ids,
         max_images,
     )
 
-  if all(f.endswith('.parquet') for f in example_files):
-    labeling_examples = _create_labeling_assets_from_parquet_files(
-        example_files, output_dir, allowed_example_ids
+  if images_dir:
+    labeling_examples = _create_labeling_assets_from_metadata(
+        metadata_pattern, images_dir, output_dir, allowed_example_ids
     )
   else:
-    labeling_examples = _process_example_files(
-        example_files,
-        output_dir,
-        use_multiprocessing,
-        multiprocessing_context,
-        max_processes,
-        allowed_example_ids,
-        _create_labeling_assets_from_example_file,
-    )
+    if examples_pattern is None:
+      raise ValueError('examples_pattern must be set if images_dir is None.')
+    example_files = tf.io.gfile.glob(examples_pattern)
+    if not example_files:
+      raise ValueError(
+          f'Example pattern {examples_pattern} did not match any files.'
+      )
+    if all(f.endswith('.parquet') for f in example_files):
+      labeling_examples = _create_labeling_assets_from_parquet_files(
+          example_files, output_dir, allowed_example_ids
+      )
+    else:
+      labeling_examples = _process_example_files(
+          example_files,
+          output_dir,
+          use_multiprocessing,
+          multiprocessing_context,
+          max_processes,
+          allowed_example_ids,
+          _create_labeling_assets_from_example_file,
+      )
   labeling_examples = _deduplicate_labeling_examples(labeling_examples)
 
   image_metadata_csv = os.path.join(
@@ -502,6 +521,7 @@ def create_labeling_images(
 
 
 def create_buffered_tfrecords(
+    metadata_pattern: str,
     examples_pattern: str,
     output_dir: str,
     use_multiprocessing: bool,
@@ -513,6 +533,7 @@ def create_buffered_tfrecords(
   """Creates filtered TFRecords.
 
   Args:
+    metadata_pattern: File pattern for input metadata files.
     examples_pattern: File pattern for input TFRecords.
     output_dir: Output directory.
     use_multiprocessing: If true, create multiple processes to create labeling
@@ -540,7 +561,7 @@ def create_buffered_tfrecords(
         excluded_example_ids.update(_read_example_ids_from_import_file(path))
     logging.info('Excluding %d example ids', len(excluded_example_ids))
   allowed_example_ids = get_buffered_example_ids(
-      examples_pattern, buffered_sampling_radius, excluded_example_ids
+      metadata_pattern, buffered_sampling_radius, excluded_example_ids
   )
 
   _ = _process_example_files(
@@ -748,14 +769,14 @@ def _create_labeling_assets_from_example_file(
   return labeling_examples
 
 
-def _parquet_row_to_example(row: pd.Series) -> tf.train.Example:
-  """Converts a row in a Parquet file into an TF example.
+def _dataframe_row_to_example(row: pd.Series) -> bytes:
+  """Converts a dataframe row into a serialized TF example.
 
   Args:
     row: The input row.
 
   Returns:
-    TF Example with features populated from the row's column values.
+    Serialized TF Example with features populated from the row's column values.
   """
   example = tf.train.Example()
   utils.add_bytes_feature('example_id', row['example_id'].encode(), example)
@@ -776,10 +797,46 @@ def _parquet_row_to_example(row: pd.Series) -> tf.train.Example:
       'post_image_png_large', row['post_image_png_large'], example
   )
   utils.add_int64_feature('int64_id', row['int64_id'], example)
-  utils.add_float_list_feature(
-      'coordinates', [row['longitude'], row['latitude']], example
+  longitude, latitude = utils.decode_coordinates(row['encoded_coordinates'])
+  utils.add_float_list_feature('coordinates', [longitude, latitude], example)
+  return example.SerializeToString()
+
+
+def _write_labeling_images_from_dataframe_row(
+    row: pd.Series, output_dir: str
+) -> tuple[str, str, str]:
+  """Writes labeling images from a dataframe row.
+
+  Args:
+    row: Dataframe row containing images.
+    output_dir: Output directory.
+
+  Returns:
+    Tuple of pre image path, post image path, combined image path.
+  """
+  example_id = row['example_id']
+  pre_image_path = os.path.join(output_dir, f'{example_id}_pre.png')
+  with tf.io.gfile.GFile(pre_image_path, 'wb') as f:
+    f.write(row['pre_image_png_large'])
+  post_image_path = os.path.join(output_dir, f'{example_id}_post.png')
+  with tf.io.gfile.GFile(post_image_path, 'wb') as f:
+    f.write(row['post_image_png_large'])
+
+  before_image = utils.deserialize_image(
+      row['pre_image_png_large'],
+      'png',
   )
-  return example
+  after_image = utils.deserialize_image(
+      row['post_image_png_large'],
+      'png',
+  )
+  combined_image = create_labeling_image(
+      before_image, after_image, example_id, row['plus_code']
+  )
+  combined_image_path = os.path.join(output_dir, f'{example_id}.png')
+  with tf.io.gfile.GFile(combined_image_path, 'wb') as f:
+    f.write(utils.serialize_image(combined_image, 'png'))
+  return pre_image_path, post_image_path, combined_image_path
 
 
 def _read_parquet(
@@ -802,40 +859,21 @@ def _read_parquet(
       engine='pyarrow',
   )
   for _, row in df.iterrows():
-    example_id = row['example_id']
-    before_image = utils.deserialize_image(
-        row['pre_image_png_large'],
-        'png',
+    pre_image_path, post_image_path, combined_image_path = (
+        _write_labeling_images_from_dataframe_row(row, output_dir)
     )
-    after_image = utils.deserialize_image(
-        row['post_image_png_large'],
-        'png',
-    )
-    combined_image = create_labeling_image(
-        before_image, after_image, example_id, row['plus_code']
-    )
-
-    pre_image_path = os.path.join(output_dir, f'{example_id}_pre.png')
-    with tf.io.gfile.GFile(pre_image_path, 'wb') as f:
-      f.write(row['pre_image_png_large'])
-    post_image_path = os.path.join(output_dir, f'{example_id}_post.png')
-    with tf.io.gfile.GFile(post_image_path, 'wb') as f:
-      f.write(row['post_image_png_large'])
-    combined_image_path = os.path.join(output_dir, f'{example_id}.png')
-    with tf.io.gfile.GFile(combined_image_path, 'wb') as f:
-      f.write(utils.serialize_image(combined_image, 'png'))
-
+    longitude, latitude = utils.decode_coordinates(row['encoded_coordinates'])
     labeling_examples.append(
         LabelingExample(
             int64_id=row['int64_id'],
-            example_id=str(example_id),
+            example_id=str(row['example_id']),
             pre_image_path=pre_image_path,
             post_image_path=post_image_path,
             combined_image_path=combined_image_path,
             tfrecord_path=path,
-            serialized_example=_parquet_row_to_example(row).SerializeToString(),
-            longitude=row['longitude'],
-            latitude=row['latitude'],
+            serialized_example=_dataframe_row_to_example(row),
+            longitude=longitude,
+            latitude=latitude,
         )
     )
   return labeling_examples
@@ -872,6 +910,117 @@ def _create_labeling_assets_from_parquet_files(
         examples = future.result()
         progress_bar.update(len(examples))
         labeling_examples.extend(examples)
+  return labeling_examples
+
+
+def _read_file(path: str) -> bytes:
+  """Reads file contents."""
+  with tf.io.gfile.GFile(path, 'rb') as f:
+    return f.read()
+
+
+def _read_files_concurrently(
+    images_dir: str, example_ids: set[str]
+) -> dict[tuple[str, str], bytes]:
+  """Reads file contents."""
+  with concurrent.futures.ThreadPoolExecutor() as executor:
+    futures = {}
+    for example_id in example_ids:
+      for subdir in ['pre', 'post', 'large_pre', 'large_post']:
+        path = os.path.join(images_dir, subdir, f'{example_id}.png')
+        futures[executor.submit(_read_file, path)] = (example_id, subdir)
+
+    results = {}
+    with tqdm.tqdm(
+        desc='Read Images (4 per example)', total=len(example_ids) * 4
+    ) as progress_bar:
+      for future in concurrent.futures.as_completed(futures):
+        example_id, subdir = futures[future]
+        image_bytes = future.result()
+        results[(example_id, subdir)] = image_bytes
+        progress_bar.update(1)
+  return results
+
+
+def _write_file(path_and_content: tuple[str, bytes]) -> None:
+  """Writes file contents."""
+  with tf.io.gfile.GFile(path_and_content[0], 'wb') as f:
+    f.write(path_and_content[1])
+
+
+def _create_labeling_assets_from_metadata(
+    metadata_pattern: str,
+    images_dir: str,
+    output_dir: str,
+    allowed_example_ids: set[str],
+) -> list[LabelingExample]:
+  """Creates assets needed for a labeling task from metadata files and images.
+
+  Args:
+    metadata_pattern: Pattern matching paths to metadata file.
+    images_dir: Directory containing pre/post images.
+    output_dir: Directory to write assets to.
+    allowed_example_ids: Set of example_id from which a subset will be used in
+      creating labeling task.
+
+  Returns:
+    List of LabelingExamples containing information about the created assets.
+  """
+  images = _read_files_concurrently(images_dir, allowed_example_ids)
+  metadata_df = _read_sharded_metadata(metadata_pattern)
+  labeling_examples = []
+  images_to_write = []
+  for example_id in allowed_example_ids:
+    matched_rows = metadata_df[metadata_df['example_id'] == example_id]
+    if matched_rows.empty:
+      raise ValueError(f'Example id {example_id} not found in metadata file.')
+    if len(matched_rows) > 1:
+      raise ValueError(
+          f'Example id {example_id} found multiple times in metadata file.'
+      )
+    row = matched_rows.iloc[0].copy()
+    row['pre_image_png'] = images[(example_id, 'pre')]
+    row['post_image_png'] = images[(example_id, 'post')]
+    row['pre_image_png_large'] = images[(example_id, 'large_pre')]
+    row['post_image_png_large'] = images[(example_id, 'large_post')]
+
+    pre_image_path = os.path.join(output_dir, f'{example_id}_pre.png')
+    post_image_path = os.path.join(output_dir, f'{example_id}_post.png')
+    combined_image_path = os.path.join(output_dir, f'{example_id}.png')
+    before_image = utils.deserialize_image(
+        row['pre_image_png_large'],
+        'png',
+    )
+    after_image = utils.deserialize_image(
+        row['post_image_png_large'],
+        'png',
+    )
+    combined_image = utils.serialize_image(create_labeling_image(
+        before_image, after_image, example_id, row['plus_code']
+    ), 'png')
+    images_to_write.extend([
+        (pre_image_path, row['pre_image_png_large']),
+        (post_image_path, row['post_image_png_large']),
+        (combined_image_path, combined_image),
+    ])
+    longitude, latitude = utils.decode_coordinates(row['encoded_coordinates'])
+    labeling_examples.append(
+        LabelingExample(
+            int64_id=row['int64_id'],
+            example_id=str(example_id),
+            pre_image_path=pre_image_path,
+            post_image_path=post_image_path,
+            combined_image_path=combined_image_path,
+            tfrecord_path='',
+            serialized_example=_dataframe_row_to_example(row),
+            longitude=longitude,
+            latitude=latitude,
+        )
+    )
+
+  with concurrent.futures.ThreadPoolExecutor() as executor:
+    executor.map(_write_file, images_to_write)
+
   return labeling_examples
 
 

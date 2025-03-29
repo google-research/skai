@@ -32,7 +32,7 @@ python create_labeling_examples.py \
 
 import ast
 import multiprocessing
-import sys
+import os
 
 from absl import app
 from absl import flags
@@ -43,7 +43,20 @@ import tensorflow as tf
 
 FLAGS = flags.FLAGS
 flags.DEFINE_string(
-    'examples_pattern', None, 'Pattern matching TFRecords.', required=True
+    'metadata_pattern',
+    None,
+    'The file pattern of either CSV or parquet example metadata files created'
+    ' by example generation pipeline.',
+)
+flags.DEFINE_string(
+    'images_dir',
+    None,
+    'The directory containing the images for the examples.',
+)
+flags.DEFINE_string(
+    'examples_pattern',
+    None,
+    'Pattern matching TFRecords or Parquet files containing examples.',
 )
 flags.DEFINE_string(
     'output_dir', None, 'Directory to write images to.', required=True
@@ -94,7 +107,6 @@ flags.DEFINE_string(
     ' a literal Python dict of tuples (low score, high score) to a fraction'
     ' from 0 - 1.0. The fractions should sum to 1.0.',
 )
-
 flags.DEFINE_string(
     'filter_by_column',
     None,
@@ -143,19 +155,35 @@ flags.register_validator(
 
 
 def main(unused_argv):
-  # Check if --output_dir is empty
-  if tf.io.gfile.isdir(FLAGS.output_dir) and tf.io.gfile.listdir(
-      FLAGS.output_dir
-  ):
-    sys.exit(
-        f'\nError: {FLAGS.output_dir} is not empty.\n\nUse an empty directory'
-        ' for --output_dir.'
-    )
+  if FLAGS.metadata_pattern:
+    metadata_pattern = FLAGS.metadata_pattern
+  else:
+    # If metadata_pattern is not specified, derive it from examples_pattern.
+    # This keeps backward compatibility for the command line interface.
+    if FLAGS.examples_pattern is None:
+      raise ValueError(
+          'metadata_pattern flag must be set, or must be derivable from'
+          ' examples_pattern.'
+      )
+    root_dir = '/'.join(FLAGS.examples_pattern.split('/')[:-2])
+    single_csv_pattern = str(os.path.join(root_dir, 'metadata_examples.csv'))
+    if tf.io.gfile.exists(single_csv_pattern):
+      metadata_pattern = single_csv_pattern
+    else:
+      metadata_pattern = str(
+          os.path.join(
+              root_dir,
+              'metadata',
+              'metadata.csv-*-of-*',
+          )
+      )
   score_bins_to_sample_fraction = ast.literal_eval(
       FLAGS.score_bins_to_sample_fraction
   )
 
   num_images = labeling.create_labeling_images(
+      metadata_pattern,
+      FLAGS.images_dir,
       FLAGS.examples_pattern,
       FLAGS.max_images,
       FLAGS.allowed_example_ids_path,

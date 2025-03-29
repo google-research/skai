@@ -129,6 +129,7 @@ class ExamplesGenerationConfig:
     use_dataflow: If true, execute pipeline in Cloud Dataflow.
     output_metadata_file: Output a CSV metadata file for all generated examples.
     output_parquet: Output a Parquet file for all generated examples.
+    output_images: Output pre and post-disaster images to a directory.
     worker_service_account: If using Dataflow, the service account to run as.
     min_dataflow_workers: If using Dataflow, the minimum number of workers to
       instantiate.
@@ -184,6 +185,7 @@ class ExamplesGenerationConfig:
   use_dataflow: bool = False
   output_metadata_file: bool = True
   output_parquet: bool = False
+  output_images: bool = False
   worker_service_account: Optional[str] = None
   min_dataflow_workers: int = 10
   max_dataflow_workers: int = 20
@@ -1087,6 +1089,30 @@ def read_labels_file(
   buildings.write_buildings_file(output_gdf, output_path)
 
 
+def _extract_images_to_dir(
+    example: tf.train.Example, output_dir: str
+) -> None:
+  """Extracts images from an Example into a directory."""
+  example_id = utils.get_bytes_feature(example, 'example_id')[0].decode()
+  pre_image_path = os.path.join(output_dir, 'pre', f'{example_id}.png')
+  post_image_path = os.path.join(output_dir, 'post', f'{example_id}.png')
+  large_pre_image_path = os.path.join(
+      output_dir, 'large_pre', f'{example_id}.png'
+  )
+  large_post_image_path = os.path.join(
+      output_dir, 'large_post', f'{example_id}.png'
+  )
+  with tf.io.gfile.GFile(pre_image_path, 'wb') as f:
+    f.write(utils.get_bytes_feature(example, 'pre_image_png')[0])
+  with tf.io.gfile.GFile(post_image_path, 'wb') as f:
+    f.write(utils.get_bytes_feature(example, 'post_image_png')[0])
+  with tf.io.gfile.GFile(large_pre_image_path, 'wb') as f:
+    f.write(utils.get_bytes_feature(example, 'pre_image_png_large')[0])
+  with tf.io.gfile.GFile(large_post_image_path, 'wb') as f:
+    f.write(utils.get_bytes_feature(example, 'post_image_png_large')[0])
+  Metrics.counter('skai', 'images_written_to_dir').inc()
+
+
 def _generate_examples_pipeline(
     before_image_info: list[RasterInfo],
     after_image_info: list[RasterInfo],
@@ -1109,6 +1135,7 @@ def _generate_examples_pipeline(
     cloud_detector_model_path: Optional[str],
     output_metadata_file: bool,
     output_parquet: bool,
+    output_images: bool,
 ) -> None:
   """Runs example generation pipeline.
 
@@ -1136,6 +1163,7 @@ def _generate_examples_pipeline(
     cloud_detector_model_path: Path to tflite cloud detector model.
     output_metadata_file: If true, write a CSV file containing example metadata.
     output_parquet: If true, write out examples in Parquet format.
+    output_images: If true, write out images to an images directory.
   """
 
   temp_dir = os.path.join(output_dir, 'temp')
@@ -1192,14 +1220,14 @@ def _generate_examples_pipeline(
     _write_examples_to_parquet(examples, parquet_prefix)
 
   if output_metadata_file:
-    rows = (
+    _write_example_metadata(examples, output_dir)
+
+  if output_images:
+    image_output_dir = os.path.join(output_dir, 'examples', 'images')
+    _ = (
         examples
-        | 'extract_example_metadata' >> beam.Map(_get_example_metadata)
-        | 'remove_duplicates' >> beam.Distinct()
+        | 'extract_images' >> beam.Map(_extract_images_to_dir, image_output_dir)
     )
-    df = apache_beam.dataframe.convert.to_dataframe(rows)
-    output_prefix = f'{output_dir}/examples/metadata/metadata.csv'
-    apache_beam.dataframe.io.to_csv(df, output_prefix, index=False)
 
   result = pipeline.run()
   if wait_for_dataflow_job:
@@ -1335,6 +1363,7 @@ def run_example_generation(
       config.cloud_detector_model_path,
       config.output_metadata_file,
       config.output_parquet,
+      config.output_images,
   )
 
 
@@ -1392,6 +1421,34 @@ def _example_to_dict(
   return features
 
 
+def _get_example_schema(include_images: bool) -> pyarrow.Schema:
+  """Returns the schema for an Example in Parquet format."""
+  schema = [
+      ('int64_id', pyarrow.int64()),
+      ('example_id', pyarrow.string()),
+      ('encoded_coordinates', pyarrow.string()),
+      ('longitude', pyarrow.float64()),
+      ('latitude', pyarrow.float64()),
+      ('pre_image_id', pyarrow.string()),
+      ('post_image_id', pyarrow.string()),
+      ('plus_code', pyarrow.string()),
+      ('string_label', pyarrow.string()),
+      ('label', pyarrow.float64()),
+      ('post_footprint_x_shift_meters', pyarrow.float64()),
+      ('post_footprint_y_shift_meters', pyarrow.float64()),
+      ('post_footprint_match_score', pyarrow.float64()),
+      ('building_image_id', pyarrow.string()),
+  ]
+  if include_images:
+    schema.extend([
+        ('pre_image_png_large', pyarrow.binary()),
+        ('post_image_png_large', pyarrow.binary()),
+        ('pre_image_png', pyarrow.binary()),
+        ('post_image_png', pyarrow.binary()),
+    ])
+  return pyarrow.schema(schema)
+
+
 class ExampleMetadata(typing.NamedTuple):
   """Class for holding all metadata (i.e. non-image) features for an example."""
   example_id: str
@@ -1399,8 +1456,8 @@ class ExampleMetadata(typing.NamedTuple):
   encoded_coordinates: str
   longitude: float
   latitude: float
-  post_image_id: str
   pre_image_id: str
+  post_image_id: str
   plus_code: str
   string_label: str
   label: float
@@ -1410,8 +1467,41 @@ class ExampleMetadata(typing.NamedTuple):
   building_image_id: str
 
 
-def _get_example_metadata(example: tf.train.Example) -> ExampleMetadata:
-  return ExampleMetadata(**_example_to_dict(example, False))
+def _feature_dict_to_metadata(features: dict[str, Any]) -> ExampleMetadata:
+  return ExampleMetadata(**features)
+
+
+def _write_example_metadata(
+    examples: beam.PCollection, output_dir: str
+) -> None:
+  """Writes example metadata to CSV and Parquet formats.
+
+  Metadata files contain all information about all examples except images.
+
+  Args:
+    examples: Examples PCollection.
+    output_dir: Output directory.
+  """
+  feature_dicts = examples | 'extract_features_to_dict_metadata' >> beam.Map(
+      _example_to_dict, False
+  )
+  parquet_prefix = os.path.join(output_dir, 'examples', 'metadata', 'metadata')
+  _ = (
+      feature_dicts
+      | 'write_metadata_parquet'
+      >> beam.io.parquetio.WriteToParquet(
+          parquet_prefix,
+          schema=_get_example_schema(include_images=False),
+          codec='snappy',
+          file_name_suffix='.parquet',
+      )
+  )
+
+  df = apache_beam.dataframe.convert.to_dataframe(
+      feature_dicts | 'to_metadata' >> beam.Map(_feature_dict_to_metadata),
+  )
+  csv_prefix = f'{output_dir}/examples/metadata/metadata.csv'
+  apache_beam.dataframe.io.to_csv(df, csv_prefix, index=False)
 
 
 def _write_examples_to_parquet(
@@ -1424,33 +1514,13 @@ def _write_examples_to_parquet(
     examples: PCollection of examples.
     parquet_prefix: Path prefix for output Parquet files.
   """
-  schema = pyarrow.schema([
-      ('int64_id', pyarrow.int64()),
-      ('example_id', pyarrow.string()),
-      ('encoded_coordinates', pyarrow.string()),
-      ('longitude', pyarrow.float64()),
-      ('latitude', pyarrow.float64()),
-      ('pre_image_id', pyarrow.string()),
-      ('post_image_id', pyarrow.string()),
-      ('plus_code', pyarrow.string()),
-      ('string_label', pyarrow.string()),
-      ('label', pyarrow.float64()),
-      ('pre_image_png_large', pyarrow.binary()),
-      ('post_image_png_large', pyarrow.binary()),
-      ('pre_image_png', pyarrow.binary()),
-      ('post_image_png', pyarrow.binary()),
-      ('post_footprint_x_shift_meters', pyarrow.float64()),
-      ('post_footprint_y_shift_meters', pyarrow.float64()),
-      ('post_footprint_match_score', pyarrow.float64()),
-      ('building_image_id', pyarrow.string()),
-  ])
   _ = (
       examples
-      | 'extract_features_to_dict' >> beam.Map(_example_to_dict, True)
-      | 'write_parquet'
+      | 'extract_features_to_dict_parquet' >> beam.Map(_example_to_dict, True)
+      | 'write_examples_parquet'
       >> beam.io.parquetio.WriteToParquet(
           parquet_prefix,
-          schema=schema,
+          schema=_get_example_schema(include_images=True),
           codec='snappy',
           file_name_suffix='.parquet',
           row_group_buffer_size=1,
@@ -1495,4 +1565,48 @@ def convert_tfrecords_to_parquet(
       tfrecords_pattern, coder=beam.coders.ProtoCoder(tf.train.Example)
   )
   _write_examples_to_parquet(examples, parquet_prefix)
+  _ = pipeline.run()
+
+
+def extract_images_to_dir(
+    tfrecords_pattern: str,
+    output_dir: str,
+    project: str,
+    region: str,
+    service_account: str,
+    temp_dir: str,
+) -> None:
+  """Converts TFRecords to Parquet format.
+
+  Args:
+    tfrecords_pattern: Pattern matching input TFRecords.
+    output_dir: Directory to extract images to.
+    project: GCP project.
+    region: GCP region.
+    service_account: Service account to run Dataflow job.
+    temp_dir: Beam temporary directory path.
+  """
+  timestamp = time.strftime('%Y%m%d-%H%M%S')
+  pipeline_options = beam_utils.get_pipeline_options(
+      True,
+      f'extract-images-to-dir-{timestamp}',
+      project,
+      region,
+      temp_dir,
+      10,
+      100,
+      service_account,
+      machine_type=None,
+      accelerator=None,
+      accelerator_count=0,
+  )
+  pipeline = beam.Pipeline(options=pipeline_options)
+  _ = (
+      pipeline
+      | 'read_tfrecords'
+      >> beam.io.tfrecordio.ReadFromTFRecord(
+          tfrecords_pattern, coder=beam.coders.ProtoCoder(tf.train.Example)
+      )
+      | 'extract_images' >> beam.Map(_extract_images_to_dir, output_dir)
+  )
   _ = pipeline.run()

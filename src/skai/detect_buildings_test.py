@@ -586,7 +586,7 @@ class DetectBuildingsTest(tf.test.TestCase, parameterized.TestCase):
       dest_dir_name, dest_subdir, dest_leaf_files = dest
       self.assertNotEqual(src_dir_name, dest_dir_name)
       self.assertEqual(src_subdir, dest_subdir)
-      self.assertEqual(src_leaf_files, dest_leaf_files)
+      self.assertCountEqual(src_leaf_files, dest_leaf_files)
 
   def test_serialize_sparse_tensor(self):
     sparse_tensor = tf.sparse.SparseTensor(

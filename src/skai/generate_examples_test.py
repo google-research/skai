@@ -20,6 +20,7 @@ from typing import Any
 
 from absl.testing import absltest
 from absl.testing import parameterized
+import apache_beam as beam
 from apache_beam.testing import test_pipeline
 import apache_beam.testing.util as test_util
 import geopandas as gpd
@@ -164,6 +165,29 @@ def _create_buildings_file_with_footprints(
       crs=4326,
   )
   buildings.write_buildings_file(gdf, output_path)
+
+
+def _create_example(example_id: str) -> tf.train.Example:
+  example = tf.train.Example()
+  utils.add_bytes_feature('example_id', example_id.encode(), example)
+  utils.add_int64_feature('int64_id', 0, example)
+  utils.add_float_list_feature('coordinates', (90, 90), example)
+  utils.add_bytes_feature(
+      'encoded_coordinates', b'encoded_coordinates', example
+  )
+  utils.add_bytes_feature('pre_image_id', b'pre_image_id', example)
+  utils.add_bytes_feature('post_image_id', b'post_image_id', example)
+  utils.add_bytes_feature('plus_code', b'plus_code', example)
+  utils.add_float_feature('label', 0.0, example)
+  utils.add_float_feature('post_footprint_x_shift_meters', 0.0, example)
+  utils.add_float_feature('post_footprint_y_shift_meters', 0.0, example)
+  utils.add_float_feature('post_footprint_match_score', 0.0, example)
+  utils.add_bytes_feature('building_image_id', b'building_image_id', example)
+  utils.add_bytes_feature('pre_image_png', b'', example)
+  utils.add_bytes_feature('post_image_png', b'', example)
+  utils.add_bytes_feature('pre_image_png_large', b'', example)
+  utils.add_bytes_feature('post_image_png_large', b'', example)
+  return example
 
 
 def _check_examples(
@@ -533,6 +557,7 @@ class GenerateExamplesTest(parameterized.TestCase):
         cloud_detector_model_path=None,
         output_metadata_file=False,
         output_parquet=False,
+        output_images=False,
     )
 
     tfrecords = os.listdir(
@@ -577,6 +602,7 @@ class GenerateExamplesTest(parameterized.TestCase):
         cloud_detector_model_path=None,
         output_metadata_file=True,
         output_parquet=True,
+        output_images=False,
     )
 
     tfrecords = os.listdir(
@@ -1023,6 +1049,24 @@ class GenerateExamplesTest(parameterized.TestCase):
             0.1,
         )
     )
+
+  def test_write_example_metadata(self):
+    output_dir = self.create_tempdir().full_path
+    examples = [
+        _create_example('1'),
+        _create_example('2'),
+        _create_example('3'),
+    ]
+    with test_pipeline.TestPipeline() as pipeline:
+      examples = pipeline | beam.Create(examples)
+      generate_examples._write_example_metadata(examples, output_dir)
+
+    metadata_files = os.listdir(
+        os.path.join(output_dir, 'examples', 'metadata')
+    )
+    self.assertIn('metadata-00000-of-00001.parquet', metadata_files)
+    self.assertIn('metadata.csv-00000-of-00001', metadata_files)
+
 
 if __name__ == '__main__':
   absltest.main()
