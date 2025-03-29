@@ -373,6 +373,35 @@ def _to_grayscale(image: np.ndarray) -> np.ndarray:
   return cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
 
 
+def _find_blank_rows_cols(image: np.ndarray) -> tuple[int, int, int, int]:
+  """Finds the bounds of the non-blank center portion of an image.
+
+  Args:
+    image: The input image.
+
+  Returns:
+    The tuple (first non-blank row, last non-blank row, first non-blank column,
+    last non-blank column).
+  """
+  nonblank = np.any((image > 0).astype(int), axis=2)
+  if not np.any(nonblank):
+    return -1, -1, -1, -1
+  nonblank_rows = np.any(nonblank, axis=1)
+  nonblank_cols = np.any(nonblank, axis=0)
+  top_blank_rows = np.argmax(nonblank_rows)
+  bottom_blank_rows = np.argmax(nonblank_rows[::-1])
+  assert top_blank_rows + bottom_blank_rows < len(nonblank_rows)
+  left_blank_cols = np.argmax(nonblank_cols)
+  right_blank_cols = np.argmax(nonblank_cols[::-1])
+  assert left_blank_cols + right_blank_cols < len(nonblank_cols)
+  return (
+      top_blank_rows,
+      bottom_blank_rows,
+      left_blank_cols,
+      right_blank_cols,
+  )
+
+
 def _align_images(
     before_image: np.ndarray, after_image: np.ndarray
 ) -> tuple[int, int, float]:
@@ -391,15 +420,34 @@ def _align_images(
     A tuple of the row and column shifts of the alignment, and the template
     match score.
   """
+  (
+      top_blank_rows,
+      bottom_blank_rows,
+      left_blank_cols,
+      right_blank_cols,
+  ) = _find_blank_rows_cols(before_image)
+  if top_blank_rows == -1:
+    # The before image is completely blank. No alignment can be done.
+    return 0, 0, 0
+  trimmed_before_image = before_image[
+      top_blank_rows : -bottom_blank_rows or None,
+      left_blank_cols : -right_blank_cols or None,
+      :,
+  ].copy()
+  # If the before image is trimmed on any sides due to blank rows or columns,
+  # the after image must also be trimmed by the same amount on those sides.
+  trimmed_after_image = after_image[
+      top_blank_rows : -bottom_blank_rows or None,
+      left_blank_cols : -right_blank_cols or None,
+      :,
+  ].copy()
   result = cv2.matchTemplate(
-      _to_grayscale(after_image), _to_grayscale(before_image),
+      _to_grayscale(trimmed_after_image), _to_grayscale(trimmed_before_image),
       _ALIGNMENT_METHOD)
   _, max_value, _, max_location = cv2.minMaxLoc(result)
   j, i = max_location
-  rows = before_image.shape[0]
-  cols = before_image.shape[1]
-  row_shift = i - (after_image.shape[0] - rows) // 2
-  col_shift = j - (after_image.shape[1] - cols) // 2
+  row_shift = i - (after_image.shape[0] - before_image.shape[0]) // 2
+  col_shift = j - (after_image.shape[1] - before_image.shape[1]) // 2
   return row_shift, col_shift, max_value
 
 

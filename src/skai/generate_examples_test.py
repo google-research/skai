@@ -1067,6 +1067,81 @@ class GenerateExamplesTest(parameterized.TestCase):
     self.assertIn('metadata-00000-of-00001.parquet', metadata_files)
     self.assertIn('metadata.csv-00000-of-00001', metadata_files)
 
+  @parameterized.named_parameters(
+      dict(
+          testcase_name='full',
+          r1=0,
+          r2=127,
+          c1=0,
+          c2=127,
+      ),
+      dict(
+          testcase_name='center',
+          r1=10,
+          r2=14,
+          c1=9,
+          c2=15,
+      ),
+      dict(
+          testcase_name='top_left',
+          r1=0,
+          r2=14,
+          c1=0,
+          c2=15,
+      ),
+      dict(
+          testcase_name='bottom_right',
+          r1=14,
+          r2=127,
+          c1=15,
+          c2=127,
+      ),
+      dict(
+          testcase_name='top_half',
+          r1=0,
+          r2=14,
+          c1=0,
+          c2=127,
+      ),
+      dict(
+          testcase_name='bottom_half',
+          r1=14,
+          r2=127,
+          c1=0,
+          c2=127,
+      ),
+      dict(
+          testcase_name='left_half',
+          r1=0,
+          r2=127,
+          c1=0,
+          c2=14,
+      ),
+      dict(
+          testcase_name='right_half',
+          r1=0,
+          r2=127,
+          c1=14,
+          c2=127,
+      ),
+  )
+  def test_find_blank_rows_cols(self, r1: int, r2: int, c1: int, c2: int):
+    image = np.zeros((128, 128, 3), dtype=np.uint8)
+    image[r1:r2+1, c1:c2+1, :] = 255
+    y1, y2, x1, x2 = generate_examples._find_blank_rows_cols(image)
+    self.assertEqual(y1, r1)
+    self.assertEqual(y2, 127 - r2)
+    self.assertEqual(x1, c1)
+    self.assertEqual(x2, 127 - c2)
+
+  def test_find_nonblank_bounds_empty(self):
+    image = np.zeros((128, 128, 3), dtype=np.uint8)
+    y1, y2, x1, x2 = generate_examples._find_blank_rows_cols(image)
+    self.assertEqual(y1, -1)
+    self.assertEqual(y2, -1)
+    self.assertEqual(x1, -1)
+    self.assertEqual(x2, -1)
+
 
 if __name__ == '__main__':
   absltest.main()
