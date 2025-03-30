@@ -5,6 +5,8 @@ Those models can be found here:
 https://colab.sandbox.google.com/github/google-research/big_vision/blob/main/big_vision/configs/proj/image_text/SigLIP_demo.ipynb
 """
 
+from typing import Optional
+
 import ml_collections as mlc
 
 
@@ -50,12 +52,19 @@ def _get_checkpoint_path(checkpoint_path):
   return _FOLDER + checkpoint_path
 
 
-def get_model_config(image_variant, image_size) -> mlc.ConfigDict:
+def get_model_config(
+    model_type: str,
+    image_variant: str,
+    image_size: int,
+    geofm_savedmodel_path: Optional[str],
+) -> mlc.ConfigDict:
   """Returns the config for the given VLM model.
 
   Args:
+    model_type: Represents model type.
     image_variant: Represents model variants.
     image_size: The size of the image.
+    geofm_savedmodel_path: Path to the GeoFM exported SavedModel.
 
   Returns:
   Configuration dict that specifys how the model would be loaded. The
@@ -66,14 +75,28 @@ def get_model_config(image_variant, image_size) -> mlc.ConfigDict:
         - model_init: Dict specifys model checkpoints.
         - evals: Dict specifys preprocessing functions for the image and text.
   """
+  if model_type == 'siglip':
+    config = get_siglip_config(image_variant, image_size)
+  else:
+    config = get_geofm_config(geofm_savedmodel_path)
+  config.model_type = model_type
+  return config
+
+
+def get_siglip_config(
+    image_variant: str,
+    image_size: int
+) -> mlc.ConfigDict:
+  """Returns the config for the SigLIP model.
+  """
   try:
     checkpoint, text_variant, embedding_dim, sequence_length, vocab_size = (
         _PUBLIC_WEBLI_MODELS[(image_variant, image_size)]
     )
   except KeyError as ex:
     raise ValueError(
-        'The provided image_variant and image_size tuple are not supported'
-        f' provided image_variant and image_size {image_variant}, {image_size}'
+        'The provided image_variant and image_size tuple are not supported: '
+        f'{image_variant}, {image_size}'
     ) from ex
 
   checkpoint_path = _get_checkpoint_path(checkpoint)
@@ -101,4 +124,15 @@ def get_model_config(image_variant, image_size) -> mlc.ConfigDict:
 
   config.init_types = ('float32', 'int32')
   config.model_init = checkpoint_path
+  return config
+
+
+def get_geofm_config(savedmodel_path: str) -> mlc.ConfigDict:
+  """Returns the config for the GeoFM model.
+  """
+  if not savedmodel_path:
+    raise ValueError('GeoFM savedmodel_path cannot be empty.')
+  config = mlc.ConfigDict()
+  config.model = mlc.ConfigDict()
+  config.savedmodel_path = savedmodel_path
   return config

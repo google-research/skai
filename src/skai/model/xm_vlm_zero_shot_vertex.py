@@ -72,12 +72,21 @@ _IMAGE_FEATURE = flags.DEFINE_string(
     'Feature to use as the input image.',
 )
 
-_MODEL_VARIANT = flags.DEFINE_string(
-    'model_variant',
-    'So400m/14',
-    'Specifys model variant. Available model variants'
-    ' are "B/16", "L/16", "So400m/14" and "B/16-i18n". Note model_variant'
-    ' supports a specific set of image sizes.',
+_MODEL_TYPE = flags.DEFINE_enum(
+    'model_type', 'siglip', ['siglip', 'geofm'], 'Specifies which zero-shot '
+    'model to use.'
+)
+
+_GEOFM_SAVEDMODEL_PATH = flags.DEFINE_string(
+    'geofm_savedmodel_path',
+    '/cns/od-d/home/skai-dev/experiments/jihyeonlee/80percent/vlp=1x1_exported3/cpu/',
+    'Path to the exported GeoFM SavedModel.',
+)
+
+_SIGLIP_MODEL_VARIANT = flags.DEFINE_string(
+    'siglip_model_variant', 'So400m/14', 'Specifies model variant for SigLIP. '
+    'Options are "B/16", "L/16", "So400m/14" and "B/16-i18n". Note that each '
+    'siglip_model_variant supports a specific set of image sizes.'
 )
 
 _IMAGE_SIZE = flags.DEFINE_integer('image_size', 224, 'Image size.')
@@ -110,8 +119,12 @@ def main(_) -> None:
   xm_vertex.set_default_client(xm_vertex.Client(location=_CLOUD_LOCATION.value))
 
   experiment_name = []
-  experiment_name.append(_MODEL_VARIANT.value)
-  experiment_name.append(str(_IMAGE_SIZE.value))
+  experiment_name.append(_MODEL_TYPE.value)
+  if _MODEL_TYPE.value == 'siglip':
+    # For siglip specifically, model variant must be specified, and each variant
+    # supports a specific set of image sizes.
+    experiment_name.append(_SIGLIP_MODEL_VARIANT.value)
+    experiment_name.append(str(_IMAGE_SIZE.value))
   if _DATASET_NAMES.value:
     experiment_name.extend(_DATASET_NAMES.value)
 
@@ -121,9 +134,14 @@ def main(_) -> None:
       experiment_title=experiment_name
   ) as experiment:
     if _BUILD_DOCKER_IMAGE.value:
+      # TODO(jlee24): Add support for TPU when b/399193238 is resolved.
+      # TODO(jlee24): Add support for parallel launch of siglip and geofm.
+      accelerator = 'tpu' if _MODEL_TYPE.value == 'siglip' else 'cpu'
       [train_executable] = experiment.package([
           xm.Packageable(
-              executable_spec=docker_instructions.get_xm_executable_spec('tpu'),
+              executable_spec=docker_instructions.get_xm_executable_spec(
+                  accelerator, _MODEL_TYPE.value
+              ),
               executor_spec=xm_local.Vertex.Spec(),
           ),
       ])
@@ -135,33 +153,44 @@ def main(_) -> None:
           ),
       ])
 
+    job_kwargs = {
+        'service_tier': xm.ServiceTier.PROD,
+        'location': _CLOUD_LOCATION.value,
+        'cpu': 8 * xm.vCPU,
+        'ram': 64 * xm.GiB,
+    }
+    if _MODEL_TYPE.value == 'siglip':
+      job_kwargs['TPU_V3'] = 8
     executor = xm_local.Vertex(
-        requirements=xm.JobRequirements(
-            service_tier=xm.ServiceTier.PROD,
-            location=_CLOUD_LOCATION.value,
-            cpu=8 * xm.vCPU,
-            ram=64 * xm.GiB,
-            TPU_V3=8,
-        ),
+        requirements=xm.JobRequirements(**job_kwargs),
     )
 
     args = {
-        'model_variant': _MODEL_VARIANT.value,
-        'image_size': _IMAGE_SIZE.value,
         'example_patterns': ','.join(_EXAMPLE_PATTERNS.value),
         'output_dir': _OUTPUT_DIR.value,
-        'negative_labels_filepath': _NEGATIVE_LABELS_FILEPATH.value,
-        'positive_labels_filepath': _POSITIVE_LABELS_FILEPATH.value,
-        'cloud_labels_filepath': _CLOUD_LABELS_FILEPATH.value,
-        'nocloud_labels_filepath': _NOCLOUD_LABELS_FILEPATH.value,
-        'batch_size': _BATCH_SIZE.value,
         'image_feature': _IMAGE_FEATURE.value,
     }
     if _DATASET_NAMES.value:
       args['dataset_names'] = ','.join(_DATASET_NAMES.value)
-    xm_args = xm.merge_args(
-        ['/skai/src/skai/model/vlm_zero_shot_vertex.py'], args
-    )
+    if _MODEL_TYPE.value == 'siglip':
+      operand = ['/skai/src/skai/model/vlm_zero_shot_vertex.py']
+      args.update({
+          'siglip_model_variant': _SIGLIP_MODEL_VARIANT.value,
+          'image_size': _IMAGE_SIZE.value,
+          'negative_labels_filepath': _NEGATIVE_LABELS_FILEPATH.value,
+          'positive_labels_filepath': _POSITIVE_LABELS_FILEPATH.value,
+          'cloud_labels_filepath': _CLOUD_LABELS_FILEPATH.value,
+          'nocloud_labels_filepath': _NOCLOUD_LABELS_FILEPATH.value,
+          'batch_size': _BATCH_SIZE.value,
+      })
+    elif _MODEL_TYPE.value == 'geofm':
+      operand = ['/skai/src/skai/model/geofm_zero_shot_vertex.py']
+      args.update({
+          'geofm_savedmodel_path': _GEOFM_SAVEDMODEL_PATH.value,
+      })
+    else:
+      raise ValueError(f'Unsupported model type: {_MODEL_TYPE.value}')
+    xm_args = xm.merge_args(operand, args)
 
     experiment.add(
         xm.Job(
