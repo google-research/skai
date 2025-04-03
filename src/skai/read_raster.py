@@ -55,6 +55,12 @@ _MAX_PATCH_SIZE = 2048
 # approximately 2220 x 2220 pixels.
 _BIN_SIZE_DEGREES = 0.01
 
+# When an image patch is projected from the original CRS into the UTM CRS we
+# want, a black border often appears around the final image due the projected
+# image not being a perfect square. Therefore, we add a margin to the edges of
+# the projected image that can be trimmed to remove the black border.
+_PROJECTION_MARGIN_PIXELS = 10
+
 
 @dataclasses.dataclass(order=True, frozen=True)
 class _Window:
@@ -116,7 +122,13 @@ class _Window:
   def reproject(self, source_image: np.ndarray) -> np.ndarray:
     """Reprojects image into target CRS."""
     target_image = np.zeros(
-        (3, self.target_image_size, self.target_image_size), dtype=np.uint8)
+        (
+            3,
+            self.target_image_size + 2 * _PROJECTION_MARGIN_PIXELS,
+            self.target_image_size + 2 * _PROJECTION_MARGIN_PIXELS,
+        ),
+        dtype=np.uint8,
+    )
     rasterio.warp.reproject(
         source_image,
         target_image,
@@ -126,6 +138,12 @@ class _Window:
         dst_crs=self.target_crs,
         resampling=rasterio.warp.Resampling.bilinear,
     )
+    # Remove margins
+    target_image = target_image[
+        :,
+        _PROJECTION_MARGIN_PIXELS:-_PROJECTION_MARGIN_PIXELS,
+        _PROJECTION_MARGIN_PIXELS:-_PROJECTION_MARGIN_PIXELS,
+    ]
     return target_image
 
 
@@ -297,7 +315,9 @@ def _compute_window(
   transformer = _get_transformer('EPSG:4326', target_crs)
   x, y = transformer.transform(longitude, latitude, errcheck=True)
 
-  half_box_len_meters = (target_image_size / 2) * target_resolution
+  half_box_len_meters = (
+      target_image_size / 2 + _PROJECTION_MARGIN_PIXELS
+  ) * target_resolution
   target_left = x - half_box_len_meters
   target_right = x + half_box_len_meters
   target_bottom = y - half_box_len_meters
