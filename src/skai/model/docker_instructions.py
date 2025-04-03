@@ -15,6 +15,7 @@
 """Functions to generate docker build instructions."""
 
 import pathlib
+from typing import Optional
 
 from xmanager import xm
 
@@ -151,7 +152,7 @@ def get_geofm_docker_instructions() -> tuple[str, list[str]]:
   return base_image, docker_instructions
 
 
-def get_xm_executable_spec(accelerator: str):
+def get_xm_executable_spec(accelerator: str, model_type: Optional[str] = None):
   """Returns a Xmanager executable spec that can be used to build docker images.
 
   The image has a default entrypoint that launches a Python script. The script
@@ -163,17 +164,18 @@ def get_xm_executable_spec(accelerator: str):
   script path is used to run model training: "/skai/src/skai/model/train.py"
 
   Args:
-    accelerator: The type of accelerator to build the image for (cpu, gpu, tpu,
-      geofm-cpu).
+    accelerator: The type of accelerator to build the image for (cpu, gpu, tpu).
+    model_type: The type of model to build the image for (siglip, geofm). Only
+      used when running inference pipeline with vlm_zero_shot_vertex.py.
 
   Returns:
     Xmanager executable spec.
   """
   source_path = str(pathlib.Path(__file__).parents[3])  # SKAI root directory.
-  if accelerator == 'geofm-cpu':
-    base_image, instructions = get_geofm_docker_instructions()
-  else:
+  if model_type == 'siglip':
     base_image, instructions = get_docker_instructions(accelerator)
+  else:
+    base_image, instructions = get_geofm_docker_instructions()
   return xm.PythonContainer(
       path=source_path,
       base_image=base_image,
