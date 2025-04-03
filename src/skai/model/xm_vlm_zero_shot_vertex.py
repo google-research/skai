@@ -79,7 +79,7 @@ _MODEL_TYPE = flags.DEFINE_enum(
 
 _GEOFM_SAVEDMODEL_PATH = flags.DEFINE_string(
     'geofm_savedmodel_path',
-    '/cns/od-d/home/skai-dev/experiments/jihyeonlee/80percent/vlp=1x1_exported3/cpu/',
+    '',
     'Path to the exported GeoFM SavedModel.',
 )
 
@@ -136,11 +136,11 @@ def main(_) -> None:
     if _BUILD_DOCKER_IMAGE.value:
       # TODO(jlee24): Add support for TPU when b/399193238 is resolved.
       # TODO(jlee24): Add support for parallel launch of siglip and geofm.
-      accelerator = 'tpu' if _MODEL_TYPE.value == 'siglip' else 'cpu'
+      accelerator = 'tpu' if _MODEL_TYPE.value == 'siglip' else 'geofm-cpu'
       [train_executable] = experiment.package([
           xm.Packageable(
               executable_spec=docker_instructions.get_xm_executable_spec(
-                  accelerator, _MODEL_TYPE.value
+                  accelerator
               ),
               executor_spec=xm_local.Vertex.Spec(),
           ),
