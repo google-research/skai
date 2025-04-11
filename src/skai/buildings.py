@@ -81,7 +81,7 @@ def convert_buildings_file(
     with tf.io.gfile.GFile(path, 'rb') as f:
       buildings_gdf = gpd.read_file(f).to_crs(epsg=4326)
 
-  combined_regions = gpd.GeoSeries(regions).unary_union
+  combined_regions = gpd.GeoSeries(regions).union_all()
   in_regions = buildings_gdf.intersects(combined_regions)
   write_buildings_file(buildings_gdf[in_regions], output_path)
 
@@ -108,9 +108,10 @@ def read_aois(path: str) -> list[Polygon]:
     df = gpd.read_file(f).to_crs(epsg=4326)
   geometries = list(df.geometry.values)
   for g in geometries:
-    if g.geometryType() not in ['Polygon', 'MultiPolygon']:
+    if g.geom_type not in ['Polygon', 'MultiPolygon']:
       raise ValueError(
-          f'Unexpected geometry for area of interest: "{g.geometryType()}"')
+          f'Unexpected geometry for area of interest: "{g.geom_type}"'
+      )
   return geometries
 
 
@@ -177,4 +178,3 @@ def read_building_coordinates(path: str) -> pd.DataFrame:
   if df['latitude'].dtype != float:
     raise TypeError(f'latitude column in file {path} is not type float')
   return df
-

@@ -1542,6 +1542,7 @@ def _write_example_metadata(
           schema=_get_example_schema(include_images=False),
           codec='snappy',
           file_name_suffix='.parquet',
+          num_shards=1,
       )
   )
 
