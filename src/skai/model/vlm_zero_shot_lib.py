@@ -112,7 +112,7 @@ class VLM(abc.ABC):
       embeddings = np.concatenate(embeddings, axis=0)
       embedding = np.mean(embeddings, axis=0)
       return embedding
-
+    self._label_embeddings = None
     self._label_embedding_list.append(_get_embedding(labels))
 
   def predict(self, images: np.ndarray) -> np.ndarray:
