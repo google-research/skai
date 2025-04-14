@@ -274,7 +274,7 @@ def _dedup_predictions(predictions: pd.DataFrame):
       'int64_id': 'first',
       'plus_code': 'first',
       'label': 'first',
-  })
+  }).reset_index()
 
 
 def generate_zero_shot_assessment(
