@@ -24,9 +24,8 @@ class GeoFM():
   """GeoFM model."""
 
   def __init__(self, config: ml_collections.ConfigDict):
-    self._model = tf.saved_model.load(config.savedmodel_path, tags=['serve'])
+    self._model = tf.saved_model.load(config.savedmodel_path)
 
-  @tf.function(autograph=True, jit_compile=True)
   def predict(self, images: np.ndarray) -> np.ndarray:
     """Generate probability scores for a batch of images."""
     return self._model.signatures['serving_default'](image_batch=images)[
