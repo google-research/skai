@@ -460,7 +460,7 @@ def create_callbacks(
     checkpoint_callback = tf.keras.callbacks.ModelCheckpoint(
         filepath=os.path.join(
             os.path.join(output_dir, 'checkpoints'),
-            'epoch-{epoch:02d}-val_auc-{val_main_auc:.4f}.ckpt'),
+            'epoch-{epoch:04d}-val_auc-{val_main_auc:.4f}.ckpt'),
         monitor='val_main_auc',
         mode='max',
         save_weights_only=True,
@@ -470,7 +470,7 @@ def create_callbacks(
     model_dir = os.path.join(output_dir, 'model')
     model_callback = tf.keras.callbacks.ModelCheckpoint(
         filepath=os.path.join(
-            model_dir, 'epoch-{epoch:02d}-aucpr-{val_main_aucpr_1_vs_rest:.4f}'
+            model_dir, 'epoch-{epoch:04d}-aucpr-{val_main_aucpr_1_vs_rest:.4f}'
         ),
         monitor='val_main_aucpr_1_vs_rest',
         mode='max',
