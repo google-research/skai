@@ -180,40 +180,49 @@ class ReadRasterTest(absltest.TestCase):
           self.assertEqual(window.source_crs, rasterio.crs.CRS.from_epsg(3857))
           self.assertEqual(window.target_crs, rasterio.crs.CRS.from_epsg(32760))
           if window.window_id == 'A17B32432A1085C1':
-            self.assertEqual(window.column, 113)
-            self.assertEqual(window.row, 113)
-            self.assertEqual(window.width, 66)
-            self.assertEqual(window.height, 68)
+            self.assertEqual(window.column, 103)
+            self.assertEqual(window.row, 103)
+            self.assertEqual(window.width, 87)
+            self.assertEqual(window.height, 88)
             self.assertTrue(
                 window.source_transform.almost_equals(
                     affine.Affine(
-                        0.5, 0.0, 19868611.754, 0.0, -0.5, -1878116.215
+                        0.5,
+                        0.0,
+                        19868606.5762,
+                        0.0,
+                        -0.5,
+                        -1878110.9265,
                     ),
                     precision=1e-3,
                 )
             )
             self.assertTrue(
                 window.target_transform.almost_equals(
-                    affine.Affine(0.5, 0.0, 658150.285, 0.0, -0.5, 8160485.707),
+                    affine.Affine(
+                        0.5, 0.0, 658145.2851, 0.0, -0.5, 8160490.7810
+                    ),
                     precision=1e-3,
                 )
             )
           elif window.window_id == '777B3243E80E85C1':
-            self.assertEqual(window.column, -30)
-            self.assertEqual(window.row, -29)
-            self.assertEqual(window.width, 66)
-            self.assertEqual(window.height, 67)
+            self.assertEqual(window.column, -40)
+            self.assertEqual(window.row, -40)
+            self.assertEqual(window.width, 87)
+            self.assertEqual(window.height, 89)
             self.assertTrue(
                 window.source_transform.almost_equals(
                     affine.Affine(
-                        0.5, 0.0, 19868540.288, 0.0, -0.5, -1878044.880
+                        0.5, 0.0, 19868535.1091, 0.0, -0.5, -1878039.5919
                     ),
                     precision=1e-3,
                 )
             )
             self.assertTrue(
                 window.target_transform.almost_equals(
-                    affine.Affine(0.5, 0.0, 658082.301, 0.0, -0.5, 8160554.155),
+                    affine.Affine(
+                        0.5, 0.0, 658077.3008, 0.0, -0.5, 8160559.2287
+                    ),
                     precision=1e-3,
                 )
             )
