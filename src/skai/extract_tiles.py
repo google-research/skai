@@ -40,7 +40,9 @@ class Tile:
   """Class for holding information about an image tile.
 
   Attributes:
-    image_path: Image path.
+    image_path: Path of the image.
+    source_image_path: The original image path passed into the building
+        detection pipeline. This is wrapped by a VRT to produce the image_path.
     x: x pixel coordinate of lower-left corner of the tile.
     y: y pixel coordinate of lower-left corner of the tile.
     width: Tile width in pixels.
@@ -50,6 +52,7 @@ class Tile:
     row: The row of this tile in the grid covering the source image.
   """
   image_path: str
+  source_image_path: str
   x: int
   y: int
   width: int
@@ -101,7 +104,9 @@ def _create_tile_example(
                           tf.io.encode_png(image).numpy(), example)
   utils.add_bytes_feature(extract_tiles_constants.CRS, crs.encode(), example)
   utils.add_bytes_feature(
-      extract_tiles_constants.IMAGE_PATH, tile.image_path.encode(), example
+      extract_tiles_constants.IMAGE_PATH,
+      tile.source_image_path.encode(),
+      example,
   )
 
   transform_tuple = tuple(affine_transform)
@@ -149,45 +154,8 @@ def _get_pixel_bounds_for_aoi(
   return (min_col, min_row, max_col, max_row)
 
 
-def get_tiles(
-    image_path: str,
-    x_min: int,
-    y_min: int,
-    x_max: int,
-    y_max: int,
-    tile_size: int,
-    margin: int,
-) -> Iterable[Tile]:
-  """Generates a set of tiles that would completely cover a rectangle.
-
-  Args:
-    image_path: Image path.
-    x_min: Minimum x coordinate.
-    y_min: Minimum y coordinate.
-    x_max: Maximum x coordinate.
-    y_max: Maximum y coordinate.
-    tile_size: Size of each tile in pixels.
-    margin: Size of the margin for each tile in pixels.
-
-  Yields:
-    A grid of tiles that covers the rectangle.
-  """
-  if x_min < 0:
-    raise ValueError(f'Minimum x value must be non-negative, got {x_min}')
-  if y_min < 0:
-    raise ValueError(f'Minimum y value must be non-negative, got {y_min}')
-  for col, x in enumerate(range(x_min + margin, x_max - margin, tile_size)):
-    for row, y in enumerate(range(y_min + margin, y_max - margin, tile_size)):
-      x_start = x - margin
-      x_end = x + tile_size + margin
-      width = x_end - x_start
-      y_start = y - margin
-      y_end = y + tile_size + margin
-      height = y_end - y_start
-      yield Tile(image_path, x_start, y_start, width, height, margin, col, row)
-
-
 def get_tiles_for_aoi(image_path: str,
+                      source_image_path: str,
                       aoi: Any,
                       tile_size: int,
                       margin: int,
@@ -196,6 +164,8 @@ def get_tiles_for_aoi(image_path: str,
 
   Args:
     image_path: Path of the GeoTIFF image.
+    source_image_path: The original image path passed into the building
+        detection pipeline.
     aoi: Area of interest as a shapely geometry.
     tile_size: Size of each tile in pixels.
     margin: Size of the margin for each tile in pixels.
@@ -213,9 +183,25 @@ def get_tiles_for_aoi(image_path: str,
   with rasterio.Env(**gdal_env):
     image = rasterio.open(image_path)
   x_min, y_min, x_max, y_max = _get_pixel_bounds_for_aoi(image, aoi)
-  yield from get_tiles(
-      image_path, x_min, y_min, x_max, y_max, tile_size, margin
-  )
+  for col, x in enumerate(range(x_min + margin, x_max - margin, tile_size)):
+    for row, y in enumerate(range(y_min + margin, y_max - margin, tile_size)):
+      x_start = x - margin
+      x_end = x + tile_size + margin
+      width = x_end - x_start
+      y_start = y - margin
+      y_end = y + tile_size + margin
+      height = y_end - y_start
+      yield Tile(
+          image_path,
+          source_image_path,
+          x_start,
+          y_start,
+          width,
+          height,
+          margin,
+          col,
+          row,
+      )
 
 
 class ExtractTilesAsExamplesFn(beam.DoFn):

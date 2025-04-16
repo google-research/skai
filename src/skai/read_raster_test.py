@@ -414,14 +414,12 @@ class ReadRasterTest(absltest.TestCase):
         colorinterps=[ColorInterp.red, ColorInterp.green, ColorInterp.blue],
         tags={},
     )
-    vrt_paths = read_raster.build_vrts(
+    vrt_path = read_raster._build_mosaic_vrt(
         [image1_path, image2_path],
         pathlib.Path(absltest.TEST_TMPDIR.value) / 'image',
         0.5,
-        True,
-        {},
     )
-    vrt_raster = rasterio.open(vrt_paths[0])
+    vrt_raster = rasterio.open(vrt_path)
     vrt_image = vrt_raster.read()
     self.assertEqual(3, vrt_raster.count)
     self.assertEqual((0.5, 0.5), vrt_raster.res)
@@ -449,11 +447,10 @@ class ReadRasterTest(absltest.TestCase):
         colorinterps=[ColorInterp.red, ColorInterp.green, ColorInterp.blue],
         tags={},
     )
-    vrt_paths = read_raster.build_vrts(
+    vrt_paths = read_raster._build_warped_vrts(
         [image1_path, image2_path],
         pathlib.Path(absltest.TEST_TMPDIR.value) / 'image',
         0.5,
-        False,
         {},
     )
     self.assertLen(vrt_paths, 2)
@@ -492,11 +489,10 @@ class ReadRasterTest(absltest.TestCase):
         tags={},
         resolution=0.0000010198723355,  # About 0.1m
     )
-    vrt_paths = read_raster.build_vrts(
+    vrt_paths = read_raster._build_warped_vrts(
         [image1_path, image2_path],
         pathlib.Path(absltest.TEST_TMPDIR.value) / 'image',
         0.5,
-        False,
         {},
     )
     self.assertLen(vrt_paths, 2)
