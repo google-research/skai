@@ -32,9 +32,11 @@ SKAI_DOCKER_INSTRUCTIONS = [
 ]
 
 BIG_VISION_DOCKER_INSTRUCTIONS = [
-    'RUN apt-get -y install git',
-    'RUN git clone https://github.com/google-research/big_vision.git',
-    'RUN pip install -r /big_vision/big_vision/requirements.txt',
+    (
+        'RUN git clone https://github.com/google-research/big_vision.git'
+        ' /big_vision && cd /big_vision && git checkout'
+        ' 6d6c28a9634fd2f48f0f505f112d063dfc9bdf96'
+    ),
     (
         'RUN echo "from setuptools import setup, find_packages" >>'
         ' /big_vision/setup.py'
@@ -49,10 +51,7 @@ BIG_VISION_DOCKER_INSTRUCTIONS = [
     'RUN touch big_vision/big_vision/datasets/imagenet/__init__.py',
     'RUN pip uninstall big_vision',
     'RUN pip install /big_vision/.',
-    (
-        'RUN pip install jax[tpu] -f'
-        ' https://storage.googleapis.com/jax-releases/libtpu_releases.html'
-    ),
+    'RUN cd ..'
 ]
 
 
@@ -93,18 +92,7 @@ def get_docker_instructions(accelerator: str) -> tuple[str, list[str]]:
     A tuple of the base image and the docker instructions.
   """
   if (accelerator == 'tpu') or (accelerator in TPU_ACCELERATORS):
-    # Required by TPU vm.
-    base_image = TPU_BASE_IMAGE
-    # Build can get stuck for a while without this line.
-    docker_instructions = [
-        'ENV DEBIAN_FRONTEND=noninteractive',
-    ]
-    # Make sure python executable is python3.
-    docker_instructions += [
-        'RUN apt-get update && apt-get install -y python3-pip wget'
-    ]
-    docker_instructions += tpuvm_docker_instructions()
-
+    return get_siglip_tpu_docker_instructions()
   elif (accelerator == 'gpu') or (accelerator in GPU_ACCELERATORS):
     # Select a base GPU image. Other options can be found in
     # https://cloud.google.com/deep-learning-containers/docs/choosing-container
@@ -113,7 +101,6 @@ def get_docker_instructions(accelerator: str) -> tuple[str, list[str]]:
         'RUN apt-get update && apt-get install -y ' +
         'libcairo2-dev libjpeg-dev libgif-dev'
     ]
-
   else:
     # Select a base CPU image. Other options can be found in
     # https://cloud.google.com/deep-learning-containers/docs/choosing-container
@@ -125,9 +112,40 @@ def get_docker_instructions(accelerator: str) -> tuple[str, list[str]]:
       'RUN apt-get install -y libgl1-mesa-glx libsm6 libxext6 libxrender-dev ' +
       'libglib2.0-0 python-is-python3'
   ]
-  docker_instructions.extend(BIG_VISION_DOCKER_INSTRUCTIONS)
   docker_instructions.extend(SKAI_DOCKER_INSTRUCTIONS)
   return base_image, docker_instructions
+
+
+def get_siglip_tpu_docker_instructions() -> tuple[str, list[str]]:
+  """Returns the docker instructions and base image for to run SigLIP on TPU."""
+  docker_instructions = [
+      'ENV DEBIAN_FRONTEND=noninteractive',
+      'RUN apt-get update && apt-get install -y python3-pip wget',
+  ]
+  docker_instructions.extend(tpuvm_docker_instructions())
+  docker_instructions.append(
+      'RUN apt-get -y install git',
+  )
+  docker_instructions += [
+      'RUN apt-get install -y libgl1-mesa-glx libsm6 libxext6 libxrender-dev '
+      + 'libglib2.0-0 python-is-python3'
+  ]
+  # For skai packages.
+  docker_instructions.extend([
+      'COPY skai /skai',
+      'RUN pip install /skai/src/.',
+      'RUN pip install -r /skai/siglip_requirements.txt',
+  ])
+  docker_instructions.extend([
+      (
+          'RUN pip install jax[tpu] -f'
+          ' https://storage.googleapis.com/jax-releases/libtpu_releases.html'
+      ),
+  ])
+  # For installing big_vision library.
+  docker_instructions.extend(BIG_VISION_DOCKER_INSTRUCTIONS)
+
+  return TPU_BASE_IMAGE, docker_instructions
 
 
 def get_geofm_docker_instructions() -> tuple[str, list[str]]:
