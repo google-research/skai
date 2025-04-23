@@ -142,10 +142,10 @@ def main(args):
       FLAGS.image_paths, os.path.join(temp_dir, 'vrts'), gdal_env
   )
   tiles = []
-  for path in vrt_paths:
+  for vrt_path, source_path in zip(vrt_paths, FLAGS.image_paths):
     tiles.extend(
         extract_tiles.get_tiles_for_aoi(
-            path, aoi, FLAGS.tile_size, FLAGS.margin, gdal_env
+            vrt_path, source_path, aoi, FLAGS.tile_size, FLAGS.margin, gdal_env
         )
     )
   print(f'Extracting {len(tiles)} tiles total')

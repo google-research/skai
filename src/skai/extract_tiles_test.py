@@ -89,6 +89,7 @@ def _check_examples(expected_tiles: list[Tile]):
       actual_tiles.add(
           Tile(
               image_path,
+              image_path,
               x,
               y,
               width,
@@ -109,34 +110,8 @@ class ExtractTilesTest(absltest.TestCase):
   def setUp(self):
     super().setUp()
     current_dir = pathlib.Path(__file__).parent
-    self.test_image_path = str(current_dir / TEST_IMAGE_PATH)
-    self.image = rasterio.open(self.test_image_path)
-
-  def test_get_tiles(self):
-    """Tests that correct window extents are generated for a GeoTIFF."""
-    tiles = set(
-        extract_tiles.get_tiles(
-            self.test_image_path,
-            x_min=0,
-            y_min=0,
-            x_max=300,
-            y_max=282,
-            tile_size=100,
-            margin=10,
-        )
-    )
-
-    self.assertEqual(tiles, set([
-        Tile(self.test_image_path, 0, 0, 120, 120, 10, 0, 0),
-        Tile(self.test_image_path, 100, 0, 120, 120, 10, 1, 0),
-        Tile(self.test_image_path, 200, 0, 120, 120, 10, 2, 0),
-        Tile(self.test_image_path, 0, 100, 120, 120, 10, 0, 1),
-        Tile(self.test_image_path, 100, 100, 120, 120, 10, 1, 1),
-        Tile(self.test_image_path, 200, 100, 120, 120, 10, 2, 1),
-        Tile(self.test_image_path, 0, 200, 120, 120, 10, 0, 2),
-        Tile(self.test_image_path, 100, 200, 120, 120, 10, 1, 2),
-        Tile(self.test_image_path, 200, 200, 120, 120, 10, 2, 2)
-    ]))
+    self.image_path = str(current_dir / TEST_IMAGE_PATH)
+    self.image = rasterio.open(self.image_path)
 
   def test_get_tiles_for_aoi(self):
     """Tests that correct window extents are generated for a subrectangle."""
@@ -146,16 +121,24 @@ class ExtractTilesTest(absltest.TestCase):
         (178.48353934645930963, -16.6331413589602839),
         (178.48351639253488088, -16.63235072378550328)])
 
-    tiles = set(extract_tiles.get_tiles_for_aoi(
-        self.test_image_path, aoi, tile_size=100, margin=10, gdal_env={}))
+    tiles = set(
+        extract_tiles.get_tiles_for_aoi(
+            self.image_path,
+            'src_path',
+            aoi,
+            tile_size=100,
+            margin=10,
+            gdal_env={},
+        )
+    )
 
     self.assertEqual(tiles, set([
-        Tile(self.test_image_path, 21, 19, 120, 120, 10, 0, 0),
-        Tile(self.test_image_path, 21, 119, 120, 120, 10, 0, 1),
-        Tile(self.test_image_path, 121, 19, 120, 120, 10, 1, 0),
-        Tile(self.test_image_path, 121, 119, 120, 120, 10, 1, 1),
-        Tile(self.test_image_path, 221, 19, 120, 120, 10, 2, 0),
-        Tile(self.test_image_path, 221, 119, 120, 120, 10, 2, 1)
+        Tile(self.image_path, 'src_path', 21, 19, 120, 120, 10, 0, 0),
+        Tile(self.image_path, 'src_path', 21, 119, 120, 120, 10, 0, 1),
+        Tile(self.image_path, 'src_path', 121, 19, 120, 120, 10, 1, 0),
+        Tile(self.image_path, 'src_path', 121, 119, 120, 120, 10, 1, 1),
+        Tile(self.image_path, 'src_path', 221, 19, 120, 120, 10, 2, 0),
+        Tile(self.image_path, 'src_path', 221, 119, 120, 120, 10, 2, 1)
     ]))
 
   def test_get_tiles_for_aoi_oob_longitude(self):
@@ -165,8 +148,11 @@ class ExtractTilesTest(absltest.TestCase):
         (179, -16.63313880852423665),
         (179.5, -16.6331413589602839),
         (179.5, -16.63235072378550328)])
-    tiles = set(extract_tiles.get_tiles_for_aoi(
-        self.test_image_path, aoi, tile_size=100, margin=10, gdal_env={}))
+    tiles = set(
+        extract_tiles.get_tiles_for_aoi(
+            self.image_path, '', aoi, tile_size=100, margin=10, gdal_env={}
+        )
+    )
     self.assertEmpty(tiles)
 
   def test_get_tiles_for_aoi_oob_latitude(self):
@@ -176,8 +162,11 @@ class ExtractTilesTest(absltest.TestCase):
         (178.48236359544131346, -15),
         (178.48353934645930963, -14),
         (178.48351639253488088, -14)])
-    tiles = set(extract_tiles.get_tiles_for_aoi(
-        self.test_image_path, aoi, tile_size=100, margin=10, gdal_env={}))
+    tiles = set(
+        extract_tiles.get_tiles_for_aoi(
+            self.image_path, '', aoi, tile_size=100, margin=10, gdal_env={}
+        )
+    )
     self.assertEmpty(tiles)
 
   def test_extract_tiles_as_examples_fn(self):
@@ -185,15 +174,15 @@ class ExtractTilesTest(absltest.TestCase):
 
     # These tiles form a 3x3 grid that covers the test image.
     tiles = [
-        Tile(self.test_image_path, 0, 0, 120, 120, 10, 0, 0),
-        Tile(self.test_image_path, 100, 0, 120, 120, 10, 1, 0),
-        Tile(self.test_image_path, 200, 0, 120, 120, 10, 2, 0),
-        Tile(self.test_image_path, 0, 100, 120, 120, 10, 0, 1),
-        Tile(self.test_image_path, 100, 100, 120, 120, 10, 1, 1),
-        Tile(self.test_image_path, 200, 100, 120, 120, 10, 2, 1),
-        Tile(self.test_image_path, 0, 200, 120, 120, 10, 0, 2),
-        Tile(self.test_image_path, 100, 200, 120, 120, 10, 1, 2),
-        Tile(self.test_image_path, 200, 200, 120, 120, 10, 2, 2)
+        Tile(self.image_path, self.image_path, 0, 0, 120, 120, 10, 0, 0),
+        Tile(self.image_path, self.image_path, 100, 0, 120, 120, 10, 1, 0),
+        Tile(self.image_path, self.image_path, 200, 0, 120, 120, 10, 2, 0),
+        Tile(self.image_path, self.image_path, 0, 100, 120, 120, 10, 0, 1),
+        Tile(self.image_path, self.image_path, 100, 100, 120, 120, 10, 1, 1),
+        Tile(self.image_path, self.image_path, 200, 100, 120, 120, 10, 2, 1),
+        Tile(self.image_path, self.image_path, 0, 200, 120, 120, 10, 0, 2),
+        Tile(self.image_path, self.image_path, 100, 200, 120, 120, 10, 1, 2),
+        Tile(self.image_path, self.image_path, 200, 200, 120, 120, 10, 2, 2)
     ]
 
     with test_pipeline.TestPipeline() as pipeline:

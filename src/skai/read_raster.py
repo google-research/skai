@@ -929,11 +929,30 @@ def _build_warped_vrt(
         shutil.copyfileobj(source, dest)
 
 
-def build_vrts(
+def _build_mosaic_vrt(
     image_paths: list[str],
     vrt_prefix: str,
     resolution: float,
-    mosaic_images: bool,
+) -> str:
+  """Builds a VRT that mosaics all input images.
+
+  Args:
+    image_paths: Image paths.
+    vrt_prefix: Path prefix for generated VRTs.
+    resolution: VRT resolution in meters per pixel.
+
+  Returns:
+    The path of the mosaic VRT file.
+  """
+  vrt_path = f'{vrt_prefix}.vrt'
+  _run_gdalbuildvrt(image_paths, vrt_path, resolution, None)
+  return vrt_path
+
+
+def _build_warped_vrts(
+    image_paths: list[str],
+    vrt_prefix: str,
+    resolution: float,
     gdal_env: dict[str, str],
 ) -> list[str]:
   """Builds VRTs from a list of image paths.
@@ -942,26 +961,19 @@ def build_vrts(
     image_paths: Image paths.
     vrt_prefix: Path prefix for generated VRTs.
     resolution: VRT resolution in meters per pixel.
-    mosaic_images: If true, build a single VRT containing all images. If false,
-      build an individual VRT per input image.
     gdal_env: GDAL environment configuration.
 
   Returns:
     A list of paths of the generated VRTs.
   """
+  warped_vrt_options = _get_unified_warped_vrt_options(
+      image_paths, resolution
+  )
   vrt_paths = []
-  if mosaic_images:
-    vrt_path = f'{vrt_prefix}.vrt'
-    _run_gdalbuildvrt(image_paths, vrt_path, resolution, None)
+  for i, image_path in enumerate(image_paths):
+    vrt_path = f'{vrt_prefix}-{i:05d}-of-{len(image_paths):05d}.vrt'
+    _build_warped_vrt(image_path, vrt_path, warped_vrt_options, gdal_env)
     vrt_paths.append(vrt_path)
-  else:
-    warped_vrt_options = _get_unified_warped_vrt_options(
-        image_paths, resolution
-    )
-    for i, image_path in enumerate(image_paths):
-      vrt_path = f'{vrt_prefix}-{i:05d}-of-{len(image_paths):05d}.vrt'
-      _build_warped_vrt(image_path, vrt_path, warped_vrt_options, gdal_env)
-      vrt_paths.append(vrt_path)
   return vrt_paths
 
 
@@ -983,7 +995,7 @@ def prepare_building_detection_input_images(
     gdal_env: GDAL environment variables.
 
   Returns:
-    List of VRTs.
+    A list of VRTs, one for each input image pattern.
 
   Raises:
     FileNotFoundError: If any of the image patterns does not match any files.
@@ -1003,9 +1015,9 @@ def prepare_building_detection_input_images(
       if not tf.io.gfile.exists(mosaic_dir):
         tf.io.gfile.makedirs(mosaic_dir)
       vrt_prefix = os.path.join(vrt_dir, 'mosaics', f'mosaic-{i:05d}')
-      wrapped_paths.extend(
-          build_vrts(image_paths, vrt_prefix, 0.5, True, gdal_env)
-      )
-  return build_vrts(
-      wrapped_paths, os.path.join(vrt_dir, 'input'), 0.5, False, gdal_env
+      wrapped_paths.append(_build_mosaic_vrt(image_paths, vrt_prefix, 0.5))
+  warped_vrt_paths = _build_warped_vrts(
+      wrapped_paths, os.path.join(vrt_dir, 'input'), 0.5, gdal_env
   )
+  assert len(image_patterns) == len(warped_vrt_paths)
+  return warped_vrt_paths
