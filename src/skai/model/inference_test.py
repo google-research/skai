@@ -12,8 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for inference_lib."""
-
 import glob
 import os
 import tempfile
@@ -23,7 +21,7 @@ import apache_beam as beam
 from apache_beam.testing import test_pipeline
 from apache_beam.testing import util
 import fiona
-import geopandas as gp
+import geopandas as gpd
 import numpy as np
 import pandas as pd
 import shapely.geometry
@@ -93,10 +91,12 @@ def _create_embedding_test_model(model_path: str, image_size: int):
   main_out = tf.keras.layers.Dense(64, name='main')(flat)
   model = tf.keras.models.Model(
       inputs={'small_image': small_input, 'large_image': large_input},
-      outputs={'main': tf.transpose(
-          tf.convert_to_tensor([main_out, main_out]), perm=[1, 0, 2]
-      )}
-    )
+      outputs={
+          'main': tf.transpose(
+              tf.convert_to_tensor([main_out, main_out]), perm=[1, 0, 2]
+          )
+      },
+  )
   tf.saved_model.save(model, model_path)
 
 
@@ -110,11 +110,15 @@ def _create_test_example(
     include_score: bool,
     score: float = 0.0,
     include_embedding=False,
+    pre_image_id: str = 'pre_image_id',
+    post_image_id: str = 'post_image_id',
 ) -> tf.train.Example:
   example = tf.train.Example()
   image_bytes = tf.image.encode_png(
       np.zeros((image_size, image_size, 3), dtype=np.uint8)
   ).numpy()
+  utils.add_bytes_feature('pre_image_id', pre_image_id.encode(), example)
+  utils.add_bytes_feature('post_image_id', post_image_id.encode(), example)
   utils.add_bytes_feature('pre_image_png_large', image_bytes, example)
   utils.add_bytes_feature('post_image_png_large', image_bytes, example)
   if include_small_images:
@@ -229,6 +233,7 @@ class InferenceTest(absltest.TestCase):
             'plus_code',
             'area_in_meters',
             'footprint_wkt',
+            'post_footprint_wkt',
             'damaged',
             'damaged_high_precision',
             'damaged_high_recall',
@@ -292,11 +297,17 @@ class InferenceTest(absltest.TestCase):
     with test_pipeline.TestPipeline() as pipeline:
       examples = []
       id_to_score = {}
+      post_image_order = []
       for example_id in range(10):
         example = tf.train.Example()
         utils.add_int64_feature('int64_id', example_id, example)
         utils.add_bytes_feature(
             'encoded_coordinates', f'{example_id}'.encode(), example
+        )
+        post_image_id = f'image_{example_id}'
+        post_image_order.append(post_image_id)
+        utils.add_bytes_feature(
+            'post_image_id', post_image_id.encode(), example
         )
         examples.append(example)
         id_to_score[example_id] = 1 / (example_id + 1)
@@ -305,7 +316,12 @@ class InferenceTest(absltest.TestCase):
       batch_size = 4
       model = TestModel(batch_size, id_to_score)
       result = inference_lib.run_inference(
-          examples_collection, 'score', batch_size, model, False
+          examples_collection,
+          'score',
+          batch_size,
+          model,
+          False,
+          post_image_order,
       )
 
       def _check_examples(examples):
@@ -334,10 +350,18 @@ class InferenceTest(absltest.TestCase):
     with test_pipeline.TestPipeline() as pipeline:
       examples = []
       id_to_score = {}
+      post_image_order = []
       for i, (coord, score) in enumerate(coords_and_scores):
         example = tf.train.Example()
         utils.add_int64_feature('int64_id', i, example)
         utils.add_bytes_feature('encoded_coordinates', coord.encode(), example)
+        utils.add_bytes_feature('pre_image_id', b'pre_image', example)
+        utils.add_bytes_feature('building_image_id', b'pre_image', example)
+        post_image_id = f'image_{i}'
+        post_image_order.append(post_image_id)
+        utils.add_bytes_feature(
+            'post_image_id', post_image_id.encode(), example
+        )
         examples.append(example)
         id_to_score[i] = score
 
@@ -345,7 +369,12 @@ class InferenceTest(absltest.TestCase):
       batch_size = 4
       model = TestModel(batch_size, id_to_score)
       result = inference_lib.run_inference(
-          examples_collection, 'score', batch_size, model, True
+          examples_collection,
+          'score',
+          batch_size,
+          model,
+          True,
+          post_image_order,
       )
 
       def _check_examples(examples):
@@ -406,21 +435,19 @@ class InferenceTest(absltest.TestCase):
   def test_postprocess(self):
     output_path = os.path.join(_make_temp_dir(), 'file_to_postprocess.csv')
     output_dictionary = {
-        'shard_1_output': pd.DataFrame.from_dict(
-            data={
-                'example_id': [1, 2],
-                'building_id': ['a', 'b'],
-                'longitude': [3.0, 4.0],
-                'latitude': [5.0, 6.0],
-                'score': [0.001, 0.002],
-                'plus_code': ['aa', 'bb'],
-                'area_in_meters': [np.nan, np.nan],
-                'footprint_wkt': [np.nan, np.nan],
-                'damaged': [False, True],
-                'damaged_high_precision': [False, True],
-                'damaged_high_recall': [False, True],
-            }
-        ),
+        'shard_1_output': pd.DataFrame.from_dict({
+            'example_id': [1, 2],
+            'building_id': ['a', 'b'],
+            'longitude': [3.0, 4.0],
+            'latitude': [5.0, 6.0],
+            'score': [0.001, 0.002],
+            'plus_code': ['aa', 'bb'],
+            'area_in_meters': [np.nan, np.nan],
+            'footprint_wkt': [np.nan, np.nan],
+            'damaged': [False, True],
+            'damaged_high_precision': [False, True],
+            'damaged_high_recall': [False, True],
+        }),
         'shard_2_output': pd.DataFrame.from_dict({
             'example_id': [3, 4],
             'building_id': ['c', 'd'],
@@ -506,7 +533,7 @@ class InferenceTest(absltest.TestCase):
     self.assertLen(df_no_footprints, 6)
 
     if 'GPKG' in fiona.supported_drivers:
-      gdf = gp.read_file(f'{output_path}.gpkg')
+      gdf = gpd.read_file(output_path.replace('.csv', '.gpkg'))
       self.assertSameElements(
           gdf.columns,
           [
@@ -553,6 +580,108 @@ class InferenceTest(absltest.TestCase):
         ValueError, 'Unrecognized embedding key "unknown key"'
     ):
       inference_lib._write_embedding_mean(batch, '', path)
+
+  def test_merge_examples(self):
+    examples = [
+        _create_test_example(
+            224,
+            False,
+            True,
+            0.7,
+            pre_image_id='pre_image1',
+            post_image_id='post_image1',
+        ),
+        _create_test_example(
+            224,
+            False,
+            True,
+            0.8,
+            pre_image_id='pre_image1',
+            post_image_id='post_image2',
+        ),
+    ]
+    utils.add_bytes_feature('building_image_id', b'pre_image1', examples[0])
+    utils.add_bytes_feature('building_image_id', b'pre_image1', examples[1])
+    merged_example = inference_lib._merge_examples(
+        ('encoded_coords', examples), ['post_image1', 'post_image2']
+    )
+    self.assertAlmostEqual(
+        merged_example.features.feature['score'].float_list.value[0], 0.75
+    )
+    self.assertEqual(
+        merged_example.features.feature['post_image_id']
+        .bytes_list.value[0]
+        .decode(),
+        'post_image1',
+    )
+
+  def test_dedup_post_footprints(self):
+    footprints = [
+        shapely.geometry.Polygon([(0, 0), (0, 0.1), (0.1, 0.1), (0.1, 0)]),
+        shapely.geometry.Polygon([(0, 0), (0, 0.1), (0.1, 0.1), (0.1, 0)]),
+        shapely.geometry.Polygon(
+            [(0.1, 0.1), (0.1, 0.2), (0.2, 0.2), (0.2, 0.1)]
+        ),
+    ]
+    gdf = gpd.GeoDataFrame(
+        {
+            'example_id': ['1', '2', '3'],
+            'score': [0.1, 0.2, 0.9],
+            'longitude': [0.05, 0.05, 0.15],
+            'latitude': [0.05, 0.05, 0.15],
+        },
+        geometry=footprints,
+        crs=4326,
+    )
+    dedup_gdf = inference_lib._dedup_post_footprints(gdf)
+    self.assertLen(dedup_gdf, 3)
+    self.assertSequenceEqual(list(dedup_gdf['example_id']), ['1', '2', '3'])
+    self.assertSequenceEqual(list(dedup_gdf['duplicate']), [False, True, False])
+    np.testing.assert_almost_equal(
+        dedup_gdf['deduped_score'].values, [0.15, 0.2, 0.9], decimal=6
+    )
+
+  def test_dedup_post_footprints_different_sizes(self):
+    footprints = [
+        shapely.geometry.Polygon([(0, 0), (0, 0.1), (0.1, 0.1), (0.1, 0)]),
+        shapely.geometry.Polygon([(0, 0), (0, 1), (1, 1), (1, 0)]),
+    ]
+    gdf = gpd.GeoDataFrame(
+        {
+            'example_id': ['1', '2'],
+            'score': [0.1, 0.2],
+            'longitude': [0.05, 0.05],
+            'latitude': [0.5, 0.5],
+        },
+        geometry=footprints,
+        crs=4326,
+    )
+    dedup_gdf = inference_lib._dedup_post_footprints(gdf)
+    self.assertLen(dedup_gdf, 2)
+    self.assertSequenceEqual(list(dedup_gdf['example_id']), ['1', '2'])
+    self.assertSequenceEqual(list(dedup_gdf['duplicate']), [False, False])
+
+  def test_dedup_post_footprints_not_enough_overlap(self):
+    footprints = [
+        shapely.geometry.Polygon([(0, 0), (0, 1), (1, 1), (1, 0)]),
+        shapely.geometry.Polygon(
+            [(0.5, 0.5), (0.5, 1.5), (1.5, 1.5), (1.5, 0.5)]
+        ),
+    ]
+    gdf = gpd.GeoDataFrame(
+        {
+            'example_id': ['1', '2'],
+            'score': [0.1, 0.2],
+            'longitude': [0.5, 1.0],
+            'latitude': [0.5, 1.0],
+        },
+        geometry=footprints,
+        crs=4326,
+    )
+    dedup_gdf = inference_lib._dedup_post_footprints(gdf)
+    self.assertLen(dedup_gdf, 2)
+    self.assertSequenceEqual(list(dedup_gdf['example_id']), ['1', '2'])
+    self.assertSequenceEqual(list(dedup_gdf['duplicate']), [False, False])
 
 
 if __name__ == '__main__':

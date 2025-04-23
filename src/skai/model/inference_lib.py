@@ -14,9 +14,9 @@
 
 """Functions for running model inference in beam."""
 
+import collections
 import enum
 import math
-import os
 import time
 from typing import Any, Iterable, Iterator, NamedTuple, Optional, Tuple
 
@@ -35,6 +35,14 @@ from skai.model import data
 import tensorflow as tf
 # This import is needed for SentencePiece operations.
 import tensorflow_text  # pylint: disable=unused-import
+
+# Coordinate reference system using Longitude and Latitude.
+_EPSG_4326 = 'EPSG:4326'
+
+# Minimum ratio of
+_POST_FOOTPRINT_DEDUP_AREA_RATIO_THRESHOLD = 0.5
+
+_POST_FOOTPRINT_DEDUP_OVERLAP_THRESHOLD = 0.5
 
 
 class ModelType(enum.Enum):
@@ -55,6 +63,7 @@ class InferenceRow(NamedTuple):
   plus_code: str | None
   area_in_meters: float | None
   footprint_wkt: str | None
+  post_footprint_wkt: str | None
   damaged: bool | None
   damaged_high_precision: bool | None
   damaged_high_recall: bool | None
@@ -348,17 +357,41 @@ class ModelInference(beam.DoFn):
 
 
 def _merge_examples(
-    keyed_examples: tuple[str, Iterable[tf.train.Example]]
+    keyed_examples: tuple[str, Iterable[tf.train.Example]],
+    post_image_order: list[str],
 ) -> tf.train.Example:
   """Merges examples sharing the same coordinates.
 
+  The score of the output example is the average of all example scores.
+
   Args:
     keyed_examples: Tuple of encoded coordinates and examples.
+    post_image_order: List of post-disaster image ids in descending priority
+      order.
 
   Returns:
     Example with merged scores or embeddings.
   """
+
+  def _sort_key(example: tf.train.Example) -> tuple[int, int, str]:
+    post_image_id = utils.get_bytes_feature(example, 'post_image_id')[
+        0
+    ].decode()
+    try:
+      order = post_image_order.index(post_image_id)
+    except ValueError:
+      order = len(post_image_order)
+
+    pre_image_id = utils.get_bytes_feature(example, 'pre_image_id')[0].decode()
+    building_image_id = utils.get_bytes_feature(
+        example, 'building_image_id'
+    )[0].decode()
+    if pre_image_id == building_image_id:
+      return (0, order, post_image_id)
+    return (1, order, post_image_id)
+
   examples = list(keyed_examples[1])
+  examples.sort(key=_sort_key)
   output_example = tf.train.Example()
   output_example.CopyFrom(examples[0])
   try:  # scores
@@ -367,20 +400,22 @@ def _merge_examples(
         np.mean(scores)
     ]
   except IndexError:  # embeddings
-    scores = [utils.get_float_feature(e, 'embedding') for e in examples]
+    embeddings = [utils.get_float_feature(e, 'embedding') for e in examples]
     output_example.features.feature['embedding'].float_list.value.extend(
-        np.mean(np.array(scores), axis=0)
+        np.mean(np.array(embeddings), axis=0)
     )
   return output_example
 
 
 def _dedup_scored_examples(
-    examples: beam.PCollection
+    examples: beam.PCollection, post_image_order: list[str]
 ) -> beam.PCollection:
   """Deduplicates examples by merging those sharing the same coordinates.
 
   Args:
     examples: PCollection of examples with scores.
+    post_image_order: List of post-disaster image ids in descending priority
+      order.
 
   Returns:
     PCollection of deduplicated examples.
@@ -390,7 +425,7 @@ def _dedup_scored_examples(
       | 'key_examples_by_coords'
       >> beam.Map(_key_example_by_encoded_coordinates)
       | 'group_by_coords' >> beam.GroupByKey()
-      | 'merge_examples' >> beam.Map(_merge_examples)
+      | 'merge_examples' >> beam.Map(_merge_examples, post_image_order)
   )
 
 
@@ -421,6 +456,7 @@ def run_inference(
     batch_size: int,
     model: InferenceModel,
     deduplicate: bool,
+    post_image_order: list[str],
 ) -> beam.PCollection:
   """Runs inference and augments input examples with inference scores.
 
@@ -430,6 +466,8 @@ def run_inference(
     batch_size: Batch size.
     model: Inference model to use.
     deduplicate: If true, examples of the same building are merged.
+    post_image_order: List of post-disaster image ids in descending priority
+      order for use in deduplicating examples.
 
   Returns:
     PCollection of Tensorflow Examples augmented with inference scores.
@@ -445,7 +483,7 @@ def run_inference(
   if score_feature == 'embedding':
     return _example_id_embeddings(scored_examples)
   if deduplicate:
-    return _dedup_scored_examples(scored_examples)
+    return _dedup_scored_examples(scored_examples, post_image_order)
   return scored_examples
 
 
@@ -459,6 +497,10 @@ def _key_example_by_encoded_coordinates(
       encoded_coordinates.decode(),
       example,
   )
+
+
+def _wkb_to_wkt(wkb: bytes) -> str:
+  return shapely.wkt.dumps(shapely.wkb.loads(wkb))
 
 
 def example_to_row(
@@ -499,9 +541,16 @@ def example_to_row(
     area = None
   try:
     footprint_wkb = utils.get_bytes_feature(example, 'footprint_wkb')[0]
-    footprint_wkt = shapely.wkt.dumps(shapely.wkb.loads(footprint_wkb))
+    footprint_wkt = _wkb_to_wkt(footprint_wkb)
   except IndexError:
     footprint_wkt = None
+  try:
+    post_footprint_wkb = utils.get_bytes_feature(example, 'post_footprint_wkb')[
+        0
+    ]
+    post_footprint_wkt = _wkb_to_wkt(post_footprint_wkb)
+  except IndexError:
+    post_footprint_wkt = None
 
   try:
     label = utils.get_float_feature(example, 'label')[0]
@@ -519,6 +568,7 @@ def example_to_row(
       plus_code=plus_code,
       area_in_meters=area,
       footprint_wkt=footprint_wkt,
+      post_footprint_wkt=post_footprint_wkt,
       damaged=(score >= threshold),
       damaged_high_precision=(score >= high_precision_threshold),
       damaged_high_recall=(score >= high_recall_threshold)
@@ -583,6 +633,166 @@ def embeddings_examples_to_csv(
   )
 
 
+def _to_geodataframe(
+    df: pd.DataFrame, footprint_column: str
+) -> gpd.GeoDataFrame:
+  """Converts a DataFrame to a GeoDataFrame."""
+  geometries = []
+  for _, row in df.iterrows():
+    wkt = row[footprint_column]
+    if not isinstance(wkt, str) and math.isnan(wkt):
+      geometries.append(
+          shapely.geometry.Point(row['longitude'], row['latitude'])
+      )
+    else:
+      geometries.append(shapely.wkt.loads(wkt))
+  return gpd.GeoDataFrame(
+      df.drop(columns=[footprint_column]), geometry=geometries, crs=_EPSG_4326
+  )
+
+
+def _dedup_post_footprints(
+    predictions: gpd.GeoDataFrame
+) -> gpd.GeoDataFrame:
+  """Deduplicate inference footprints that have been aligned with post imagery.
+
+  Args:
+    predictions: GeoDataFrame containing inference results.
+
+  Returns:
+    A copy of the predictions GeoDataFrame with 2 additional columns: duplicate
+    and deduped_score.
+  """
+  utm_crs = utils.get_utm_crs(
+      predictions['longitude'].mean(), predictions['latitude'].mean()
+  )
+  utm_gdf = predictions.to_crs(utm_crs)
+  utm_gdf['area'] = utm_gdf.area
+  other_gdf = gpd.GeoDataFrame(
+      {
+          'other_example_id': utm_gdf['example_id'],
+          'other_area': utm_gdf['area'],
+          'other_score': utm_gdf['score'],
+      },
+      geometry=utm_gdf.geometry,
+  )
+  intersections = utm_gdf.overlay(
+      other_gdf, how='intersection', keep_geom_type=False
+  )
+  # Remove self-intersections and reflections.
+  intersections = intersections[
+      intersections['example_id'] < intersections['other_example_id']
+  ]
+
+  # Remove intersections that are not a significant portion of the footprints
+  # and intersections between footprints that are very different in size.
+  min_areas = intersections[['area', 'other_area']].min(axis=1)
+  max_areas = intersections[['area', 'other_area']].max(axis=1)
+  intersections['area_ratio'] = min_areas / max_areas
+  intersections['overlap_ratio'] = intersections.area / intersections['area']
+  duplicates = intersections[
+      (intersections['area_ratio'] > _POST_FOOTPRINT_DEDUP_AREA_RATIO_THRESHOLD)
+      & (
+          intersections['overlap_ratio']
+          > _POST_FOOTPRINT_DEDUP_OVERLAP_THRESHOLD
+      )
+  ].copy()
+  duplicates.sort_values(by='overlap_ratio', ascending=False, inplace=True)
+  discarded_examples = set()
+  damage_scores = collections.defaultdict(list)
+  for _, row in predictions.iterrows():
+    damage_scores[row['example_id']].append(row['score'])
+  for _, row in duplicates.iterrows():
+    example_id = row['example_id']
+    other_example_id = row['other_example_id']
+    if (
+        example_id in discarded_examples
+        or other_example_id in discarded_examples
+    ):
+      continue
+    # TODO(jzxu): The example to keep should be the one with higher building
+    # confidence, but that information is currently not piped into the
+    # inference output. Arbitrarily choose the building with the smaller area
+    # for now.
+    damage_scores[example_id].append(row['other_score'])
+    discarded_examples.add(other_example_id)
+
+  predictions_copy = predictions.copy()
+  predictions_copy['deduped_score'] = [
+      np.mean(damage_scores[i]) for i in predictions_copy['example_id']
+  ]
+  predictions_copy['duplicate'] = [
+      i in discarded_examples for i in predictions_copy['example_id']
+  ]
+  return predictions_copy
+
+
+def _write_geopackage_files(
+    inference_df: pd.DataFrame,
+    output_prefix: str,
+) -> None:
+  """Writes inference results as GeoPackage files.
+
+  Writes out two files: one using non-post-aligned footprints, and the other
+  using post-aligned footprints.
+
+  Args:
+    inference_df: Inference results dataframe.
+    output_prefix: Output path prefix.
+  """
+  geometries = []
+  post_geometries = []
+  for _, row in inference_df.iterrows():
+    longitude = row['longitude']
+    latitude = row['latitude']
+    if 'footprint_wkt' not in row:
+      footprint = shapely.geometry.Point(longitude, latitude)
+    else:
+      wkt = row['footprint_wkt']
+      if not isinstance(wkt, str) and math.isnan(wkt):
+        footprint = shapely.geometry.Point(longitude, latitude)
+      else:
+        footprint = shapely.wkt.loads(wkt)
+    geometries.append(footprint)
+    if 'post_footprint_wkt' not in row:
+      post_footprint = shapely.geometry.Point(longitude, latitude)
+    else:
+      post_wkt = row['post_footprint_wkt']
+      if not isinstance(post_wkt, str) and math.isnan(post_wkt):
+        post_footprint = shapely.geometry.Point(longitude, latitude)
+      else:
+        post_footprint = shapely.wkt.loads(post_wkt)
+    post_geometries.append(post_footprint)
+
+  df_without_footprints = inference_df.drop(
+      columns=[
+          c
+          for c in ('footprint_wkt', 'post_footprint_wkt')
+          if c in inference_df.columns
+      ]
+  )
+
+  gdf = gpd.GeoDataFrame(
+      df_without_footprints,
+      geometry=geometries,
+      crs='EPSG:4326',
+  )
+  if output_prefix.endswith('.csv'):
+    output_prefix = output_prefix[:-4]
+  with tf.io.gfile.GFile(f'{output_prefix}.gpkg', 'wb') as f:
+    gdf.to_file(f, driver='GPKG', engine='fiona')
+
+  post_gdf = _dedup_post_footprints(
+      gpd.GeoDataFrame(
+          df_without_footprints,
+          geometry=post_geometries,
+          crs='EPSG:4326',
+      )
+  )
+  with tf.io.gfile.GFile(f'{output_prefix}_post.gpkg', 'wb') as f:
+    post_gdf.to_file(f, driver='GPKG', engine='fiona')
+
+
 def postprocess(
     temp_prefix: str, output_path: str, inference_feature: str
 ) -> None:
@@ -605,11 +815,14 @@ def postprocess(
   df = pd.concat(shards, ignore_index=True)
   with tf.io.gfile.GFile(output_path, 'w') as f:
     df.to_csv(f, index=False)
-  if 'footprint_wkt' in df.columns:
+  footprint_columns = [
+      c for c in ['footprint_wkt', 'post_footprint_wkt'] if c in df.columns
+  ]
+  if footprint_columns:
     # Also output a version of the CSV with no footprints. The footprints_wkt
     # column is the most memory intensive and sometimes prevents the CSV from
     # being loaded by QGIS if there are too many examples.
-    df_no_footprints = df.drop(columns=['footprint_wkt'])
+    df_no_footprints = df.drop(columns=footprint_columns)
     output_path_no_footprints = output_path + '.no_footprints'
     with tf.io.gfile.GFile(output_path_no_footprints, 'w') as f:
       df_no_footprints.to_csv(f, index=False)
@@ -622,22 +835,7 @@ def postprocess(
     return
 
   if 'GPKG' in fiona.supported_drivers:
-    # Output GeoPackage if available.
-    geometries = []
-    for wkt, lon, lat in zip(
-        df['footprint_wkt'], df['longitude'], df['latitude']
-    ):
-      if not isinstance(wkt, str) and math.isnan(wkt):
-        geometries.append(shapely.geometry.Point(lon, lat))
-      else:
-        geometries.append(shapely.wkt.loads(wkt))
-    gdf = gpd.GeoDataFrame(
-        df.drop(columns=['footprint_wkt']), geometry=geometries, crs='EPSG:4326'
-    )
-    output_dir, output_file = os.path.split(output_path)
-    gpkg_path = os.path.join(output_dir, f'{output_file}.gpkg')
-    with tf.io.gfile.GFile(gpkg_path, 'wb') as f:
-      gdf.to_file(f, driver='GPKG', engine='fiona')
+    _write_geopackage_files(df, output_path)
 
 
 def _do_batch(labels: list[str], batch_size: int) -> list[list[str]]:
@@ -782,6 +980,7 @@ def run_tf2_inference_with_csv_output(
     high_precision_threshold: float,
     high_recall_threshold: float,
     deduplicate: bool,
+    post_image_order: list[str],
     generate_embeddings: bool,
     pipeline_options,
 ):
@@ -796,16 +995,18 @@ def run_tf2_inference_with_csv_output(
     post_image_only: Model expects only post-disaster images.
     batch_size: Batch size.
     positive_labels_filepath: File path to a text file containing positive
-        labels. The file path is required only when using VLM, otherwise it can
-        be set to empty list or None.
+      labels. The file path is required only when using VLM, otherwise it can be
+      set to empty list or None.
     negative_labels_filepath: File path to a text file containing negative
-        labels. The file path is required only when using VLM, otherwise it can
-        be set to empty list or None.
+      labels. The file path is required only when using VLM, otherwise it can be
+      set to empty list or None.
     model_type: Indentify the type of the model being used.
     threshold: Damaged score threshold.
     high_precision_threshold: Damaged score threshold for high precision.
     high_recall_threshold: Damaged score threshold for high recall.
     deduplicate: If true, examples of the same building are merged.
+    post_image_order: List of post-disaster image ids in descending priority
+      order for use in deduplicating examples.
     generate_embeddings: Generate embeddings.
     pipeline_options: Dataflow pipeline options.
   """
@@ -844,7 +1045,12 @@ def run_tf2_inference_with_csv_output(
     )
     inference_feature = 'embedding' if generate_embeddings else 'score'
     scored_examples = run_inference(
-        examples, inference_feature, batch_size, model, deduplicate
+        examples,
+        inference_feature,
+        batch_size,
+        model,
+        deduplicate,
+        post_image_order,
     )
     if generate_embeddings:
       embeddings_examples_to_csv(scored_examples, tempfile_prefix)

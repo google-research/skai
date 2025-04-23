@@ -46,7 +46,7 @@ flags.DEFINE_bool('post_images_only', False, 'Model expects only post images')
 flags.DEFINE_integer('batch_size', 4, 'Batch size.')
 flags.DEFINE_string('cloud_project', None, 'GCP project name.')
 flags.DEFINE_string('cloud_region', None, 'GCP region, e.g. us-central1.')
-flags.DEFINE_bool('use_dataflow', None, 'If true, run pipeline on Dataflow.')
+flags.DEFINE_bool('use_dataflow', True, 'If true, run pipeline on Dataflow.')
 flags.DEFINE_string(
     'worker_service_account',
     None,
@@ -94,6 +94,11 @@ flags.DEFINE_float(
 )
 flags.DEFINE_bool('deduplicate', True, 'Merge examples of the same building.')
 flags.DEFINE_bool('generate_embeddings', False, 'Generate embeddings.')
+flags.DEFINE_list(
+    'post_image_order',
+    [],
+    'List of post-disaster image ids in descending priority order.',
+)
 
 
 def main(_) -> None:
@@ -130,6 +135,7 @@ def main(_) -> None:
       FLAGS.high_precision_threshold,
       FLAGS.high_recall_threshold,
       FLAGS.deduplicate,
+      FLAGS.post_image_order,
       FLAGS.generate_embeddings,
       pipeline_options,
   )
