@@ -230,12 +230,9 @@ class LabelingTest(parameterized.TestCase):
       # c is connected to b within 78 metres
       # e is not connected to any of the other points within 78 metres
       df_allowed_example_ids = pd.DataFrame(
-          data=['a', 'b', 'e'],
-          columns=['example_id'],
+          {'example_id': ['a', 'b', 'e']},
       )
-      df_allowed_example_ids.to_csv(
-          allowed_example_ids_path, index=False, header=False
-      )
+      df_allowed_example_ids.to_csv(allowed_example_ids_path, index=False)
 
       shard_to_example_metadata = {
           '001': [('a', 92.850449, 20.148951), ('b', 92.889694, 20.157515)],
@@ -473,6 +470,7 @@ class LabelingTest(parameterized.TestCase):
             'bad_example=0',
         ],
         example_patterns=[unlabeled_examples_path],
+        splits_path=None,
         test_fraction=0.333,
         train_output_path=train_path,
         test_output_path=test_path,
@@ -537,6 +535,7 @@ class LabelingTest(parameterized.TestCase):
         label_file_paths=[],
         string_to_numeric_labels=[],
         example_patterns=[examples_path],
+        splits_path=None,
         test_fraction=0.25,
         train_output_path=train_path,
         test_output_path=test_path,

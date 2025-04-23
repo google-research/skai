@@ -64,6 +64,11 @@ flags.DEFINE_list(
     ],
     'List of "class=label" strings, e.g. "no_damage=0,minor_damage=0,...".',
 )
+flags.DEFINE_string(
+    'splits_path',
+    None,
+    'Path to CSV mapping example ids to train/test splits.',
+)
 flags.DEFINE_bool(
     'use_multiprocessing',
     True,
@@ -83,6 +88,7 @@ def main(unused_argv):
       FLAGS.label_file_paths,
       FLAGS.string_to_numeric_labels,
       FLAGS.example_patterns,
+      FLAGS.splits_path,
       FLAGS.test_fraction,
       FLAGS.train_output_path,
       FLAGS.test_output_path,

@@ -228,14 +228,16 @@ def _read_sharded_metadata(pattern: str) -> pd.DataFrame:
     raise ValueError(f'File pattern {pattern} did not match any files.')
   dfs = []
   for path in paths:
-    with tf.io.gfile.GFile(path, 'r') as f:
-      if '.parquet' in path:
+    if '.parquet' in path:
+      with tf.io.gfile.GFile(path, 'rb') as f:
+        f.closed = False
         df = pd.read_parquet(f)
-      elif '.csv' in path:
+    elif '.csv' in path:
+      with tf.io.gfile.GFile(path, 'r') as f:
         df = pd.read_csv(f)
-      else:
-        raise ValueError(f'Unsupported metadata file type: {path}')
-      dfs.append(df)
+    else:
+      raise ValueError(f'Unsupported metadata file type: {path}')
+    dfs.append(df)
   return pd.concat(dfs, ignore_index=True)
 
 
@@ -378,9 +380,9 @@ def create_labeling_images(
     examples_pattern: File pattern for input TFRecords or parquet files
       containing examples. Only used if images_dir is None.
     max_images: Maximum number of images to create.
-    allowed_example_ids_path: Path of file containing example ids that are
-      allowed to be in the labeling set. The file should have one example id per
-      line.
+    allowed_example_ids_path: Path to CSV containing example ids that are
+      allowed to be in the labeling set. The CSV must have an "example_id"
+      column. Other columns are ignored.
     excluded_import_file_patterns: List of import file patterns containing
       images to exclude.
     output_dir: Output directory.
@@ -417,9 +419,13 @@ def create_labeling_images(
 
   if allowed_example_ids_path:
     with tf.io.gfile.GFile(allowed_example_ids_path, 'r') as f:
-      allowed_example_ids = set(line.strip() for line in f)
-    logging.info('Allowing %d example ids', len(allowed_example_ids))
-    allowed_example_ids = allowed_example_ids - excluded_example_ids
+      allowed_ids_df = pd.read_csv(f)
+      if 'example_id' in allowed_ids_df.columns:
+        allowed_example_ids = set(allowed_ids_df['example_id'])
+      else:
+        raise ValueError(
+            'allowed_example_ids_path must contain a column named "example_id"'
+        )
   elif scores_path:
     allowed_example_ids = []
     with tf.io.gfile.GFile(scores_path, 'r') as f:
@@ -966,8 +972,8 @@ def _create_labeling_assets_from_metadata(
   Returns:
     List of LabelingExamples containing information about the created assets.
   """
-  images = _read_files_concurrently(images_dir, allowed_example_ids)
   metadata_df = _read_sharded_metadata(metadata_pattern)
+  images = _read_files_concurrently(images_dir, allowed_example_ids)
   labeling_examples = []
   images_to_write = []
   for example_id in allowed_example_ids:
@@ -1375,6 +1381,7 @@ def create_labeled_examples(
     label_file_paths: list[str],
     string_to_numeric_labels: list[str],
     example_patterns: list[str],
+    splits_path: str | None,
     test_fraction: float,
     train_output_path: str,
     test_output_path: str,
@@ -1389,6 +1396,7 @@ def create_labeled_examples(
     string_to_numeric_labels: List of strings in the form
       "<string label>=<numeric label>", e.g. "no_damage=0"
     example_patterns: Patterns for unlabeled examples.
+    splits_path: Path to CSV mapping example ids to train/test splits.
     test_fraction: Fraction of examples to write to test output.
     train_output_path: Path to training examples TFRecord output.
     test_output_path: Path to test examples TFRecord output.
@@ -1455,9 +1463,33 @@ def create_labeled_examples(
           )
         all_labeled_examples.append(example)
 
-  train_examples, test_examples = _split_examples(
-      all_labeled_examples, test_fraction, connecting_distance_meters
-  )
+  if splits_path:
+    with tf.io.gfile.GFile(splits_path) as f:
+      df = pd.read_csv(f)
+      if 'example_id' not in df.columns:
+        raise ValueError('Splits CSV must contain "example_id" column.')
+      if 'split' not in df.columns:
+        raise ValueError('Splits CSV must contain "split" column.')
+    example_id_to_split = {r.example_id: r.split for r in df.itertuples()}
+    train_examples = []
+    test_examples = []
+    for e in all_labeled_examples:
+      example_id = (
+          e.features.feature['example_id'].bytes_list.value[0].decode()
+      )
+      split = example_id_to_split.get(example_id, None)
+      if split is None:
+        raise ValueError(f'Example id {example_id} not found in splits CSV.')
+      if split == 'train':
+        train_examples.append(e)
+      elif split == 'test':
+        test_examples.append(e)
+      else:
+        raise ValueError(f'Unknown split: {split}')
+  else:
+    train_examples, test_examples = _split_examples(
+        all_labeled_examples, test_fraction, connecting_distance_meters
+    )
 
   _write_tfrecord(train_examples, train_output_path)
   _write_tfrecord(test_examples, test_output_path)
