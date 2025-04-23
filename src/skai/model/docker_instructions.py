@@ -22,7 +22,7 @@ GPU_ACCELERATORS = ['P100', 'V100', 'P4', 'T4', 'A100']
 TPU_ACCELERATORS = ['TPU_V2', 'TPU_V3']
 
 CPU_BASE_IMAGE = 'tensorflow/tensorflow:2.14.0'
-GPU_BASE_IMAGE = 'tensorflow/tensorflow:2.14.0-gpu'
+GPU_BASE_IMAGE = 'tensorflow/tensorflow:2.19.0-gpu'
 TPU_BASE_IMAGE = 'ubuntu:22.04'
 
 SKAI_DOCKER_INSTRUCTIONS = [
@@ -130,12 +130,19 @@ def get_docker_instructions(accelerator: str) -> tuple[str, list[str]]:
   return base_image, docker_instructions
 
 
-def get_geofm_docker_instructions() -> tuple[str, list[str]]:
+def get_geofm_docker_instructions(accelerator: str) -> tuple[str, list[str]]:
   """Returns the docker instructions and base image for `accelerator`.
+
+  Args:
+    accelerator: The type of accelerator to build the image for (geofm-cpu,
+      geofm-gpu).
 
   Returns:
     A tuple of the base image and the docker instructions.
   """
+  assert accelerator in ['geofm-cpu', 'geofm-gpu'], (
+      'Unsupported accelerator: %s' % accelerator
+  )
   base_image = 'tensorflow/tensorflow:2.19.0'
   docker_instructions = [
       'RUN apt-get update && apt-get install -y python3-pip wget',
@@ -145,9 +152,16 @@ def get_geofm_docker_instructions() -> tuple[str, list[str]]:
       'RUN pip install pillow',
       'RUN pip install rasterio==1.3.9',
       'RUN pip install tqdm',
+  ]
+  if accelerator == 'geofm-gpu':
+    docker_instructions.extend([
+        'RUN pip install "tensorflow[and-cuda]"',
+    ])
+    base_image = 'tensorflow/tensorflow:2.19.0-gpu'
+  docker_instructions.extend([
       'COPY skai /skai',
       'RUN pip install /skai/src/.',
-    ]
+  ])
   return base_image, docker_instructions
 
 
@@ -170,8 +184,8 @@ def get_xm_executable_spec(accelerator: str):
     Xmanager executable spec.
   """
   source_path = str(pathlib.Path(__file__).parents[3])  # SKAI root directory.
-  if accelerator == 'geofm-cpu':
-    base_image, instructions = get_geofm_docker_instructions()
+  if accelerator.startswith('geofm'):
+    base_image, instructions = get_geofm_docker_instructions(accelerator)
   else:
     base_image, instructions = get_docker_instructions(accelerator)
   return xm.PythonContainer(

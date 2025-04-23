@@ -11,11 +11,11 @@ xmanager launch src/skai/model/xm_vlm_zero_shot_vertex.py -- \
     --image_size=224 \
     --dataset_names='hurricane_ian' \
     --example_patterns='/path/to/hurricane_ian_dataset' \
-    --output_dir='/path/to/output_dir' \
-    --source_dir='/tmp/skai'
+    --output_dir='/path/to/output_dir'
 
 """
 
+from absl import app
 from absl import flags
 from skai.model import docker_instructions
 from xmanager import xm
@@ -73,8 +73,10 @@ _IMAGE_FEATURE = flags.DEFINE_string(
 )
 
 _MODEL_TYPE = flags.DEFINE_enum(
-    'model_type', 'siglip', ['siglip', 'geofm'], 'Specifies which zero-shot '
-    'model to use.'
+    'model_type',
+    'siglip',
+    ['siglip', 'geofm'],
+    'Specifies which zero-shot model to use.',
 )
 
 _GEOFM_SAVEDMODEL_PATH = flags.DEFINE_string(
@@ -84,16 +86,14 @@ _GEOFM_SAVEDMODEL_PATH = flags.DEFINE_string(
 )
 
 _SIGLIP_MODEL_VARIANT = flags.DEFINE_string(
-    'siglip_model_variant', 'So400m/14', 'Specifies model variant for SigLIP. '
+    'siglip_model_variant',
+    'So400m/14',
+    'Specifies model variant for SigLIP. '
     'Options are "B/16", "L/16", "So400m/14" and "B/16-i18n". Note that each '
-    'siglip_model_variant supports a specific set of image sizes.'
+    'siglip_model_variant supports a specific set of image sizes.',
 )
 
 _IMAGE_SIZE = flags.DEFINE_integer('image_size', 224, 'Image size.')
-
-_SOURCE_DIR = flags.DEFINE_string(
-    'source_dir', None, 'Path to the dirctory containg the skai source code.'
-)
 
 _BUILD_DOCKER_IMAGE = flags.DEFINE_bool(
     'build_docker_image',
@@ -111,6 +111,21 @@ _CLOUD_LOCATION = flags.DEFINE_string(
 )
 
 _DEFAULT_DOCKER_IMAGE = 'gcr.io/disaster-assessment/skai-ml-tpu:latest'
+
+_NUM_CPU = flags.DEFINE_integer('num_cpu', 1, 'Number of CPUs to use.')
+
+_NUM_RAM = flags.DEFINE_integer('num_ram', 32, 'Number of RAM to use.')
+
+_ACCELERATOR = flags.DEFINE_enum(
+    'accelerator',
+    'A100',
+    ['TPU_V3', 'A100', 'CPU'],
+    'Specifies which platform to use.',
+)
+
+_ACCELERATOR_COUNT = flags.DEFINE_integer(
+    'accelerator_count', 8, 'Number of accelerators to use.'
+)
 
 
 def main(_) -> None:
@@ -136,7 +151,17 @@ def main(_) -> None:
     if _BUILD_DOCKER_IMAGE.value:
       # TODO(jlee24): Add support for TPU when b/399193238 is resolved.
       # TODO(jlee24): Add support for parallel launch of siglip and geofm.
-      accelerator = 'tpu' if _MODEL_TYPE.value == 'siglip' else 'geofm-cpu'
+      if _MODEL_TYPE.value == 'siglip':
+        assert (
+            _ACCELERATOR.value == 'TPU_V3'
+        ), 'Only TPU_V3 is supported for SigLIP.'
+        accelerator = 'tpu'
+      elif _MODEL_TYPE.value == 'geofm':
+        accelerator = (
+            'geofm-gpu' if _ACCELERATOR.value == 'A100' else 'geofm-cpu'
+        )
+      else:
+        raise ValueError(f'Unsupported model type: {_MODEL_TYPE.value}')
       [train_executable] = experiment.package([
           xm.Packageable(
               executable_spec=docker_instructions.get_xm_executable_spec(
@@ -149,18 +174,18 @@ def main(_) -> None:
       [train_executable] = experiment.package([
           xm.container(
               image_path=(_DOCKER_IMAGE.value or _DEFAULT_DOCKER_IMAGE),
-              executor_spec=xm_local.Vertex.Spec()
+              executor_spec=xm_local.Vertex.Spec(),
           ),
       ])
 
     job_kwargs = {
         'service_tier': xm.ServiceTier.PROD,
         'location': _CLOUD_LOCATION.value,
-        'cpu': 8 * xm.vCPU,
-        'ram': 64 * xm.GiB,
+        'cpu': _NUM_CPU.value * xm.vCPU,
+        'ram': _NUM_RAM.value * xm.GiB,
     }
-    if _MODEL_TYPE.value == 'siglip':
-      job_kwargs['TPU_V3'] = 8
+    if _ACCELERATOR.value != 'CPU':
+      job_kwargs[_ACCELERATOR.value] = _ACCELERATOR_COUNT.value
     executor = xm_local.Vertex(
         requirements=xm.JobRequirements(**job_kwargs),
     )
@@ -199,3 +224,7 @@ def main(_) -> None:
             executor=executor,
         )
     )
+
+
+if __name__ == '__main__':
+  app.run(main)
