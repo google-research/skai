@@ -1,0 +1,19 @@
+# Skai dependencies
+numpy
+pandas==2.2.3
+tensorflow==2.18.1
+ml-collections==1.0.0
+geopandas==1.0.1
+tensorflow-text==2.18.1
+protobuf==4.25.3
+absl-py==2.2.2
+flax==0.10.5
+sentencepiece==0.2.0
+editdistance==0.8.1
+einops==0.8.0
+overrides==7.7.0
+psutil==7.0.0
+pycocotools==2.0.8
+git+https://github.com/google/CommonLoopUtils
+git+https://github.com/google/flaxformer
+git+https://github.com/akolesnikoff/panopticapi.git@mute
