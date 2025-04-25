@@ -510,6 +510,13 @@ def create_callbacks(
   return callbacks
 
 
+def _dataset_is_empty(ds: tf.data.Dataset) -> bool:
+  """Returns True if the dataset is empty."""
+  for _ in ds:
+    return False
+  return True
+
+
 def run_train(
     train_ds: tf.data.Dataset,
     val_ds: tf.data.Dataset,
@@ -538,6 +545,17 @@ def run_train(
         model_params=model_params,
         experiment_name=experiment_name,
         example_id_to_bias_table=example_id_to_bias_table
+    )
+
+  if _dataset_is_empty(train_ds):
+    raise ValueError(
+        'Training dataset is empty. There were not enough examples to form a'
+        ' single batch.'
+    )
+  if _dataset_is_empty(val_ds):
+    raise ValueError(
+        'Validation dataset is empty. There were not enough examples to form a'
+        ' single batch.'
     )
 
   two_head_model.fit(
