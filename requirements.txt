@@ -24,7 +24,7 @@ tensorflow-datasets
 tensorflow_probability
 tqdm
 openlocationcode
-xmanager
+xmanager>=0.7.1
 tensorflow_addons
 tensorflow-text
 scipy
