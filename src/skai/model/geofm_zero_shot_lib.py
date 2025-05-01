@@ -41,13 +41,13 @@ def parse_examples(
     cast_to_uint8: bool,
 ) -> dict[str, tf.Tensor]:
   """Specifies how to parse a single example.
-  
+
   Args:
     record_bytes: The record bytes to parse.
     image_feature: String of the feature to use as input image.
     image_size: The size of the input image, e.g. 224.
     cast_to_uint8: Whether to cast the image to uint8.
-  
+
   Returns:
     The parsed example.
   """
@@ -182,12 +182,12 @@ def generate_geofm_zero_shot_assessment(
         output_df[column] = output_df[column].str.decode('utf-8')
 
     with tf.io.gfile.GFile(
-        f'{output_dir}/{dataset_name}_output.csv', 'w'
+        f'{output_dir}/{dataset_name}_geofm_output.csv', 'w'
     ) as output_csv_file:
       output_df.to_csv(output_csv_file, index=False)
 
     deduped = _dedup_predictions(output_df)
     with tf.io.gfile.GFile(
-        f'{output_dir}/{dataset_name}_deduped.csv', 'w'
+        f'{output_dir}/{dataset_name}_geofm_deduped.csv', 'w'
     ) as deduped_file:
       deduped.to_csv(deduped_file, index=False)

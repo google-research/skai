@@ -39,6 +39,7 @@ _GEOFM_SAVEDMODEL_PATH = flags.DEFINE_string(
     'geofm_savedmodel_path',
     None,
     'Path to the exported GeoFM SavedModel.',
+    required=True,
 )
 
 
@@ -57,6 +58,8 @@ def main(argv: Sequence[str]) -> None:
   del argv
 
   _check_example_patterns(_EXAMPLE_PATTERNS.value)
+  if not _GEOFM_SAVEDMODEL_PATH.value:
+    raise ValueError('geofm_savedmodel_path cannot be empty.')
 
   # Get configuration for the model.
   model_config = public_vlm_config.get_model_config(
