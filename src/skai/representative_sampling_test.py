@@ -243,6 +243,24 @@ class SampleExamplesForLabelingLibTest(absltest.TestCase):
     self.assertLen(train_df, 4)
     self.assertLen(test_df, 4)
 
+  def test_sample_top_examples(self):
+    df = pd.DataFrame(
+        data=[
+            [0, 0, 1.0, False],
+            [0.00000001, 0, 0.9, False],
+            [1, 0, 0.5, False],
+            [2, 0, 0.3, False],
+            [3, 0, 0.4, False],
+        ],
+        columns=['longitude', 'latitude', 'damage_score', 'is_cloudy'],
+    )
+    gdf = gpd.GeoDataFrame(
+        df,
+        geometry=gpd.points_from_xy(df.longitude, df.latitude),
+        crs='EPSG:4326',
+    ).to_crs('EPSG:32731')
+    samples = representative_sampling._sample_top_examples(gdf, 3, 80)
+    self.assertCountEqual(samples, [0, 2, 4])
 
 if __name__ == '__main__':
   absltest.main()

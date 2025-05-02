@@ -168,13 +168,13 @@ def _drop_points_within_sample(
     bucket_gdf: gpd.GeoDataFrame,
     buffer_meters: float,
 ) -> gpd.GeoDataFrame:
-  """Drops points within a buffer distance of the sampled point.
+  """Drops points within a buffer distance of the sampled points.
 
     Points are kept or dropped based on the row order in the dataframe, so it's
     important for the input to already be randomly shuffled.
 
   Args:
-    sample: A geometry array of the sampled point.
+    sample: A geometry array of the sampled points.
     bucket_gdf: A GeoDataFrame of all points in the bucket.
     buffer_meters: The buffer distance in meters.
 
@@ -203,6 +203,24 @@ def _sample_from_bucket(
     bucket_gdf = _drop_points_within_sample(
         sample.geometry, bucket_gdf, buffer_meters
     )
+
+
+def _sample_top_examples(
+    gdf: gpd.GeoDataFrame,
+    n: int,
+    buffer_meters: float,
+) -> list[int]:
+  """Samples the top-scoring examples from a dataframe."""
+  sorted_gdf = gdf.sort_values(by='damage_score', ascending=False)
+  sample = []
+  while not sorted_gdf.empty and len(sample) < n:
+    sample.append(sorted_gdf.index[0])
+    sorted_gdf = _drop_points_within_sample(
+        sorted_gdf.geometry[:1],
+        sorted_gdf,
+        buffer_meters,
+    )
+  return sample
 
 
 def sample_examples(
@@ -291,11 +309,16 @@ def sample_examples(
       # if we're collecting for the train set.
       if num_to_sample_from_top > 0:
         remain_gdf = cell_gdf[~cell_gdf.index.isin(all_samples)]
-        top_gdf = remain_gdf.nlargest(
-            min(num_to_sample_from_top, num_to_sample_total - len(all_samples)),
-            'damage_score'
+        all_samples.extend(
+            _sample_top_examples(
+                remain_gdf,
+                min(
+                    num_to_sample_from_top,
+                    num_to_sample_total - len(all_samples),
+                ),
+                buffer_meters,
+            )
         )
-        all_samples.extend(list(top_gdf.index))
       if len(all_samples) >= num_to_sample_total:
         break
     if len(all_samples) >= num_to_sample_total:
