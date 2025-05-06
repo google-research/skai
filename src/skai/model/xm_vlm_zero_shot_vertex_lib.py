@@ -7,6 +7,7 @@ import asyncio
 import os
 import tempfile
 from typing import Optional
+from skai.model import combine_ensemble_output
 from skai.model import docker_instructions
 from xmanager import xm
 from xmanager import xm_local
@@ -270,7 +271,10 @@ def build_experiment_jobs(experiment: xm.Experiment,
     # Create a temporary requirements.txt file for the auxiliary job. Must be
     # co-located with launcher and src.
     with tempfile.NamedTemporaryFile() as f:
-      f.write(b'cloudpickle')
+      f.write(b'cloudpickle\n')
+      f.write(b'gcsfs\n')
+      f.write(b'pandas\n')
+      f.write(b'tensorflow\n')
       os.rename(f.name, os.path.join(_CONTROLLER_TMP_DIR, 'requirements.txt'))
       @parameter_controller.controller(
           executor=xm_local.Vertex(),
@@ -294,7 +298,12 @@ def build_experiment_jobs(experiment: xm.Experiment,
               await experiment.add(job)
           )
         await asyncio.gather(*(op.wait_until_complete() for op in operations))
-        # TODO(jlee24): Add a final job to merge the results.
+
+        # Combine the ensemble outputs.
+        ensemble_df = combine_ensemble_output.combine_prediction_csvs(
+            output_dir
+        )
+        combine_ensemble_output.save_ensemble_csv(output_dir, ensemble_df)
 
     experiment.add(run_ensemble())
 
