@@ -167,10 +167,12 @@ def _create_buildings_file_with_footprints(
   buildings.write_buildings_file(gdf, output_path)
 
 
-def _create_example(example_id: str) -> tf.train.Example:
+def _create_example(
+    example_id: str,
+    int64_id: int = 0) -> tf.train.Example:
   example = tf.train.Example()
   utils.add_bytes_feature('example_id', example_id.encode(), example)
-  utils.add_int64_feature('int64_id', 0, example)
+  utils.add_int64_feature('int64_id', int64_id, example)
   utils.add_float_list_feature('coordinates', (90, 90), example)
   utils.add_bytes_feature(
       'encoded_coordinates', b'encoded_coordinates', example
@@ -1141,6 +1143,37 @@ class GenerateExamplesTest(parameterized.TestCase):
     self.assertEqual(y2, -1)
     self.assertEqual(x1, -1)
     self.assertEqual(x2, -1)
+
+  def test_write_examples_to_tfrecords(self):
+    num_examples = 100
+    examples = [_create_example(str(i), i) for i in range(num_examples)]
+    output_dir = self.create_tempdir().full_path
+    num_shards = 5
+    with test_pipeline.TestPipeline() as pipeline:
+      examples = pipeline | beam.Create(examples)
+      generate_examples._write_examples_to_tfrecords(
+          examples,
+          output_dir,
+          'examples',
+          num_shards,
+          'stage_name',
+      )
+
+    print(os.listdir(output_dir))
+    for i in range(num_shards):
+      shard_path = os.path.join(
+          output_dir, f'examples-{i:05d}-of-{num_shards:05d}.tfrecord'
+      )
+      self.assertTrue(os.path.exists(shard_path))
+      shard_ids = [
+          tf.train.Example.FromString(r)
+          .features.feature['int64_id']
+          .int64_list.value[0]
+          for r in tf.data.TFRecordDataset([shard_path]).as_numpy_iterator()
+      ]
+      self.assertLen(shard_ids, num_examples // num_shards)
+      for int64_id in shard_ids:
+        self.assertEqual(int64_id % num_shards, i)
 
 
 if __name__ == '__main__':
