@@ -18,11 +18,9 @@ import collections
 import enum
 import math
 import time
-from typing import Any, Iterable, Iterator, NamedTuple, Optional, Tuple
+from typing import Any, Iterable, Iterator, NamedTuple
 
 import apache_beam as beam
-import apache_beam.dataframe.convert
-import apache_beam.dataframe.io
 from apache_beam.utils import multi_process_shared
 import fiona
 import geopandas as gpd
@@ -39,9 +37,11 @@ import tensorflow_text  # pylint: disable=unused-import
 # Coordinate reference system using Longitude and Latitude.
 _EPSG_4326 = 'EPSG:4326'
 
-# Minimum ratio of
+# Minimum ratio of two overlapping footprints to be considered duplicates.
 _POST_FOOTPRINT_DEDUP_AREA_RATIO_THRESHOLD = 0.5
 
+# Minimum ratio of the overlap area to the footprint area to be considered
+# duplicates.
 _POST_FOOTPRINT_DEDUP_OVERLAP_THRESHOLD = 0.5
 
 
@@ -128,7 +128,7 @@ class TF2VLMModel:
   def __init__(
       self,
       model: tf.keras.Model,
-      text_embeddings: Optional[dict[str, np.ndarray]] = None,
+      text_embeddings: dict[str, np.ndarray] | None = None,
   ):
     self._text_embeddings = np.stack(
         [text_embeddings['neg'], text_embeddings['pos']], axis=0
@@ -179,7 +179,7 @@ class TF2InferenceModel(InferenceModel):
       image_size: int,
       post_image_only: bool,
       model_type: ModelType,
-      text_embeddings: Optional[dict[str, np.ndarray]] = None,
+      text_embeddings: dict[str, np.ndarray] | None = None,
   ):
     self._model_dir = model_dir
     self._model_type = model_type
@@ -306,8 +306,8 @@ class TextTowerInference(beam.DoFn):
     ).acquire()
 
   def process(
-      self, batch: Tuple[str, list[str]]
-  ) -> Iterator[Tuple[str, np.ndarray]]:
+      self, batch: tuple[str, list[str]]
+  ) -> Iterator[tuple[str, np.ndarray]]:
     yield (
         batch[0],
         self._model.inference(tf.convert_to_tensor(batch[1], tf.string))[
@@ -383,12 +383,13 @@ def _merge_examples(
       order = len(post_image_order)
 
     pre_image_id = utils.get_bytes_feature(example, 'pre_image_id')[0].decode()
-    building_image_id = utils.get_bytes_feature(
-        example, 'building_image_id'
-    )[0].decode()
-    if pre_image_id == building_image_id:
-      return (0, order, post_image_id)
-    return (1, order, post_image_id)
+    if 'building_image_id' in example.features.feature:
+      building_image_id = utils.get_bytes_feature(example, 'building_image_id')[
+          0
+      ].decode()
+    else:
+      building_image_id = None
+    return (0 if pre_image_id == building_image_id else 1, order, post_image_id)
 
   examples = list(keyed_examples[1])
   examples.sort(key=_sort_key)
@@ -575,14 +576,14 @@ def example_to_row(
   )
 
 
-def examples_to_csv(
+def write_examples_to_files(
     examples: beam.PCollection,
     threshold: float,
     high_precision_threshold: float,
     high_recall_threshold: float,
     output_prefix: str,
 ) -> None:
-  """Converts TF Examples to CSV lines and writes out to file.
+  """Writes examples to CSV and GeoPackage files.
 
   Args:
     examples: PCollection of Tensorflow Examples.
@@ -591,7 +592,7 @@ def examples_to_csv(
     high_recall_threshold: Damaged score threshold for high recall.
     output_prefix: CSV output prefix.
   """
-  rows = (
+  _ = (
       examples
       | 'reshuffle_for_output' >> beam.Reshuffle()
       | 'examples_to_rows'
@@ -601,9 +602,9 @@ def examples_to_csv(
           high_precision_threshold=high_precision_threshold,
           high_recall_threshold=high_recall_threshold,
       )
+      | 'combine_rows' >> beam.transforms.combiners.ToList()
+      | 'write_output' >> beam.Map(write_outputs, output_prefix=output_prefix)
   )
-  df = apache_beam.dataframe.convert.to_dataframe(rows)
-  apache_beam.dataframe.io.to_csv(df, output_prefix, index=False)
 
 
 def embeddings_to_row(example_id_embeddings: tuple[int, np.ndarray]):
@@ -745,23 +746,15 @@ def _write_geopackage_files(
   for _, row in inference_df.iterrows():
     longitude = row['longitude']
     latitude = row['latitude']
-    if 'footprint_wkt' not in row:
+    if 'footprint_wkt' not in row or row['footprint_wkt'] is None:
       footprint = shapely.geometry.Point(longitude, latitude)
     else:
-      wkt = row['footprint_wkt']
-      if not isinstance(wkt, str) and math.isnan(wkt):
-        footprint = shapely.geometry.Point(longitude, latitude)
-      else:
-        footprint = shapely.wkt.loads(wkt)
+      footprint = shapely.wkt.loads(row['footprint_wkt'])
     geometries.append(footprint)
-    if 'post_footprint_wkt' not in row:
+    if 'post_footprint_wkt' not in row or row['post_footprint_wkt'] is None:
       post_footprint = shapely.geometry.Point(longitude, latitude)
     else:
-      post_wkt = row['post_footprint_wkt']
-      if not isinstance(post_wkt, str) and math.isnan(post_wkt):
-        post_footprint = shapely.geometry.Point(longitude, latitude)
-      else:
-        post_footprint = shapely.wkt.loads(post_wkt)
+      post_footprint = shapely.wkt.loads(row['post_footprint_wkt'])
     post_geometries.append(post_footprint)
 
   df_without_footprints = inference_df.drop(
@@ -793,27 +786,18 @@ def _write_geopackage_files(
     post_gdf.to_file(f, driver='GPKG', engine='fiona')
 
 
-def postprocess(
-    temp_prefix: str, output_path: str, inference_feature: str
+def write_outputs(
+    rows: list[InferenceRow],
+    output_prefix: str,
 ) -> None:
-  """Postprocess Dataflow output.
-
-  - Combines individual CSV shards into a single CSV.
-  - Creates a GeoPackage file.
+  """Writes inference results to files.
 
   Args:
-    temp_prefix: Prefix used in naming temporary shards.
-    output_path: CSV output path.
-    inference_feature: Describe the possible outputs of an inference process,
-      including 'embeddings' or 'score'.
+    rows: List of InferenceRows.
+    output_prefix: Output prefix.
   """
-  shards = []
-  temp_files = tf.io.gfile.glob(f'{temp_prefix}*')
-  for path in temp_files:
-    with tf.io.gfile.GFile(path, 'r') as f:
-      shards.append(pd.read_csv(f))
-  df = pd.concat(shards, ignore_index=True)
-  with tf.io.gfile.GFile(output_path, 'w') as f:
+  df = pd.DataFrame(rows)
+  with tf.io.gfile.GFile(f'{output_prefix}.csv', 'w') as f:
     df.to_csv(f, index=False)
   footprint_columns = [
       c for c in ['footprint_wkt', 'post_footprint_wkt'] if c in df.columns
@@ -823,19 +807,12 @@ def postprocess(
     # column is the most memory intensive and sometimes prevents the CSV from
     # being loaded by QGIS if there are too many examples.
     df_no_footprints = df.drop(columns=footprint_columns)
-    output_path_no_footprints = output_path + '.no_footprints'
+    output_path_no_footprints = f'{output_prefix}_no_footprints.csv'
     with tf.io.gfile.GFile(output_path_no_footprints, 'w') as f:
       df_no_footprints.to_csv(f, index=False)
 
-  # Delete all temp files.
-  for path in temp_files:
-    tf.io.gfile.remove(path)
-
-  if inference_feature == 'embedding':
-    return
-
   if 'GPKG' in fiona.supported_drivers:
-    _write_geopackage_files(df, output_path)
+    _write_geopackage_files(df, output_prefix)
 
 
 def _do_batch(labels: list[str], batch_size: int) -> list[list[str]]:
@@ -848,14 +825,14 @@ def _do_batch(labels: list[str], batch_size: int) -> list[list[str]]:
 
 
 def _get_embedding_mean(
-    batch: Tuple[str, Iterable[np.ndarray]]
-) -> Tuple[str, np.ndarray]:
+    batch: tuple[str, Iterable[np.ndarray]]
+) -> tuple[str, np.ndarray]:
   key, embeddings = batch
   return key, np.mean(np.concatenate(embeddings, axis=0), axis=0)
 
 
 def _write_embedding_mean(
-    batch: Tuple[str, Iterable[np.ndarray]],
+    batch: tuple[str, Iterable[np.ndarray]],
     positive_output_path: str,
     negative_output_path: str,
 ):
@@ -1010,9 +987,6 @@ def run_tf2_inference_with_csv_output(
     generate_embeddings: Generate embeddings.
     pipeline_options: Dataflow pipeline options.
   """
-
-  tempfile_prefix = f'{output_path}.tmp/output'
-
   if model_type == ModelType.VLM:
     positive_embedding_path = f'{output_path}.positive_label_embedding.npy'
     negative_embedding_path = f'{output_path}.negative_label_embedding.npy'
@@ -1053,14 +1027,12 @@ def run_tf2_inference_with_csv_output(
         post_image_order,
     )
     if generate_embeddings:
-      embeddings_examples_to_csv(scored_examples, tempfile_prefix)
+      embeddings_examples_to_csv(scored_examples, output_path)
     else:
-      examples_to_csv(
+      write_examples_to_files(
           scored_examples,
           threshold,
           high_precision_threshold,
           high_recall_threshold,
-          tempfile_prefix,
+          output_path,
       )
-
-  postprocess(tempfile_prefix, output_path, inference_feature)

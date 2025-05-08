@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import glob
 import os
 import tempfile
 
@@ -20,7 +19,6 @@ from absl.testing import absltest
 import apache_beam as beam
 from apache_beam.testing import test_pipeline
 from apache_beam.testing import util
-import fiona
 import geopandas as gpd
 import numpy as np
 import pandas as pd
@@ -207,20 +205,23 @@ class InferenceTest(absltest.TestCase):
     only_batch = result[0]
     self.assertLen(only_batch, 7)
 
-  def test_csv_output(self):
+  def test_write_examples_to_files(self):
     examples = [_create_test_example(224, False, True) for _ in range(7)]
-    output_path = os.path.join(_make_temp_dir(), 'inference.csv')
-    temp_prefix = f'{output_path}.tmp/output'
+    output_dir = self.create_tempdir().full_path
+    output_prefix = os.path.join(output_dir, 'inference')
     with test_pipeline.TestPipeline() as pipeline:
       examples_collection = pipeline | beam.Create(examples)
-      inference_lib.examples_to_csv(
-          examples_collection, 0.5, 0.5, 0.5, temp_prefix
+      inference_lib.write_examples_to_files(
+          examples_collection, 0.5, 0.5, 0.5, output_prefix
       )
-    self.assertNotEmpty(glob.glob(f'{temp_prefix}*'))
-    inference_lib.postprocess(temp_prefix, output_path, 'score')
-    self.assertTrue(os.path.exists(output_path))
-    self.assertEmpty(glob.glob(f'{temp_prefix}*'))
-    df = pd.read_csv(output_path)
+    for f in [
+        'inference.csv',
+        'inference_no_footprints.csv',
+        'inference.gpkg',
+        'inference_post.gpkg',
+    ]:
+      self.assertTrue(os.path.exists(os.path.join(output_dir, f)))
+    df = pd.read_csv(f'{output_prefix}.csv')
     self.assertSameElements(
         df.columns,
         [
@@ -241,32 +242,6 @@ class InferenceTest(absltest.TestCase):
         ],
     )
     self.assertLen(df, 7)
-
-  def test_example_embedding_csv_output(self):
-    example_ids_embeddings = [
-        _create_example_id_embedding(i) for i in range(25)
-    ]
-    output_path = os.path.join(_make_temp_dir(), 'embedding.csv')
-    temp_prefix = f'{output_path}.tmp/output'
-    with test_pipeline.TestPipeline() as pipeline:
-      example_ids_embeddings_collection = pipeline | beam.Create(
-          example_ids_embeddings
-      )
-      inference_lib.embeddings_examples_to_csv(
-          example_ids_embeddings_collection, temp_prefix
-      )
-    self.assertNotEmpty(glob.glob(f'{temp_prefix}*'))
-    inference_lib.postprocess(temp_prefix, output_path, 'embedding')
-    self.assertTrue(os.path.exists(output_path))
-    self.assertEmpty(glob.glob(f'{temp_prefix}*'))
-    df = pd.read_csv(output_path)
-    expected_columns = ['example_id']
-    expected_columns.extend([f'embedding_{i}' for i in range(64)])
-    self.assertSameElements(
-        df.columns,
-        expected_columns,
-    )
-    self.assertLen(df, 25)
 
   def test_run_text_tower_inference(self):
     positive_labels = ['positive']*100
@@ -431,126 +406,6 @@ class InferenceTest(absltest.TestCase):
     self.assertFalse(row.damaged)
     self.assertFalse(row.damaged_high_precision)
     self.assertFalse(row.damaged_high_recall)
-
-  def test_postprocess(self):
-    output_path = os.path.join(_make_temp_dir(), 'file_to_postprocess.csv')
-    output_dictionary = {
-        'shard_1_output': pd.DataFrame.from_dict({
-            'example_id': [1, 2],
-            'building_id': ['a', 'b'],
-            'longitude': [3.0, 4.0],
-            'latitude': [5.0, 6.0],
-            'score': [0.001, 0.002],
-            'plus_code': ['aa', 'bb'],
-            'area_in_meters': [np.nan, np.nan],
-            'footprint_wkt': [np.nan, np.nan],
-            'damaged': [False, True],
-            'damaged_high_precision': [False, True],
-            'damaged_high_recall': [False, True],
-        }),
-        'shard_2_output': pd.DataFrame.from_dict({
-            'example_id': [3, 4],
-            'building_id': ['c', 'd'],
-            'longitude': [7.0, 8.0],
-            'latitude': [9.0, 10.0],
-            'score': [0.003, 0.004],
-            'plus_code': ['cc', 'dd'],
-            'area_in_meters': [20.0, np.nan],
-            'footprint_wkt': [
-                shapely.geometry.Polygon(
-                    ((0, 0), (0, 0), (0, 0), (0, 0), (0, 0))
-                ),
-                np.nan,
-            ],
-            'damaged': [False, True],
-            'damaged_high_precision': [False, True],
-            'damaged_high_recall': [False, True],
-        }),
-        'shard_3_output': pd.DataFrame.from_dict({
-            'example_id': [5, 6],
-            'building_id': ['e', 'f'],
-            'longitude': [11.0, 12.0],
-            'latitude': [13.0, 14.0],
-            'score': [0.05, 0.06],
-            'plus_code': ['ee', 'ff'],
-            'area_in_meters': [20.0, 30.0],
-            'footprint_wkt': [
-                shapely.geometry.Polygon(
-                    ((0, 0), (10, 0), (10, 10), (0, 10), (0, 0))
-                ),
-                shapely.geometry.Polygon(
-                    ((-81, 35), (-81, 33), (-80, 33), (-80, 35), (-81, 35))
-                ),
-            ],
-            'damaged': [False, True],
-            'damaged_high_precision': [False, True],
-            'damaged_high_recall': [False, True],
-        }),
-    }
-    temp_prefix = f'{output_path}.tmp'
-    for shard, shard_output in output_dictionary.items():
-      shard_output.to_csv(f'{temp_prefix}_{shard}.csv', index=False)
-
-    self.assertNotEmpty(glob.glob(f'{temp_prefix}*'))
-    inference_lib.postprocess(temp_prefix, output_path, 'score')
-    self.assertTrue(os.path.exists(output_path))
-    self.assertEmpty(glob.glob(f'{temp_prefix}*'))
-    df = pd.read_csv(output_path)
-    self.assertSameElements(
-        df.columns,
-        [
-            'example_id',
-            'building_id',
-            'longitude',
-            'latitude',
-            'score',
-            'plus_code',
-            'area_in_meters',
-            'footprint_wkt',
-            'damaged',
-            'damaged_high_precision',
-            'damaged_high_recall',
-        ],
-    )
-    self.assertLen(df, 6)
-
-    df_no_footprints = pd.read_csv(f'{output_path}.no_footprints')
-    self.assertSameElements(
-        df_no_footprints.columns,
-        [
-            'example_id',
-            'building_id',
-            'longitude',
-            'latitude',
-            'score',
-            'plus_code',
-            'area_in_meters',
-            'damaged',
-            'damaged_high_precision',
-            'damaged_high_recall',
-        ],
-    )
-    self.assertLen(df_no_footprints, 6)
-
-    if 'GPKG' in fiona.supported_drivers:
-      gdf = gpd.read_file(output_path.replace('.csv', '.gpkg'))
-      self.assertSameElements(
-          gdf.columns,
-          [
-              'example_id',
-              'building_id',
-              'longitude',
-              'latitude',
-              'score',
-              'plus_code',
-              'area_in_meters',
-              'damaged',
-              'damaged_high_precision',
-              'damaged_high_recall',
-              'geometry'
-          ],
-      )
-      self.assertLen(gdf, 6)
 
   def test_write_embedding_mean_positive_key(self):
     batch = ('pos', [np.array([[1.0, 2.0, 3.0]]), np.array([[4.0, 5.0, 6.0]])])
