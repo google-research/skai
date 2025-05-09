@@ -24,12 +24,11 @@ import os
 import shutil
 import tempfile
 import time
-from typing import Any, Iterable, Iterator, List, Optional, Set, Tuple
+from typing import Any, Iterable, Iterator, NamedTuple
 
 import affine
 import apache_beam as beam
 from apache_beam import typehints
-from apache_beam.dataframe.convert import to_dataframe
 from apache_beam.utils import multi_process_shared
 
 import cv2
@@ -55,7 +54,7 @@ Metrics = beam.metrics.Metrics
 PCollection = beam.pvalue.PCollection
 SparseTensor = tf.sparse.SparseTensor
 
-AffineTuple = Tuple[float, float, float, float, float, float]
+AffineTuple = tuple[float, float, float, float, float, float]
 
 _OVERLAP_THRESHOLD = 0.5
 _BUILDING_PIXEL_THRESHOLD = 10
@@ -122,8 +121,8 @@ def _load_tf_model(model_path: str) -> tf.Module:
 
 def _pad_image(image: np.ndarray,
                pad_to: int,
-               padding_method: Optional[str] = 'constant',
-               padding_constant: Optional[int] = 0.0) -> np.ndarray:
+               padding_method: str | None = 'constant',
+               padding_constant: int | None = 0) -> np.ndarray:
   """Pads a batch of images.
 
   If the difference between the original image size and the padded size is odd,
@@ -204,7 +203,7 @@ def _pad_to_square_multiple_of(
 
 def ss_to_is_connected_components(
     segmentation_mask: tf.Tensor,
-    confidence_mask: tf.Tensor) -> Tuple[tf.Tensor, tf.Tensor, tf.Tensor]:
+    confidence_mask: tf.Tensor) -> tuple[tf.Tensor, tf.Tensor, tf.Tensor]:
   """Converts semantic segmentation features to instance segmentation.
 
   Each instance has a mask, score and label.
@@ -266,7 +265,7 @@ def _pixel_xy_to_long_lat(
     y: Iterable[int],
     crs: str,
     affine_transform: AffineTuple
-) -> List[Tuple[float, float]]:
+) -> list[tuple[float, float]]:
   """Convert row, column offsets in pixel space to longitude, latitude.
 
   Args:
@@ -276,7 +275,7 @@ def _pixel_xy_to_long_lat(
     affine_transform: Affine transform of the image.
 
   Returns:
-    List of longitude, latitude tuples.
+    list of longitude, latitude tuples.
   """
   tx, ty = rasterio.transform.xy(affine.Affine(*affine_transform), y, x)
   if crs.lower() != 'epsg:4326':
@@ -303,7 +302,7 @@ def _get_mask_polygon(
     return None
 
 
-def _get_mask_bounds(sparse_mask) -> Tuple[int, int, int, int]:
+def _get_mask_bounds(sparse_mask) -> tuple[int, int, int, int]:
   xs = sparse_mask.indices[:, 1].numpy()
   ys = sparse_mask.indices[:, 0].numpy()
   return min(xs), min(ys), max(xs), max(ys)
@@ -459,7 +458,7 @@ def _construct_output_examples(
 def _extract_confidence_masks(
     image_height: int,
     image_width: int,
-    input_tuple: Tuple[tf.Tensor, tf.Tensor],
+    input_tuple: tuple[tf.Tensor, tf.Tensor],
 ) -> tf.Tensor:
   """Extracts instance confidence masks.
 
@@ -495,7 +494,7 @@ def _extract_masks_and_scores(
     image_height: int,
     image_width: int,
     detection_confidence_threshold: float,
-) -> Tuple[tf.Tensor, tf.Tensor]:
+) -> tuple[tf.Tensor, tf.Tensor]:
   """Extracts instance confidence masks and scores from the model output.
 
   Args:
@@ -886,7 +885,7 @@ class _ExtractBuildingsForStage(beam.DoFn):
 
 
 def _extract_buildings_for_stage(buildings: PCollection,
-                                 stage: int) -> Tuple[PCollection, PCollection]:
+                                 stage: int) -> tuple[PCollection, PCollection]:
   """Extracts the buildings that should be deduped for a particular stage.
 
   Args:
@@ -906,11 +905,11 @@ def _extract_buildings_for_stage(buildings: PCollection,
   return results[_BUILDINGS_TO_DEDUP], results[_PASSTHROUGH_BUILDINGS]
 
 
-def _indices_to_set(sparse_tensor: SparseTensor) -> Set[Tuple[int, int]]:
+def _indices_to_set(sparse_tensor: SparseTensor) -> set[tuple[int, int]]:
   return set(tuple(i) for i in sparse_tensor.indices.numpy())
 
 
-def _get_global_mask(building: Example) -> Set[Tuple[int, int]]:
+def _get_global_mask(building: Example) -> set[tuple[int, int]]:
   """Extracts the global building mask from the input example.
 
   The global pixel coordinates are obtained by adding the tile's row and column
@@ -1072,59 +1071,60 @@ def write_tfrecords(
           num_shards=num_shards))
 
 
-def write_csv(buildings: PCollection, csv_path: str) -> None:
-  """Writes a CSV containing building footprints.
+class BuildingRow(NamedTuple):
+  longitude: float
+  latitude: float
+  confidence: float
+  area: float
+  wkt: str
+  image_path: str
+
+
+def _write_files(rows: list[BuildingRow], output_prefix: str) -> None:
+  """Writes combined building rows to CSV, GeoPackage, and GeoParquet formats.
 
   Args:
-    buildings: PCollection of building examples.
-    csv_path: Path to write CSV.
-  """
-
-  # pylint: disable=g-long-lambda
-  centroid_rows = buildings | 'ToRows' >> beam.Map(
-      lambda example: beam.Row(
-          longitude=utils.get_float_feature(
-              example, detect_buildings_constants.LONGITUDE
-          )[0],
-          latitude=utils.get_float_feature(
-              example, detect_buildings_constants.LATITUDE
-          )[0],
-          confidence=utils.get_float_feature(
-              example, detect_buildings_constants.CONFIDENCE
-          )[0],
-          area=utils.get_float_feature(
-              example, detect_buildings_constants.AREA
-          )[0],
-          wkt=utils.get_bytes_feature(example, 'mask_wkt')[0].decode(),
-          image_path=utils.get_bytes_feature(
-              example, detect_buildings_constants.IMAGE_PATH
-          )[0].decode(),
-      )
-  )
-  # pylint: enable=g-long-lambda
-
-  centroids_df = to_dataframe(centroid_rows)
-  centroids_df.to_csv(csv_path, index=False, float_format='%.12f', num_shards=1)
-
-
-def combine_csvs(pattern: str, output_prefix: str) -> None:
-  """Combines sharded CSVs output by Dataflow job into a single CSV.
-
-  Also outputs combined files as GeoPackage and GeoParquet formats.
-
-  Args:
-    pattern: Sharded CSV pattern.
+    rows: List of building rows.
     output_prefix: Output files prefix.
   """
-  combined_df = pd.concat(
-      [pd.read_csv(path) for path in tf.io.gfile.glob(pattern)],
-      ignore_index=True,
-  )
+  df = pd.DataFrame(rows)
   with tf.io.gfile.GFile(f'{output_prefix}.csv', 'w') as f:
-    combined_df.to_csv(f, index=False)
+    df.to_csv(f, index=False)
 
-  combined_df['geometry'] = combined_df['wkt'].apply(shapely.wkt.loads)
-  gdf = gpd.GeoDataFrame(combined_df.drop(columns=['wkt']), crs='EPSG:4326')
+  gdf = gpd.GeoDataFrame(
+      df.drop(columns=['wkt']),
+      geometry=df['wkt'].apply(shapely.wkt.loads),
+      crs='EPSG:4326',
+  )
   with tf.io.gfile.GFile(f'{output_prefix}.gpkg', 'wb') as f:
     gdf.to_file(f, driver='GPKG', engine='fiona')
   skai.buildings.write_buildings_file(gdf, f'{output_prefix}.parquet')
+
+
+def write_examples_to_files(buildings: PCollection, output_prefix: str) -> None:
+  _ = (
+      buildings
+      | 'to_rows'
+      >> beam.Map(
+          lambda example: BuildingRow(
+              longitude=utils.get_float_feature(
+                  example, detect_buildings_constants.LONGITUDE
+              )[0],
+              latitude=utils.get_float_feature(
+                  example, detect_buildings_constants.LATITUDE
+              )[0],
+              confidence=utils.get_float_feature(
+                  example, detect_buildings_constants.CONFIDENCE
+              )[0],
+              area=utils.get_float_feature(
+                  example, detect_buildings_constants.AREA
+              )[0],
+              wkt=utils.get_bytes_feature(example, 'mask_wkt')[0].decode(),
+              image_path=utils.get_bytes_feature(
+                  example, detect_buildings_constants.IMAGE_PATH
+              )[0].decode(),
+          )
+      )
+      | 'combine_rows' >> beam.transforms.combiners.ToList()
+      | 'write_files' >> beam.Map(_write_files, output_prefix=output_prefix)
+  )

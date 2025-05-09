@@ -183,21 +183,11 @@ def main(args):
         'Buildings',
     )
     deduplicated_buildings = detect_buildings.deduplicate_buildings(buildings)
-    detect_buildings.write_tfrecords(
+    detect_buildings.write_examples_to_files(
         deduplicated_buildings,
         os.path.join(FLAGS.output_dir, 'dedup_buildings'),
-        FLAGS.output_shards,
-        'DedupedBuildings',
-    )
-    detect_buildings.write_csv(
-        deduplicated_buildings,
-        os.path.join(FLAGS.output_dir, 'dedup_buildings.csv'),
     )
 
-  detect_buildings.combine_csvs(
-      os.path.join(FLAGS.output_dir, 'dedup_buildings.csv-*-of-*'),
-      os.path.join(FLAGS.output_dir, 'dedup_buildings'),
-  )
 
 if __name__ == '__main__':
   app.run(main)

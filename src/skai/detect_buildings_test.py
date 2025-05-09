@@ -330,12 +330,15 @@ class DetectBuildingsTest(tf.test.TestCase, parameterized.TestCase):
 
       util.assert_that(result, _check_results)
 
-  def test_write_csv(self):
+  def test_write_examples_to_files(self):
     """Tests the Detect Buildings stage outputs correct building instances."""
 
     example_tiles = [_create_fake_tile_example() for x in range(3)]
-    temp_dir = self.create_tempdir().full_path
-    csv_path = os.path.join(temp_dir, 'dedup_buildings.csv')
+    model_path = _create_test_model_checkpoint(
+        self.create_tempdir().full_path, empty_detection=False
+    )
+    output_dir = self.create_tempdir().full_path
+    prefix = os.path.join(output_dir, 'dedup_buildings')
     with test_pipeline.TestPipeline() as pipeline:
       buildings = (
           pipeline
@@ -343,16 +346,22 @@ class DetectBuildingsTest(tf.test.TestCase, parameterized.TestCase):
           | 'Inference'
           >> beam.ParDo(
               detect_buildings.DetectBuildingsFn(
-                  _create_test_model_checkpoint(
-                      temp_dir, empty_detection=False
-                  ),
+                  model_path,
                   detection_confidence_threshold=0.2,
               )
           )
       )
-      detect_buildings.write_csv(buildings, csv_path)
+      detect_buildings.write_examples_to_files(buildings, prefix)
 
-    df = pd.read_csv(f'{csv_path}-00000-of-00001')
+    self.assertCountEqual(
+        os.listdir(output_dir),
+        [
+            'dedup_buildings.csv',
+            'dedup_buildings.gpkg',
+            'dedup_buildings.parquet',
+        ],
+    )
+    df = pd.read_csv(f'{prefix}.csv')
     self.assertNotEmpty(df)
     self.assertCountEqual(
         df.columns,
