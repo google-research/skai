@@ -142,6 +142,7 @@ def get_pipeline_options(
   if not use_dataflow:
     return PipelineOptions.from_dictionary({
         'runner': 'DirectRunner',
+        'temp_location': temp_dir,
     })
 
   if not project or not region:

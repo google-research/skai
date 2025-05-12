@@ -75,6 +75,10 @@ _PLUS_CODE_LENGTH = 14
 
 _BUILDINGS_FILE_NAME = 'processed_buildings.parquet'
 
+# Default minimum and maximum number of Dataflow workers per job.
+_DEFAULT_MIN_DATAFLOW_WORKERS = 10
+_DEFAULT_MAX_DATAFLOW_WORKERS = 20
+
 
 @dataclasses.dataclass
 class ExamplesGenerationConfig:
@@ -1161,6 +1165,61 @@ def _extract_images_to_dir(
   Metrics.counter('skai', 'images_written_to_dir').inc()
 
 
+class TFRecordSink(beam.io.fileio.FileSink):
+  """A sink for writing TFRecords."""
+
+  def open(self, fh):
+    self._fh = fh
+
+  def write(self, example):
+    record = example.SerializeToString()
+    beam.io.tfrecordio._TFRecordUtil.write_record(self._fh, record)  # pylint: disable=protected-access
+
+  def flush(self):
+    self._fh.flush()
+
+
+def _write_examples_to_tfrecords(
+    examples: beam.PCollection,
+    output_dir: str,
+    prefix: str,
+    num_shards: int,
+    stage_name: str,
+) -> None:
+  """Writes a PCollection of Examples into sharded TFRecord files.
+
+  Args:
+    examples: PCollection of examples.
+    output_dir: Directory to write shards to.
+    prefix: Prefix of shard names.
+    num_shards: Number of shards to write.
+    stage_name: Beam stage name.
+  """
+  def _file_naming(
+      window, pane, shard_index, total_shards, compression, destination
+  ):
+    del window, pane, compression
+    if shard_index != 0 or total_shards != 1:
+      raise ValueError(f'Expecting only 1 shard, got {total_shards}.')
+    return f'{prefix}-{int(destination):05d}-of-{num_shards:05d}.tfrecord'
+
+  def _get_destination(example: tf.train.Example) -> str:
+    int64_id = utils.get_int64_feature(example, 'int64_id')[0]
+    return int64_id % num_shards
+
+  if not tf.io.gfile.isdir(output_dir):
+    tf.io.gfile.makedirs(output_dir)
+
+  _ = examples | stage_name >> beam.io.fileio.WriteToFiles(
+      path=output_dir,
+      destination=_get_destination,
+      sink=lambda _: TFRecordSink(),
+      file_naming=_file_naming,
+      shards=1,
+      max_writers_per_bundle=0,
+  )
+
+
 def _generate_examples_pipeline(
     before_image_info: list[RasterInfo],
     after_image_info: list[RasterInfo],
@@ -1230,14 +1289,14 @@ def _generate_examples_pipeline(
   )
 
   if buildings_labeled:
-    examples_output_prefix = (
-        os.path.join(output_dir, 'examples', 'labeled-large', 'labeled'))
+    tfrecords_dir = os.path.join(output_dir, 'examples', 'labeled-large')
+    tfrecords_prefix = 'labeled'
     parquet_prefix = os.path.join(
         output_dir, 'examples', 'labeled-parquet', 'examples'
     )
   else:
-    examples_output_prefix = (
-        os.path.join(output_dir, 'examples', 'unlabeled-large', 'unlabeled'))
+    tfrecords_dir = os.path.join(output_dir, 'examples', 'unlabeled-large')
+    tfrecords_prefix = 'unlabeled'
     parquet_prefix = os.path.join(
         output_dir, 'examples', 'unlabeled-parquet', 'examples'
     )
@@ -1255,14 +1314,13 @@ def _generate_examples_pipeline(
       cloud_detector_model_path,
   )
 
-  _ = (
-      examples
-      | 'serialize_large_examples' >> beam.Map(
-          lambda e: e.SerializeToString())
-      | 'write_large_examples' >> beam.io.tfrecordio.WriteToTFRecord(
-          examples_output_prefix,
-          file_name_suffix='.tfrecord',
-          num_shards=num_output_shards))
+  _write_examples_to_tfrecords(
+      examples,
+      tfrecords_dir,
+      tfrecords_prefix,
+      num_output_shards,
+      'write_large_examples',
+  )
 
   if output_parquet:
     _write_examples_to_parquet(examples, parquet_prefix)
@@ -1657,5 +1715,55 @@ def extract_images_to_dir(
           tfrecords_pattern, coder=beam.coders.ProtoCoder(tf.train.Example)
       )
       | 'extract_images' >> beam.Map(_extract_images_to_dir, output_dir)
+  )
+  _ = pipeline.run()
+
+
+def reshard_tfrecords(
+    tfrecords_pattern: str,
+    output_dir: str,
+    prefix: str,
+    num_shards: int,
+    project: str,
+    region: str,
+    service_account: str,
+    temp_dir: str,
+) -> None:
+  """Redistributes examples in TFRecord shards.
+
+  Args:
+    tfrecords_pattern: Pattern matching input TFRecords.
+    output_dir: Directory to extract images to.
+    prefix: Prefix of shard names.
+    num_shards: Number of output shards.
+    project: GCP project.
+    region: GCP region.
+    service_account: Service account to run Dataflow job.
+    temp_dir: Beam temporary directory path.
+  """
+  timestamp = time.strftime('%Y%m%d-%H%M%S')
+  pipeline_options = beam_utils.get_pipeline_options(
+      True,
+      f'reshard-tfrecords-{timestamp}',
+      project,
+      region,
+      temp_dir,
+      _DEFAULT_MIN_DATAFLOW_WORKERS,
+      _DEFAULT_MAX_DATAFLOW_WORKERS,
+      service_account,
+      machine_type=None,
+      accelerator=None,
+      accelerator_count=0,
+  )
+  pipeline = beam.Pipeline(options=pipeline_options)
+  examples = (
+      pipeline
+      | 'read_tfrecords'
+      >> beam.io.tfrecordio.ReadFromTFRecord(
+          tfrecords_pattern, coder=beam.coders.ProtoCoder(tf.train.Example)
+      )
+  )
+  _write_examples_to_tfrecords(
+      examples, output_dir, prefix, num_shards, 'write_tfrecords'
   )
   _ = pipeline.run()
