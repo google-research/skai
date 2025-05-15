@@ -33,12 +33,15 @@ from xmanager import xm_local
 from xmanager.cloud import vertex as xm_vertex
 
 
-# A temporary directory created on the fly to store a requirements.txt file that
-# specifies the dependencies of the auxiliary job when running the ensemble.
-CONTROLLER_TMP_DIR = '/tmp/skai/src/'
-
 _OUTPUT_DIR = flags.DEFINE_string(
     'output_dir', None, 'Output directory.', required=True
+)
+
+_OUTPUT_ENSEMBLE_CSV_FILE_NAME = flags.DEFINE_string(
+    'output_ensemble_csv_file_name',
+    'ensemble_predictions.csv',
+    'Name of the ensembled predictions CSV file that will be saved in the '
+    'output_dir. Only used when model_type is "ensemble".'
 )
 
 _EXAMPLE_PATTERNS = flags.DEFINE_list(
@@ -165,8 +168,14 @@ _GEOFM_ACCELERATOR_TYPE = flags.DEFINE_enum(
 def main(_) -> None:
   xm_vertex.set_default_client(xm_vertex.Client(location=_CLOUD_LOCATION.value))
 
+  if not _DATASET_NAMES.value:
+    dataset_names = [
+        f'dataset_{i}' for i in range(len(_EXAMPLE_PATTERNS.value))
+    ]
+  else:
+    dataset_names = _DATASET_NAMES.value
   experiment_name = xm_vlm_zero_shot_vertex_lib.get_experiment_name(
-      _DATASET_NAMES.value, _MODEL_TYPE.value, _SIGLIP_MODEL_VARIANT.value,
+      dataset_names, _MODEL_TYPE.value, _SIGLIP_MODEL_VARIANT.value,
       _IMAGE_SIZE.value
   )
   with xm_local.create_experiment(
@@ -180,7 +189,7 @@ def main(_) -> None:
         _CLOUD_PROJECT.value,
         _OUTPUT_DIR.value,
         _EXAMPLE_PATTERNS.value,
-        _DATASET_NAMES.value,
+        dataset_names,
         _BUILD_DOCKER_IMAGE.value,
         _IMAGE_FEATURE.value,
         _NUM_RAM.value,
@@ -198,6 +207,7 @@ def main(_) -> None:
         _GEOFM_SAVEDMODEL_PATH.value,
         _GEOFM_ACCELERATOR_TYPE.value,
         _GEOFM_DOCKER_IMAGE.value,
+        output_ensemble_csv_file_name=_OUTPUT_ENSEMBLE_CSV_FILE_NAME.value,
     )
 
 

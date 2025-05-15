@@ -5,9 +5,11 @@ Works with xm_vlm_zero_shot_vertex.py as the launcher.
 
 import asyncio
 import os
-import tempfile
 from typing import Optional
+
+import pandas as pd
 from skai.model import docker_instructions
+import tensorflow as tf
 from xmanager import xm
 from xmanager import xm_local
 from xmanager.contrib import parameter_controller
@@ -18,6 +20,68 @@ from xmanager.contrib import parameter_controller
 _CONTROLLER_TMP_DIR = '/tmp/skai/src'
 _SIGLIP_ACCELERATOR_TYPE = 'TPU_V3'
 _ACCELERATOR_COUNT = 8
+
+
+def _ensemble_prediction_csvs(file_paths: list[str]) -> pd.DataFrame:
+  """Reads model prediction files and provides an ensembled damage_score.
+
+  The damage_score is the mean of the damage_score across all models.
+
+  Args:
+      file_paths: The paths to the CSV files containing the model predictions,
+        assuming the SigLIP model output is the first one.
+
+  Returns:
+      A pandas DataFrame containing the ensembled data from all CSVs.
+  """
+  if not file_paths:
+    raise ValueError(
+        'At least one CSV file must be provided, specifically '
+        'the SigLIP model output.'
+    )
+
+  siglip_df = pd.read_csv(tf.io.gfile.GFile(file_paths[0], 'r'))
+  if (
+      'is_cloudy' not in siglip_df.columns
+      or 'example_id' not in siglip_df.columns
+      or 'damage_score' not in siglip_df.columns
+  ):
+    raise ValueError(
+        'First CSV in file_paths must be the SigLIP model output, '
+        'which must contain is_cloudy, example_id, and '
+        'damage_score columns.'
+    )
+
+  ensemble_df = siglip_df.drop_duplicates(subset=['example_id'])
+  ensemble_df.rename(columns={'damage_score': 'damage_score_0'}, inplace=True)
+  for i, file_path in enumerate(file_paths[1:]):
+    df = pd.read_csv(tf.io.gfile.GFile(file_path, 'r'))
+    if 'example_id' not in df.columns or 'damage_score' not in df.columns:
+      raise ValueError(
+          'Every CSV in file_paths must contain example_id and damage_score'
+          f' columns, but {file_path} is missing one or more of them.'
+      )
+    df = df[['example_id', 'damage_score']].drop_duplicates(
+        subset=['example_id']
+    )
+    if set(siglip_df['example_id']) != set(df['example_id']):
+      raise ValueError(
+          f'The CSV of {file_path} does not contain the same set of example_ids'
+          f' as the SigLIP CSV at {file_paths[0]}.'
+      )
+    df.rename(columns={'damage_score': f'damage_score_{i+1}'}, inplace=True)
+    ensemble_df = ensemble_df.merge(df, on=['example_id'], how='left')
+
+  damage_score_cols = ensemble_df.filter(like='damage_score_').columns
+  ensemble_df['damage_score'] = ensemble_df[damage_score_cols].mean(axis=1)
+  ensemble_df['label'] = -1.0
+  ensemble_df['damage'] = ensemble_df['damage_score'] > 0.5
+  return ensemble_df
+
+
+def _save_ensemble_csv(output_path: str, ensembled_df: pd.DataFrame) -> None:
+  """Saves the ensembled CSV to the specified directory."""
+  ensembled_df.to_csv(tf.io.gfile.GFile(output_path, 'w'))
 
 
 def _get_docker_image_name(
@@ -166,7 +230,9 @@ def build_experiment_jobs(experiment: xm.Experiment,
                           # GeoFM args.
                           geofm_savedmodel_path: str,
                           geofm_accelerator_type: str,
-                          geofm_docker_image: str) -> None:
+                          geofm_docker_image: str,
+                          output_ensemble_csv_file_name: Optional[str] = None,
+                          ) -> None:
   """Launches SigLIP and GeoFM inference jobs in parallel.
 
   Args:
@@ -194,6 +260,8 @@ def build_experiment_jobs(experiment: xm.Experiment,
     geofm_accelerator_type: The type of accelerator to use for GeoFM, e.g.
       'A100' or 'CPU'.
     geofm_docker_image: The path to the GeoFM docker image.
+    output_ensemble_csv_file_name: The name of the ensembled predictions CSV
+      file that will be saved in the output_dir.
 
   Returns:
     The XManager experiment object.
@@ -269,32 +337,45 @@ def build_experiment_jobs(experiment: xm.Experiment,
   elif model_type == 'ensemble':
     # Create a temporary requirements.txt file for the auxiliary job. Must be
     # co-located with launcher and src.
-    with tempfile.NamedTemporaryFile() as f:
-      f.write(b'cloudpickle')
-      os.rename(f.name, os.path.join(_CONTROLLER_TMP_DIR, 'requirements.txt'))
-      @parameter_controller.controller(
-          executor=xm_local.Vertex(),
-          controller_args={
-              'service_tier': xm.ServiceTier.PROD,
-              'location': cloud_location,
-          },
-          controller_env_vars={
-              'GOOGLE_CLOUD_BUCKET_NAME': cloud_bucket_name,
-              'GOOGLE_CLOUD_LOCATION': cloud_location,
-              'GOOGLE_CLOUD_PROJECT': cloud_project,
-          },
-          package_path=_CONTROLLER_TMP_DIR,
-          use_host_db_config=False,
-      )
-      async def run_ensemble(experiment: xm.Experiment) -> None:
-        xm_local.Vertex()  # Initialize XM Vertex again in the remote job.
-        operations = []
-        for job in xm_jobs.values():
-          operations.append(
-              await experiment.add(job)
-          )
-        await asyncio.gather(*(op.wait_until_complete() for op in operations))
-        # TODO(jlee24): Add a final job to merge the results.
+    requirements_file_path = os.path.join(
+        _CONTROLLER_TMP_DIR, 'requirements.txt'
+    )
+    with open(requirements_file_path, 'w') as f:
+      f.write('cloudpickle\n')
+      f.write('gcsfs\n')
+      f.write('pandas\n')
+      f.write('tensorflow\n')
+    @parameter_controller.controller(
+        executor=xm_local.Vertex(),
+        controller_args={
+            'service_tier': xm.ServiceTier.PROD,
+            'location': cloud_location,
+        },
+        controller_env_vars={
+            'GOOGLE_CLOUD_BUCKET_NAME': cloud_bucket_name,
+            'GOOGLE_CLOUD_LOCATION': cloud_location,
+            'GOOGLE_CLOUD_PROJECT': cloud_project,
+        },
+        package_path=_CONTROLLER_TMP_DIR,
+        use_host_db_config=False,
+    )
+    async def run_ensemble(experiment: xm.Experiment):
+      xm_local.Vertex()  # Initialize XM Vertex again in the remote job.
+      operations = []
+      for job in xm_jobs.values():
+        operations.append(await experiment.add(job))
+      await asyncio.gather(*(op.wait_until_complete() for op in operations))
+
+      # Combine the ensemble outputs.
+      for dataset_name in dataset_names:
+        ensemble_df = _ensemble_prediction_csvs([
+            f'{output_dir}/{dataset_name}_output.csv',
+            f'{output_dir}/{dataset_name}_geofm_output.csv',
+        ])
+        _save_ensemble_csv(
+            os.path.join(output_dir, output_ensemble_csv_file_name),
+            ensemble_df,
+        )
 
     experiment.add(run_ensemble())
 
