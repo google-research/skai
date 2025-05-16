@@ -2,7 +2,6 @@
 
 import abc
 import collections
-import functools
 from typing import Iterator
 
 from big_vision.models.proj.image_text import two_towers
@@ -19,7 +18,6 @@ import ml_collections
 import numpy as np
 import pandas as pd
 from skai.model import cloud_postprocess_lib
-from skai.model import geofm_zero_shot_lib
 import tensorflow as tf
 
 OUTPUT_FEATURES = [
@@ -240,19 +238,41 @@ def create_inference_dataset(
       block_length=50,
       deterministic=False,
   )
-  parse_examples_fn = functools.partial(
-      geofm_zero_shot_lib.parse_examples,
-      image_feature=image_feature,
-      image_size=image_size,
-      cast_to_uint8=True,
-  )
+
+  def _parse_examples(record_bytes) -> dict[str, tf.Tensor]:
+    example = tf.io.parse_single_example(
+        record_bytes,
+        {
+            image_feature: tf.io.FixedLenFeature([], tf.string),
+            'example_id': tf.io.FixedLenFeature([], tf.string),
+            'int64_id': tf.io.FixedLenFeature([], tf.int64),
+            'coordinates': tf.io.FixedLenFeature([2], tf.float32),
+            'encoded_coordinates': tf.io.FixedLenFeature([], tf.string),
+            'plus_code': tf.io.FixedLenFeature([], tf.string),
+            'label': tf.io.FixedLenFeature([], tf.float32, -1),
+        },
+    )
+    example['building_id'] = example['encoded_coordinates']
+    image = tf.image.resize(
+        tf.io.decode_image(
+            example[image_feature],
+            channels=3,
+            expand_animations=False,
+            dtype=tf.float32,
+        ),
+        [image_size, image_size],
+    )
+    image = tf.cast(image * 255, tf.uint8)
+    example['image'] = image
+    del example[image_feature]
+    return example
 
   def image_preprocessing(example):
     example['image'] = image_preprocess_fn({'image': example['image']})['image']
     return example
 
   dataset = (
-      dataset.map(parse_examples_fn, num_parallel_calls=tf.data.AUTOTUNE)
+      dataset.map(_parse_examples, num_parallel_calls=tf.data.AUTOTUNE)
       .map(image_preprocessing, num_parallel_calls=tf.data.AUTOTUNE)
       .batch(batch_size)
       .prefetch(tf.data.AUTOTUNE)

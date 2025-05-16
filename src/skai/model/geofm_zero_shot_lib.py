@@ -2,6 +2,7 @@
 
 import collections
 import functools
+from typing import Sequence
 
 import ml_collections
 import numpy as np
@@ -34,11 +35,56 @@ class GeoFM():
     ]
 
 
+def _resize_and_centercrop(
+    image: tf.Tensor, intermediate: int, size: int, method: str
+) -> tf.Tensor:
+  """Resizes and centercrops an image.
+
+  Args:
+    image: The image to resize and centercrop.
+    intermediate: The intermediate size to resize the image to.
+    size: The final size of the image.
+    method: The method to use for resizing.
+
+  Returns:
+    The resized and centercropped image.
+  """
+  image = tf.image.resize(image, [intermediate, intermediate], method=method)
+  top = (intermediate - size) // 2
+  left = (intermediate - size) // 2
+  return image[..., top : top + size, left : left + size, :]
+
+
+def _rgb_norm(
+    image: tf.Tensor,
+    scale: int = 255,
+    mean_rgb: Sequence[float] = (0.485, 0.456, 0.406),
+    stddev_rgb: Sequence[float] = (0.229, 0.224, 0.225),
+):
+  """Normalizes the RGB channels of an image.
+
+  Args:
+    image: The image to normalize.
+    scale: The scale to apply to the image.
+    mean_rgb: The mean RGB values to subtract.
+    stddev_rgb: The standard deviation RGB values to divide by.
+
+  Returns:
+    The normalized image.
+  """
+  rank = image.shape.ndims
+  shape = [1] * (rank - 1) + [len(mean_rgb)]
+  mean_rgb = [i * scale for i in mean_rgb]
+  stddev_rgb = [i * scale for i in stddev_rgb]
+  image -= tf.constant(mean_rgb, shape=shape, dtype=image.dtype)
+  image /= tf.constant(stddev_rgb, shape=shape, dtype=image.dtype)
+  return image
+
+
 def parse_examples(
     record_bytes: tf.train.Example,
     image_feature: str,
     image_size: int,
-    cast_to_uint8: bool,
 ) -> dict[str, tf.Tensor]:
   """Specifies how to parse a single example.
 
@@ -46,7 +92,6 @@ def parse_examples(
     record_bytes: The record bytes to parse.
     image_feature: String of the feature to use as input image.
     image_size: The size of the input image, e.g. 224.
-    cast_to_uint8: Whether to cast the image to uint8.
 
   Returns:
     The parsed example.
@@ -64,17 +109,21 @@ def parse_examples(
       },
   )
   example['building_id'] = example['encoded_coordinates']
-  image = tf.image.resize(
-      tf.io.decode_image(
-          example[image_feature],
-          channels=3,
-          expand_animations=False,
-          dtype=tf.float32,
-      ),
-      [image_size, image_size]
-    )
-  if cast_to_uint8:
-    image = tf.cast(image * 255, tf.uint8)
+
+  image = tf.io.decode_image(
+      example[image_feature],
+      channels=3,
+      expand_animations=False,
+      dtype=tf.uint8,
+  )
+  resize_and_centercrop_fn = functools.partial(
+      _resize_and_centercrop,
+      intermediate=image_size,
+      size=image_size,
+      method='bicubic',
+  )
+  image = resize_and_centercrop_fn(image)
+  image = _rgb_norm(image)
   example['image'] = image
   del example[image_feature]
   return example
@@ -106,7 +155,6 @@ def create_geofm_inference_dataset(
       parse_examples,
       image_feature=image_feature,
       image_size=image_size,
-      cast_to_uint8=False,
   )
   dataset = (
       dataset.map(parse_examples_fn, num_parallel_calls=tf.data.AUTOTUNE)
@@ -156,17 +204,12 @@ def generate_geofm_zero_shot_assessment(
     )
     result = collections.defaultdict(list)
     for examples in dataset.as_numpy_iterator():
-      scores = model.predict(examples['image'])
-      # Normalize damage scores to be in the range of [0, 1].
-      scores = scores.numpy()
-      damage_normalizer = scores[:, 0] + scores[:, 1]
-      scores[:, 0] /= damage_normalizer
-      scores[:, 1] /= damage_normalizer
+      scores = model.predict(examples['image']).numpy()
       # Sanity check.
       assert (
           np.allclose(1, scores[:, 0] + scores[:, 1])
       ), 'scores should sum to 1'
-      result['damage_score'].extend(scores[:, 0])
+      result['damage_score'].extend(scores[:, 1])
       result['longitude'].extend(examples['coordinates'][:, 0])
       result['latitude'].extend(examples['coordinates'][:, 1])
       for key in OUTPUT_FEATURES:
