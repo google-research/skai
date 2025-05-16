@@ -156,17 +156,12 @@ def generate_geofm_zero_shot_assessment(
     )
     result = collections.defaultdict(list)
     for examples in dataset.as_numpy_iterator():
-      scores = model.predict(examples['image'])
-      # Normalize damage scores to be in the range of [0, 1].
-      scores = scores.numpy()
-      damage_normalizer = scores[:, 0] + scores[:, 1]
-      scores[:, 0] /= damage_normalizer
-      scores[:, 1] /= damage_normalizer
+      scores = model.predict(examples['image']).numpy()
       # Sanity check.
       assert (
           np.allclose(1, scores[:, 0] + scores[:, 1])
       ), 'scores should sum to 1'
-      result['damage_score'].extend(scores[:, 0])
+      result['damage_score'].extend(scores[:, 1])
       result['longitude'].extend(examples['coordinates'][:, 0])
       result['latitude'].extend(examples['coordinates'][:, 1])
       for key in OUTPUT_FEATURES:
