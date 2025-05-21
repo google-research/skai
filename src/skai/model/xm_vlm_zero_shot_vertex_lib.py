@@ -181,7 +181,7 @@ def _get_executor(
   }
   if docker_image_name.startswith('geofm'):
     if geofm_accelerator_type == 'A100':
-      job_kwargs[geofm_accelerator_type] = _ACCELERATOR_COUNT
+      job_kwargs[geofm_accelerator_type] = 1
   else:
     job_kwargs[_SIGLIP_ACCELERATOR_TYPE] = _ACCELERATOR_COUNT
   return xm_local.Vertex(
