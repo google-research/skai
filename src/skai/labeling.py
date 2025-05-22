@@ -290,8 +290,12 @@ def get_buffered_example_ids(
       buffered_sampling_radius,
   )
   points = utils.convert_to_utm(
-      gpd.GeoSeries(
-          gpd.points_from_xy(metadata['longitude'], metadata['latitude']),
+      gpd.GeoDataFrame(
+          {
+              'geometry': gpd.points_from_xy(
+                  metadata['longitude'], metadata['latitude']
+              )
+          },
           crs=4326,
       )
   )
