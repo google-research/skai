@@ -5,8 +5,8 @@
 set -e
 
 PYTHON_VERSIONS=('3.11' '3.10')
-BEAM_VERSION='2.54.0'
-TENSORFLOW_VERSION='2.14.0'
+BEAM_VERSION='2.65.0'
+TENSORFLOW_VERSION='2.19.0'
 
 PYTHON_DEPS=(
   earthengine-api
@@ -25,10 +25,7 @@ PYTHON_DEPS=(
   rtree
   "shapely>=2.0.0"
   "tensorflow==${TENSORFLOW_VERSION}"
-  tensorflow-addons
   tensorflow-datasets
-  tensorflow-text
-  tf-models-official
   tqdm
 )
 
