@@ -99,6 +99,11 @@ flags.DEFINE_list(
     [],
     'List of post-disaster image ids in descending priority order.',
 )
+flags.DEFINE_bool(
+    'wait_for_dataflow',
+    False,
+    'If true, wait for Dataflow job to finish before exiting.',
+)
 
 
 def main(_) -> None:
@@ -137,6 +142,7 @@ def main(_) -> None:
       FLAGS.deduplicate,
       FLAGS.post_image_order,
       FLAGS.generate_embeddings,
+      FLAGS.wait_for_dataflow,
       pipeline_options,
   )
 

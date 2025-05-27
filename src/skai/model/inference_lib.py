@@ -959,8 +959,9 @@ def run_tf2_inference_with_csv_output(
     deduplicate: bool,
     post_image_order: list[str],
     generate_embeddings: bool,
-    pipeline_options,
-):
+    wait_for_dataflow: bool,
+    pipeline_options: beam.options.pipeline_options.PipelineOptions,
+) -> None:
   """Runs example generation pipeline using TF2 model and outputs to CSV.
 
   Args:
@@ -985,6 +986,7 @@ def run_tf2_inference_with_csv_output(
     post_image_order: List of post-disaster image ids in descending priority
       order for use in deduplicating examples.
     generate_embeddings: Generate embeddings.
+    wait_for_dataflow: If true, wait for the Dataflow job to complete.
     pipeline_options: Dataflow pipeline options.
   """
   if model_type == ModelType.VLM:
@@ -1001,38 +1003,42 @@ def run_tf2_inference_with_csv_output(
   else:
     text_embeddings = None
 
-  with beam.Pipeline(options=pipeline_options) as pipeline:
-    examples = (
-        pipeline
-        | 'read_tfrecords'
-        >> beam.io.tfrecordio.ReadFromTFRecord(
-            examples_pattern, coder=beam.coders.ProtoCoder(tf.train.Example)
-        )
-        | 'reshuffle_input' >> beam.Reshuffle()
-    )
-    model = TF2InferenceModel(
-        image_model_dir,
-        image_size,
-        post_image_only,
-        model_type,
-        text_embeddings,
-    )
-    inference_feature = 'embedding' if generate_embeddings else 'score'
-    scored_examples = run_inference(
-        examples,
-        inference_feature,
-        batch_size,
-        model,
-        deduplicate,
-        post_image_order,
-    )
-    if generate_embeddings:
-      embeddings_examples_to_csv(scored_examples, output_path)
-    else:
-      write_examples_to_files(
-          scored_examples,
-          threshold,
-          high_precision_threshold,
-          high_recall_threshold,
-          output_path,
+  pipeline = beam.Pipeline(options=pipeline_options)
+  examples = (
+      pipeline
+      | 'read_tfrecords'
+      >> beam.io.tfrecordio.ReadFromTFRecord(
+          examples_pattern, coder=beam.coders.ProtoCoder(tf.train.Example)
       )
+      | 'reshuffle_input' >> beam.Reshuffle()
+  )
+  model = TF2InferenceModel(
+      image_model_dir,
+      image_size,
+      post_image_only,
+      model_type,
+      text_embeddings,
+  )
+  inference_feature = 'embedding' if generate_embeddings else 'score'
+  scored_examples = run_inference(
+      examples,
+      inference_feature,
+      batch_size,
+      model,
+      deduplicate,
+      post_image_order,
+  )
+  if generate_embeddings:
+    embeddings_examples_to_csv(scored_examples, output_path)
+  else:
+    write_examples_to_files(
+        scored_examples,
+        threshold,
+        high_precision_threshold,
+        high_recall_threshold,
+        output_path,
+    )
+
+  result = pipeline.run()
+  if wait_for_dataflow:
+    result.wait_until_finish()
