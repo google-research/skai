@@ -135,4 +135,6 @@ def get_geofm_config(savedmodel_path: str) -> mlc.ConfigDict:
   config = mlc.ConfigDict()
   config.model = mlc.ConfigDict()
   config.savedmodel_path = savedmodel_path
+  config.mean_norm = (0.485, 0.456, 0.406)
+  config.stddev_norm = (0.229, 0.224, 0.225)
   return config
