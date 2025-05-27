@@ -27,6 +27,7 @@ PYTHON_DEPS=(
   "tensorflow==${TENSORFLOW_VERSION}"
   tensorflow-addons
   tensorflow-datasets
+  tensorflow-text
   tf-models-official
   tqdm
 )

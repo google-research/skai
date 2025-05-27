@@ -17,7 +17,6 @@ $ python sync_notebook_source.py update-python \
 import ast
 from collections.abc import Sequence
 import os
-import subprocess
 import sys
 
 from absl import app
@@ -42,7 +41,6 @@ _PARAMS = {
     'ASSESSMENT_NAME': '',
     'EVENT_DATE': '',
     'OUTPUT_DIR': '',
-    'IMAGE_RESOLUTION': 0.5,
     'BEFORE_IMAGE_0': '',
     'BEFORE_IMAGE_1': '',
     'BEFORE_IMAGE_2': '',
@@ -63,14 +61,11 @@ _PARAMS = {
     'AFTER_IMAGE_7': '',
     'AFTER_IMAGE_8': '',
     'AFTER_IMAGE_9': '',
-    'SAMPLING_METHOD': 'uniform',
+    'DAMAGE_SCORE_THRESHOLD': 0.9,
     'MAX_LABELING_IMAGES': 500,
-    'TEST_PERCENTAGE': 20,
+    'IMAGE_RESOLUTION': 0.5,
     'MINOR_IS_DAMAGED': False,
-    'NUM_TRAINING_EPOCHS': 100,
-    'INFERENCE_TFRECORD_PATTERN': '',
-    'INFERENCE_FILE_PREFIX': 'inference_output',
-    'DAMAGE_SCORE_THRESHOLD': 0.5,
+    'SAMPLING_METHOD': 'uniform',
 }
 
 
@@ -97,12 +92,11 @@ def replace_param_assignment(line: str, param_values: dict[str, str]) -> str:
   node = tree.body[0]
   if isinstance(node, ast.Assign) and len(node.targets) == 1:
     param_name = node.targets[0].id
-    new_value = param_values.get(param_name)
-    if new_value is not None and new_value != node.value.s:
+    if (new_value := param_values.get(param_name)) is not None:
       node.value.s = new_value
       new_code = ast.unparse(tree)
       new_line = f'{new_code}  {comment_char}{comment}'
-      print(f'Set {param_name} = "{new_value}"')
+      print(f'Modified line: {new_line}')
       return new_line
   return line
 
@@ -188,24 +182,14 @@ def update_ipynb(
     params_to_preserve: Parameter names to preserve.
   """
   if os.path.exists(ipynb_path):
-    notebook = jupytext.read(ipynb_path)
-    param_values = extract_param_values(notebook, params_to_preserve)
+    target_notebook = jupytext.read(ipynb_path)
+    param_values = extract_param_values(target_notebook, params_to_preserve)
   else:
     param_values = {}
 
-  subprocess.check_call([
-      'jupytext',
-      '--update',
-      '--to',
-      'notebook',
-      '-o',
-      ipynb_path,
-      python_source_path,
-  ])
-
-  notebook = jupytext.read(ipynb_path)
-  replace_params(notebook, param_values)
-  jupytext.write(notebook, ipynb_path, fmt='notebook')
+  source_notebook = jupytext.read(python_source_path)
+  replace_params(source_notebook, param_values)
+  write_ipynb(source_notebook, ipynb_path)
 
 
 def update_python_source(
