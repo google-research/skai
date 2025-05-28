@@ -590,7 +590,7 @@ def write_examples_to_files(
     threshold: Damaged score threshold.
     high_precision_threshold: Damaged score threshold for high precision.
     high_recall_threshold: Damaged score threshold for high recall.
-    output_prefix: CSV output prefix.
+    output_prefix: Path prefix for output files.
   """
   _ = (
       examples
@@ -946,7 +946,7 @@ def run_tf2_inference_with_csv_output(
     examples_pattern: str,
     image_model_dir: str,
     text_model_dir: str,
-    output_path: str,
+    output_prefix: str,
     image_size: int,
     post_image_only: bool,
     batch_size: int,
@@ -968,7 +968,7 @@ def run_tf2_inference_with_csv_output(
     examples_pattern: Pattern for input TFRecords.
     image_model_dir: Model directory for the image checkpoint.
     text_model_dir: Model directory for the text checkpoint.
-    output_path: CSV output path.
+    output_prefix: Path prefix for output files.
     image_size: Image width and height.
     post_image_only: Model expects only post-disaster images.
     batch_size: Batch size.
@@ -990,8 +990,8 @@ def run_tf2_inference_with_csv_output(
     pipeline_options: Dataflow pipeline options.
   """
   if model_type == ModelType.VLM:
-    positive_embedding_path = f'{output_path}.positive_label_embedding.npy'
-    negative_embedding_path = f'{output_path}.negative_label_embedding.npy'
+    positive_embedding_path = f'{output_prefix}.positive_label_embedding.npy'
+    negative_embedding_path = f'{output_prefix}.negative_label_embedding.npy'
     text_embeddings = _get_text_embeddings(
         pipeline_options,
         positive_labels_filepath,
@@ -1029,14 +1029,14 @@ def run_tf2_inference_with_csv_output(
       post_image_order,
   )
   if generate_embeddings:
-    embeddings_examples_to_csv(scored_examples, output_path)
+    embeddings_examples_to_csv(scored_examples, output_prefix)
   else:
     write_examples_to_files(
         scored_examples,
         threshold,
         high_precision_threshold,
         high_recall_threshold,
-        output_path,
+        output_prefix,
     )
 
   result = pipeline.run()

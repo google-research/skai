@@ -40,7 +40,9 @@ flags.DEFINE_enum_class(
     ModelType,
     'The type of the loaded model.',
 )
-flags.DEFINE_string('output_path', None, 'Output path.', required=True)
+flags.DEFINE_string(
+    'output_prefix', None, 'Path prefix for output files.', required=True
+)
 flags.DEFINE_integer('image_size', 224, 'Expected image width and height.')
 flags.DEFINE_bool('post_images_only', False, 'Model expects only post images')
 flags.DEFINE_integer('batch_size', 4, 'Batch size.')
@@ -129,7 +131,7 @@ def main(_) -> None:
       FLAGS.examples_pattern,
       FLAGS.image_model_dir,
       FLAGS.text_model_dir,
-      FLAGS.output_path,
+      FLAGS.output_prefix,
       FLAGS.image_size,
       FLAGS.post_images_only,
       FLAGS.batch_size,
