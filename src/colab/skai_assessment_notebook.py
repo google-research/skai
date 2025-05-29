@@ -6,7 +6,7 @@
 #       extension: .py
 #       format_name: percent
 #       format_version: '1.3'
-#       jupytext_version: 1.16.7
+#       jupytext_version: 1.17.1
 #   kernelspec:
 #     display_name: Python 3
 #     name: python3
@@ -1542,7 +1542,7 @@ evaluate_model_on_test_examples()
 # @markdown Leave INFERENCE_TFRECORD_PATTERN blank to run on default unlabeled
 # @markdown examples.
 INFERENCE_TFRECORD_PATTERN = ''  # @param {"type":"string"}
-INFERENCE_FILE_NAME = 'inference_output.csv'  # @param {"type":"string"}
+INFERENCE_FILE_PREFIX = 'inference_output'  # @param {"type":"string"}
 
 
 def run_inference(
@@ -1555,9 +1555,10 @@ def run_inference(
     service_account: str) -> None:
   """Starts model inference job."""
 
-  output_path = os.path.join(output_dir, INFERENCE_FILE_NAME)
-  if tf.io.gfile.exists(output_path):
-    if input(f'File {output_path} exists. Overwrite? (y/n)').lower() not in [
+  output_prefix = os.path.join(output_dir, INFERENCE_FILE_PREFIX)
+  csv_path = f'{output_prefix}.csv'
+  if tf.io.gfile.exists(csv_path):
+    if input(f'File {csv_path} exists. Overwrite? (y/n)').lower() not in [
         'y',
         'yes',
     ]:
@@ -1568,7 +1569,7 @@ def run_inference(
       f'Running inference with model checkpoint "{checkpoint_dir}" on examples'
       f' matching "{examples_pattern}"'
   )
-  print(f'Output will be written to {output_path}')
+  print(f'Output will be written to {output_prefix}')
 
   accelerator_flags = ' '.join([
       '--worker_machine_type=n1-highmem-8',
@@ -1582,7 +1583,7 @@ def run_inference(
     python skai/model/inference.py \
       --examples_pattern='{examples_pattern}' \
       --image_model_dir='{checkpoint_dir}' \
-      --output_path='{output_path}' \
+      --output_prefix='{output_prefix}' \
       --use_dataflow \
       --cloud_project='{cloud_project}' \
       --cloud_region='{cloud_region}' \
