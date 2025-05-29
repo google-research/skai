@@ -487,13 +487,8 @@ def get_rgb_indices(raster: rasterio.io.DatasetReader) -> tuple[int, int, int]:
       for band in range(raster.count)
   ]
 
-  # Special case for ArcGIS exported images.
-  if color_interps == [
-      'undefined',
-      'undefined',
-      'undefined',
-      'alpha',
-  ] and band_names == ['red', 'green', 'blue', 'blue']:
+  # Special cases for ArcGIS exported images.
+  if color_interps[-1] == 'alpha':
     return (1, 2, 3)
 
   colors = {}
