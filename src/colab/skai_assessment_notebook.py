@@ -80,6 +80,7 @@ import os
 import ee
 import tensorflow as tf
 from google.colab import auth
+from google.colab import widgets as colab_widgets  # pylint: disable=reimported
 
 GCP_PROJECT = ''  # @param {type:"string"}
 GCP_LOCATION = ''  # @param {type:"string"}
@@ -222,6 +223,7 @@ import collections
 import io
 import json
 import math
+import re
 import shutil
 import subprocess
 import textwrap
@@ -599,7 +601,6 @@ def run_detect_buildings_cloud_run_job() -> str:
       'jobs',
       'execute',
       'detect-buildings',
-      '--wait',
       f'--project={CLOUD_RUN_PROJECT}',
       f'--region={CLOUD_RUN_LOCATION}',
       f'--update-env-vars={env_vars}',
@@ -627,13 +628,10 @@ def download_buildings(aoi_path: str, output_dir: str) -> None:
   """Downloads buildings to assessment directory."""
   if BUILDINGS_METHOD == 'open_buildings':
     path = download_open_buildings(aoi_path, output_dir)
-    print(f'Saved buildings to {path}')
   elif BUILDINGS_METHOD == 'open_street_map':
     path = download_open_street_map(aoi_path, output_dir)
-    print(f'Saved buildings to {path}')
   elif BUILDINGS_METHOD == 'run_model':
     path = run_detect_buildings_cloud_run_job()
-    print(f'Saved buildings to {path}')
   elif BUILDINGS_METHOD == 'file':
     path = USER_BUILDINGS_FILE
   else:
@@ -642,6 +640,17 @@ def download_buildings(aoi_path: str, output_dir: str) -> None:
   with _open_file(BUILDINGS_FILE_LOG, 'w') as f:
     f.write(f'{path}\n')
 
+
+with warnings.catch_warnings():
+  warnings.simplefilter('ignore')
+  download_buildings(AOI_PATH, BUILDINGS_DIR)
+
+
+# %% cellView="form"
+# @title Check Building Footprints
+def check_buildings():
+  """Checks that buildings file is valid and prints number of buildings."""
+  path = _read_text_file(BUILDINGS_FILE_LOG).strip()
   if not _file_exists(path):
     print(f'Buildings file {path} does not exist yet. Wait for the building '
           'detection job to finish before proceeding.')
@@ -667,12 +676,10 @@ def download_buildings(aoi_path: str, output_dir: str) -> None:
       gdf = gpd.read_parquet(f)
     else:
       gdf = gpd.read_file(f)
-  print(f'Found {len(gdf)} buildings.')
+  print(f'Building footprints found with {len(gdf)} buildings.')
 
 
-with warnings.catch_warnings():
-  warnings.simplefilter('ignore')
-  download_buildings(AOI_PATH, BUILDINGS_DIR)
+check_buildings()
 
 # %% cellView="form"
 # @title Run Example Generation Job
@@ -1542,7 +1549,15 @@ evaluate_model_on_test_examples()
 # @markdown Leave INFERENCE_TFRECORD_PATTERN blank to run on default unlabeled
 # @markdown examples.
 INFERENCE_TFRECORD_PATTERN = ''  # @param {"type":"string"}
-INFERENCE_FILE_PREFIX = 'inference_output'  # @param {"type":"string"}
+INFERENCE_FILE_PREFIX = 'inference_output_test'  # @param {"type":"string"}
+
+
+def _find_dataflow_job_url(output: str, region: str, project: str) -> str:
+  pattern = f'https://console.cloud.google.com/dataflow/jobs/{region}/[-_a-zA-Z0-9]+\?project={project}'
+  for line in output.split('\n'):
+    if m := re.search(pattern, line):
+      return m.group(0)
+  return None
 
 
 def run_inference(
@@ -1558,24 +1573,19 @@ def run_inference(
   output_prefix = os.path.join(output_dir, INFERENCE_FILE_PREFIX)
   csv_path = f'{output_prefix}.csv'
   if tf.io.gfile.exists(csv_path):
-    if input(f'File {csv_path} exists. Overwrite? (y/n)').lower() not in [
+    print(f'Inference result file already exists: {csv_path}')
+    if input('Overwrite? (y/n) ').lower() not in [
         'y',
         'yes',
     ]:
       return
-
-  temp_dir = os.path.join(output_dir, 'inference_temp')
-  print(
-      f'Running inference with model checkpoint "{checkpoint_dir}" on examples'
-      f' matching "{examples_pattern}"'
-  )
-  print(f'Output will be written to {output_prefix}')
 
   accelerator_flags = ' '.join([
       '--worker_machine_type=n1-highmem-8',
       '--accelerator=nvidia-tesla-t4',
       '--accelerator_count=1'])
 
+  temp_dir = os.path.join(output_dir, 'inference_temp')
   script = textwrap.dedent(f'''
     cd {SKAI_CODE_DIR}/src
     export GOOGLE_CLOUD_PROJECT={cloud_project}
@@ -1596,7 +1606,23 @@ def run_inference(
   script_path = '/content/inference_script.sh'
   with open(script_path, 'w') as f:
     f.write(script)
-  # !bash {script_path}
+
+  tb = colab_widgets.TabBar(['Summary', 'Details'])
+  with tb.output_to('Summary'):
+    print(f'Model checkpoint: {checkpoint_dir}')
+    print(f'Input examples: {examples_pattern}')
+    print(f'Output prefix: {output_prefix}')
+    print(f'Damage score threshold: {default_threshold}')
+    output = subprocess.check_output(
+        ['bash', script_path], stderr=subprocess.STDOUT).decode()
+    job_url = _find_dataflow_job_url(output, cloud_region, cloud_project)
+    if job_url is None:
+      # Default to the Dataflow Dashboard
+      job_url = f'https://console.cloud.google.com/dataflow/jobs?project={cloud_project}'
+
+    print(f'Job started. Track job progress at {job_url}')
+  with tb.output_to('Details', select=False):
+    print(output)
 
 
 def do_inference():
@@ -1624,8 +1650,6 @@ def do_inference():
   with _open_file(metrics_csv_path, 'r') as f:
     metrics_df = pd.read_csv(f)
   threshold = metrics_df['Threshold'].iloc[0]
-  print(f'Running inference with threshold {threshold:.4g}')
-
   run_inference(
       pattern,
       checkpoint_dir,
