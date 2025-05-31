@@ -31,8 +31,6 @@ import shapely.wkt
 from skai import utils
 from skai.model import data
 import tensorflow as tf
-# This import is needed for SentencePiece operations.
-import tensorflow_text  # pylint: disable=unused-import
 
 # Coordinate reference system using Longitude and Latitude.
 _EPSG_4326 = 'EPSG:4326'
@@ -122,49 +120,6 @@ def extract_image_or_blank(
   return np.zeros((image_size, image_size, 3), dtype=np.float32)
 
 
-class TF2VLMModel:
-  """VLM model wrapper for SKAI TF2 models."""
-
-  def __init__(
-      self,
-      model: tf.keras.Model,
-      text_embeddings: dict[str, np.ndarray] | None = None,
-  ):
-    self._text_embeddings = np.stack(
-        [text_embeddings['neg'], text_embeddings['pos']], axis=0
-    )
-    self._text_embeddings = tf.convert_to_tensor(
-        self._text_embeddings, dtype=tf.float32
-    )
-    self._model = model
-
-  def __call__(self, batch: dict[str, Any], **kwargs) -> dict[str, tf.Tensor]:
-    """Predicts probabilities for a batch of images.
-
-    Args:
-      batch: Dictionary that contains the input images. The batch must has
-        "large_image" and the image pixels must normalised in the range 0 - 1.0.
-      **kwargs: Other keyword arguments.
-
-    Returns:
-      a dictionary that contains probabilities of labels for
-      each image example.
-    """
-    # TODO(mohammedelfatihsalah): check the image size requirement of the saved
-    # tf model.
-    images = tf.convert_to_tensor(
-        batch['large_image'] * 255, dtype=tf.float32
-    )
-    image_embeddings = self._model.signatures['serving_default'](images)[
-        'output_0'
-    ]
-    # TODO(mohammedelfatihsalah): take the temperature value from the saved tf
-    # model.
-    sims = image_embeddings @ tf.transpose(self._text_embeddings) * 100
-    probs = tf.nn.softmax(sims, axis=-1)
-    return {'main': probs}
-
-
 class TF2InferenceModel(InferenceModel):
   """InferenceModel wrapper for SKAI TF2 models."""
 
@@ -178,15 +133,11 @@ class TF2InferenceModel(InferenceModel):
       model_dir: str,
       image_size: int,
       post_image_only: bool,
-      model_type: ModelType,
-      text_embeddings: dict[str, np.ndarray] | None = None,
   ):
     self._model_dir = model_dir
-    self._model_type = model_type
     self._image_size = image_size
     self._post_image_only = post_image_only
     self._model = None
-    self._text_embeddings = text_embeddings
 
   def _make_dummy_input(self):
     num_channels = 3 if self._post_image_only else 6
@@ -231,19 +182,10 @@ class TF2InferenceModel(InferenceModel):
     # https://medium.com/google-cloud/cache-reuse-across-dofns-in-beam-a34a926db848
     def load():
       model = tf.saved_model.load(self._model_dir)
-      if self._model_type == ModelType.VLM:
-        dummy_images = self._make_dummy_input()
-        dummy_images = tf.convert_to_tensor(
-            dummy_images['large_image'], dtype=tf.float32
-        )
-        _ = model.signatures['serving_default'](dummy_images)
-        vlm_model = TF2VLMModel(model, self._text_embeddings)
-        return vlm_model
-      else:
-        # Call predict once to make sure any hidden lazy initialization is
-        # triggered. See https://stackoverflow.com/a/43393252
-        _ = model(self._make_dummy_input())
-        return model
+      # Call predict once to make sure any hidden lazy initialization is
+      # triggered. See https://stackoverflow.com/a/43393252
+      _ = model(self._make_dummy_input())
+      return model
 
     self._model = multi_process_shared.MultiProcessShared(
         load, self._model_dir
@@ -254,12 +196,7 @@ class TF2InferenceModel(InferenceModel):
       batch: list[tf.train.Example],
   ) -> np.ndarray:
     model_input = self._extract_image_arrays(batch)
-    if self._model_type == ModelType.VLM:
-      outputs = self._model(
-          model_input, training=False
-      )
-    else:
-      outputs = self._model(model_input, training=False)
+    outputs = self._model(model_input, training=False)
     return outputs['main'][:, 1]
 
   def _extract_image_arrays(
@@ -284,36 +221,6 @@ class TF2InferenceModel(InferenceModel):
         'small_image': np.stack(small_images),
         'large_image': np.stack(large_images),
     }
-
-
-class TextTowerInference(beam.DoFn):
-  """Text embedding inference DoFn.
-
-  Generate text embedding using text tower from bigvision models.
-  """
-
-  def __init__(self, model_checkpoint: str):
-    self._model_checkpoint = model_checkpoint
-
-  def setup(self) -> None:
-    def _load():
-      model = tf.saved_model.load(self._model_checkpoint)
-      model.inference = model.signatures['serving_default']
-      return model
-
-    self._model = multi_process_shared.MultiProcessShared(
-        _load, 'TextTowerModel'
-    ).acquire()
-
-  def process(
-      self, batch: tuple[str, list[str]]
-  ) -> Iterator[tuple[str, np.ndarray]]:
-    yield (
-        batch[0],
-        self._model.inference(tf.convert_to_tensor(batch[1], tf.string))[
-            'output_0'
-        ].numpy(),
-    )
 
 
 class ModelInference(beam.DoFn):
@@ -849,110 +756,13 @@ def _write_embedding_mean(
     raise ValueError(f'Unrecognized embedding key "{key}"')
 
 
-def _run_text_tower_inference(
-    root: beam.PCollection,
-    positive_labels: list[str],
-    negative_labels: list[str],
-    model_checkpoint: str,
-    positive_embedding_path: str,
-    negative_embedding_path: str):
-  """Runs text tower inference.
-
-  Args:
-    root: Beam Collection.
-    positive_labels: List of positive labels.
-    negative_labels: List of negative labels.
-    model_checkpoint: File path for the text tower model.
-    positive_embedding_path: Path to file in which the positive embedding will
-      be saved.
-    negative_embedding_path: Path to file in which the negative embedding will
-      be saved.
-
-  Returns:
-    text_embeddings: Dict that hold the positive embedding mean and the
-        negative embedding mean.
-  """
-  labels = [
-      ('pos', positive_label)
-      for positive_label in _do_batch(positive_labels, 32)
-  ]
-  labels += [
-      ('neg', negative_label)
-      for negative_label in _do_batch(negative_labels, 32)
-  ]
-  _ = (
-      root
-      | 'Read labels' >> beam.Create(labels)
-      | 'Generate label embeddings'
-      >> beam.ParDo(TextTowerInference(model_checkpoint))
-      | 'Group embeddings by pos/neg' >> beam.GroupByKey()
-      | 'Calculate the embedding mean' >> beam.Map(
-          _write_embedding_mean,
-          positive_embedding_path,
-          negative_embedding_path,
-      )
-  )
-
-
-def _get_text_embeddings(
-    pipeline_options: beam.PCollection,
-    positive_labels_filepath: list[str],
-    negative_labels_filepath: list[str],
-    model_checkpoint: str,
-    positive_embedding_path: str,
-    negative_embedding_path: str,
-) -> dict[str, np.ndarray]:
-  """Get text embeddings.
-
-  Args:
-    pipeline_options: Dataflow pipeline options.
-    positive_labels_filepath: File path to a text file containing positive
-        labels.
-    negative_labels_filepath: File path to a text file containing negative
-        labels.
-    model_checkpoint: File path for the text tower model.
-    positive_embedding_path: Path to file in which the positive embedding will
-      be saved.
-    negative_embedding_path: Path to file in which the negative embedding will
-      be saved.
-
-  Returns:
-    text_embeddings: Dict that hold the positive embedding mean and the
-        negative embedding mean.
-  """
-  with tf.io.gfile.GFile(positive_labels_filepath, 'r') as f:
-    positive_labels = [label.strip() for label in f.readlines()]
-
-  with tf.io.gfile.GFile(negative_labels_filepath, 'r') as f:
-    negative_labels = [label.strip() for label in f.readlines()]
-
-  with beam.Pipeline(options=pipeline_options) as root:
-    _run_text_tower_inference(
-        root,
-        positive_labels,
-        negative_labels,
-        model_checkpoint,
-        positive_embedding_path,
-        negative_embedding_path,
-    )
-  with tf.io.gfile.GFile(positive_embedding_path, 'rb') as f:
-    positive_embeddings = np.load(f)
-  with tf.io.gfile.GFile(negative_embedding_path, 'rb') as f:
-    negative_embeddings = np.load(f)
-  return {'pos': positive_embeddings, 'neg': negative_embeddings}
-
-
 def run_tf2_inference_with_csv_output(
     examples_pattern: str,
     image_model_dir: str,
-    text_model_dir: str,
     output_prefix: str,
     image_size: int,
     post_image_only: bool,
     batch_size: int,
-    positive_labels_filepath: list[str] | None,
-    negative_labels_filepath: list[str] | None,
-    model_type: ModelType,
     threshold: float,
     high_precision_threshold: float,
     high_recall_threshold: float,
@@ -967,18 +777,10 @@ def run_tf2_inference_with_csv_output(
   Args:
     examples_pattern: Pattern for input TFRecords.
     image_model_dir: Model directory for the image checkpoint.
-    text_model_dir: Model directory for the text checkpoint.
     output_prefix: Path prefix for output files.
     image_size: Image width and height.
     post_image_only: Model expects only post-disaster images.
     batch_size: Batch size.
-    positive_labels_filepath: File path to a text file containing positive
-      labels. The file path is required only when using VLM, otherwise it can be
-      set to empty list or None.
-    negative_labels_filepath: File path to a text file containing negative
-      labels. The file path is required only when using VLM, otherwise it can be
-      set to empty list or None.
-    model_type: Indentify the type of the model being used.
     threshold: Damaged score threshold.
     high_precision_threshold: Damaged score threshold for high precision.
     high_recall_threshold: Damaged score threshold for high recall.
@@ -989,20 +791,6 @@ def run_tf2_inference_with_csv_output(
     wait_for_dataflow: If true, wait for the Dataflow job to complete.
     pipeline_options: Dataflow pipeline options.
   """
-  if model_type == ModelType.VLM:
-    positive_embedding_path = f'{output_prefix}.positive_label_embedding.npy'
-    negative_embedding_path = f'{output_prefix}.negative_label_embedding.npy'
-    text_embeddings = _get_text_embeddings(
-        pipeline_options,
-        positive_labels_filepath,
-        negative_labels_filepath,
-        text_model_dir,
-        positive_embedding_path,
-        negative_embedding_path,
-    )
-  else:
-    text_embeddings = None
-
   pipeline = beam.Pipeline(options=pipeline_options)
   examples = (
       pipeline
@@ -1015,9 +803,7 @@ def run_tf2_inference_with_csv_output(
   model = TF2InferenceModel(
       image_model_dir,
       image_size,
-      post_image_only,
-      model_type,
-      text_embeddings,
+      post_image_only
   )
   inference_feature = 'embedding' if generate_embeddings else 'score'
   scored_examples = run_inference(

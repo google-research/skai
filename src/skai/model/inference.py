@@ -32,15 +32,6 @@ flags.DEFINE_string(
     'image_model_dir', None, 'Saved image model directory.', required=True
 )
 flags.DEFINE_string(
-    'text_model_dir', None, 'Saved text model directory.', required=False
-)
-flags.DEFINE_enum_class(
-    'model_type',
-    'classification',
-    ModelType,
-    'The type of the loaded model.',
-)
-flags.DEFINE_string(
     'output_prefix', None, 'Path prefix for output files.', required=True
 )
 flags.DEFINE_integer('image_size', 224, 'Expected image width and height.')
@@ -75,16 +66,6 @@ flags.DEFINE_string(
     ' will save memory',
 )
 flags.DEFINE_integer('accelerator_count', 1, 'Number of accelerators to use.')
-flags.DEFINE_string(
-    'positive_labels_filepath',
-    None,
-    'File path to a text file containing positive labels.',
-)
-flags.DEFINE_string(
-    'negative_labels_filepath',
-    None,
-    'File path to a text file containing negative labels.',
-)
 flags.DEFINE_float('threshold', 0.5, 'Damaged score threshold.')
 flags.DEFINE_float(
     'high_precision_threshold',
@@ -130,14 +111,10 @@ def main(_) -> None:
   inference_lib.run_tf2_inference_with_csv_output(
       FLAGS.examples_pattern,
       FLAGS.image_model_dir,
-      FLAGS.text_model_dir,
       FLAGS.output_prefix,
       FLAGS.image_size,
       FLAGS.post_images_only,
       FLAGS.batch_size,
-      FLAGS.positive_labels_filepath,
-      FLAGS.negative_labels_filepath,
-      FLAGS.model_type,
       FLAGS.threshold,
       FLAGS.high_precision_threshold,
       FLAGS.high_recall_threshold,
