@@ -17,6 +17,7 @@ $ python sync_notebook_source.py update-python \
 import ast
 from collections.abc import Sequence
 import os
+import subprocess
 import sys
 
 from absl import app
@@ -182,14 +183,24 @@ def update_ipynb(
     params_to_preserve: Parameter names to preserve.
   """
   if os.path.exists(ipynb_path):
-    target_notebook = jupytext.read(ipynb_path)
-    param_values = extract_param_values(target_notebook, params_to_preserve)
+    notebook = jupytext.read(ipynb_path)
+    param_values = extract_param_values(notebook, params_to_preserve)
   else:
     param_values = {}
 
-  source_notebook = jupytext.read(python_source_path)
-  replace_params(source_notebook, param_values)
-  write_ipynb(source_notebook, ipynb_path)
+  subprocess.check_call([
+      'jupytext',
+      '--update',
+      '--to',
+      'notebook',
+      '-o',
+      ipynb_path,
+      python_source_path,
+  ])
+
+  notebook = jupytext.read(ipynb_path)
+  replace_params(notebook, param_values)
+  jupytext.write(notebook, ipynb_path, fmt='notebook')
 
 
 def update_python_source(
