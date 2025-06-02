@@ -590,7 +590,7 @@ def write_examples_to_files(
     threshold: Damaged score threshold.
     high_precision_threshold: Damaged score threshold for high precision.
     high_recall_threshold: Damaged score threshold for high recall.
-    output_prefix: CSV output prefix.
+    output_prefix: Path prefix for output files.
   """
   _ = (
       examples
@@ -946,7 +946,7 @@ def run_tf2_inference_with_csv_output(
     examples_pattern: str,
     image_model_dir: str,
     text_model_dir: str,
-    output_path: str,
+    output_prefix: str,
     image_size: int,
     post_image_only: bool,
     batch_size: int,
@@ -959,15 +959,16 @@ def run_tf2_inference_with_csv_output(
     deduplicate: bool,
     post_image_order: list[str],
     generate_embeddings: bool,
-    pipeline_options,
-):
+    wait_for_dataflow: bool,
+    pipeline_options: beam.options.pipeline_options.PipelineOptions,
+) -> None:
   """Runs example generation pipeline using TF2 model and outputs to CSV.
 
   Args:
     examples_pattern: Pattern for input TFRecords.
     image_model_dir: Model directory for the image checkpoint.
     text_model_dir: Model directory for the text checkpoint.
-    output_path: CSV output path.
+    output_prefix: Path prefix for output files.
     image_size: Image width and height.
     post_image_only: Model expects only post-disaster images.
     batch_size: Batch size.
@@ -985,11 +986,12 @@ def run_tf2_inference_with_csv_output(
     post_image_order: List of post-disaster image ids in descending priority
       order for use in deduplicating examples.
     generate_embeddings: Generate embeddings.
+    wait_for_dataflow: If true, wait for the Dataflow job to complete.
     pipeline_options: Dataflow pipeline options.
   """
   if model_type == ModelType.VLM:
-    positive_embedding_path = f'{output_path}.positive_label_embedding.npy'
-    negative_embedding_path = f'{output_path}.negative_label_embedding.npy'
+    positive_embedding_path = f'{output_prefix}.positive_label_embedding.npy'
+    negative_embedding_path = f'{output_prefix}.negative_label_embedding.npy'
     text_embeddings = _get_text_embeddings(
         pipeline_options,
         positive_labels_filepath,
@@ -1001,38 +1003,42 @@ def run_tf2_inference_with_csv_output(
   else:
     text_embeddings = None
 
-  with beam.Pipeline(options=pipeline_options) as pipeline:
-    examples = (
-        pipeline
-        | 'read_tfrecords'
-        >> beam.io.tfrecordio.ReadFromTFRecord(
-            examples_pattern, coder=beam.coders.ProtoCoder(tf.train.Example)
-        )
-        | 'reshuffle_input' >> beam.Reshuffle()
-    )
-    model = TF2InferenceModel(
-        image_model_dir,
-        image_size,
-        post_image_only,
-        model_type,
-        text_embeddings,
-    )
-    inference_feature = 'embedding' if generate_embeddings else 'score'
-    scored_examples = run_inference(
-        examples,
-        inference_feature,
-        batch_size,
-        model,
-        deduplicate,
-        post_image_order,
-    )
-    if generate_embeddings:
-      embeddings_examples_to_csv(scored_examples, output_path)
-    else:
-      write_examples_to_files(
-          scored_examples,
-          threshold,
-          high_precision_threshold,
-          high_recall_threshold,
-          output_path,
+  pipeline = beam.Pipeline(options=pipeline_options)
+  examples = (
+      pipeline
+      | 'read_tfrecords'
+      >> beam.io.tfrecordio.ReadFromTFRecord(
+          examples_pattern, coder=beam.coders.ProtoCoder(tf.train.Example)
       )
+      | 'reshuffle_input' >> beam.Reshuffle()
+  )
+  model = TF2InferenceModel(
+      image_model_dir,
+      image_size,
+      post_image_only,
+      model_type,
+      text_embeddings,
+  )
+  inference_feature = 'embedding' if generate_embeddings else 'score'
+  scored_examples = run_inference(
+      examples,
+      inference_feature,
+      batch_size,
+      model,
+      deduplicate,
+      post_image_order,
+  )
+  if generate_embeddings:
+    embeddings_examples_to_csv(scored_examples, output_prefix)
+  else:
+    write_examples_to_files(
+        scored_examples,
+        threshold,
+        high_precision_threshold,
+        high_recall_threshold,
+        output_prefix,
+    )
+
+  result = pipeline.run()
+  if wait_for_dataflow:
+    result.wait_until_finish()

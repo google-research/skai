@@ -6,7 +6,7 @@
 #       extension: .py
 #       format_name: percent
 #       format_version: '1.3'
-#       jupytext_version: 1.16.7
+#       jupytext_version: 1.17.1
 #   kernelspec:
 #     display_name: Python 3
 #     name: python3
@@ -14,10 +14,9 @@
 
 # %% cellView="form"
 # @title Install Libraries
-# @markdown This will take approximately 3 minutes to run. After completing, you
-# @markdown may be prompted to restart the kernel. Select "Restart" and then
-# @markdown proceed to run the next cell.
 """Notebook for running SKAI assessments."""
+
+from google.colab import widgets as colab_widgets
 
 # pylint: disable=g-statement-before-imports
 SKAI_REPO = 'https://github.com/google-research/skai.git'
@@ -26,33 +25,43 @@ SKAI_CODE_DIR = '/content/skai_src'
 
 def install_requirements():
   """Installs necessary Python libraries."""
-  # !rm -rf {SKAI_CODE_DIR}
-  # !git clone {SKAI_REPO} {SKAI_CODE_DIR}
-  # !pip install {SKAI_CODE_DIR}/src/.
+  tb = colab_widgets.TabBar(['Summary', 'Details'])
+  with tb.output_to('Summary'):
+    print('Installing libraries. This will take approximately 3 minutes to '
+          'run. After completing, you may be prompted to restart the kernel. '
+          'Select "Restart" and then proceed to run the next cell. \n\nSee '
+          '"Details" tab for command output.')
 
-  requirements = [
-      'apache_beam[gcp]==2.54.0',
-      'fiona==1.10.1',
-      # https://github.com/apache/beam/issues/32169
-      'google-cloud-storage==2.19.0',
-      'ml-collections==1.0.0',
-      'numpy==1.24.4',
-      'openlocationcode==1.0.1',
-      'rasterio==1.3.9',
-      'rio-cogeo==5.4.1',
-      'rtree==1.3.0',
-      'tensorflow==2.14.0',
-      'tensorflow_addons==0.23.0',
-      'tensorflow_text==2.14.0',
-      'xmanager==0.7.0',
-  ]
+  with tb.output_to('Details', select=False):
+    # !rm -rf {SKAI_CODE_DIR}
+    # !git clone {SKAI_REPO} {SKAI_CODE_DIR}
+    # !pip install {SKAI_CODE_DIR}/src/.
 
-  requirements_file = '/content/requirements.txt'
-  with open(requirements_file, 'w') as f:
-    f.write('\n'.join(requirements))
-  # !pip install -r {requirements_file}
-  # !pip uninstall -y jax  # this is causing errors with our version of numpy
+    requirements = [
+        'apache_beam[gcp]==2.54.0',
+        'fiona==1.10.1',
+        # https://github.com/apache/beam/issues/32169
+        'google-cloud-storage==2.19.0',
+        'ml-collections==1.0.0',
+        'numpy==1.24.4',
+        'openlocationcode==1.0.1',
+        'rasterio==1.3.9',
+        'rio-cogeo==5.4.1',
+        'rtree==1.3.0',
+        'tensorflow==2.14.0',
+        'tensorflow_addons==0.23.0',
+        'tensorflow_text==2.14.0',
+        'xmanager==0.7.0',
+    ]
 
+    requirements_file = '/content/requirements.txt'
+    with open(requirements_file, 'w') as f:
+      f.write('\n'.join(requirements))
+    # !pip install -r {requirements_file}
+    # !pip uninstall -y jax  # this is causing errors with our version of numpy
+
+  with tb.output_to('Summary'):
+    print('Dependencies installed. Please restart session.')
 
 install_requirements()
 
@@ -596,7 +605,15 @@ def run_detect_buildings_cloud_run_job() -> str:
       f'--update-env-vars={env_vars}',
   ]
   cloud_run_dashboard_url = f'https://console.cloud.google.com/run/jobs/details/{CLOUD_RUN_LOCATION}/detect-buildings/executions?project={CLOUD_RUN_PROJECT}'
-  print(f'Starting building detection Cloud Run job. {cloud_run_dashboard_url}')
+  print(
+      'Running building detection Cloud Run job. Dashboard:'
+      f' {cloud_run_dashboard_url}'
+  )
+  dataflow_dashboard_url = f'https://console.cloud.google.com/dataflow/jobs?project={CLOUD_RUN_PROJECT}'
+  print(
+      'In a few minutes a Dataflow job should also start. Track it here:'
+      f' {dataflow_dashboard_url}'
+  )
   try:
     output = subprocess.check_output(gcloud_args)
   except subprocess.CalledProcessError as e:
@@ -723,7 +740,16 @@ def run_example_generation(config_file_path: str):
   script_path = '/content/example_generation.sh'
   with open(script_path, 'w') as f:
     f.write(script)
-  # !bash {script_path}
+  tb = colab_widgets.TabBar(['Summary', 'Details'])
+  with tb.output_to('Summary'):
+    job_url = (
+        f'https://console.cloud.google.com/dataflow/jobs?project={GCP_PROJECT}'
+    )
+    print(f'Starting example generation Dataflow job. Track it at {job_url}.')
+    print('See command output in the "Details" tab.')
+  with tb.output_to('Details', select=False):
+    # !bash {script_path}
+    pass
 
 
 write_example_generation_config(EXAMPLE_GENERATION_CONFIG_PATH)
@@ -1516,7 +1542,7 @@ evaluate_model_on_test_examples()
 # @markdown Leave INFERENCE_TFRECORD_PATTERN blank to run on default unlabeled
 # @markdown examples.
 INFERENCE_TFRECORD_PATTERN = ''  # @param {"type":"string"}
-INFERENCE_FILE_NAME = 'inference_output.csv'  # @param {"type":"string"}
+INFERENCE_FILE_PREFIX = 'inference_output'  # @param {"type":"string"}
 
 
 def run_inference(
@@ -1529,9 +1555,10 @@ def run_inference(
     service_account: str) -> None:
   """Starts model inference job."""
 
-  output_path = os.path.join(output_dir, INFERENCE_FILE_NAME)
-  if tf.io.gfile.exists(output_path):
-    if input(f'File {output_path} exists. Overwrite? (y/n)').lower() not in [
+  output_prefix = os.path.join(output_dir, INFERENCE_FILE_PREFIX)
+  csv_path = f'{output_prefix}.csv'
+  if tf.io.gfile.exists(csv_path):
+    if input(f'File {csv_path} exists. Overwrite? (y/n)').lower() not in [
         'y',
         'yes',
     ]:
@@ -1542,7 +1569,7 @@ def run_inference(
       f'Running inference with model checkpoint "{checkpoint_dir}" on examples'
       f' matching "{examples_pattern}"'
   )
-  print(f'Output will be written to {output_path}')
+  print(f'Output will be written to {output_prefix}')
 
   accelerator_flags = ' '.join([
       '--worker_machine_type=n1-highmem-8',
@@ -1556,7 +1583,7 @@ def run_inference(
     python skai/model/inference.py \
       --examples_pattern='{examples_pattern}' \
       --image_model_dir='{checkpoint_dir}' \
-      --output_path='{output_path}' \
+      --output_prefix='{output_prefix}' \
       --use_dataflow \
       --cloud_project='{cloud_project}' \
       --cloud_region='{cloud_region}' \

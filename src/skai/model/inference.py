@@ -40,7 +40,9 @@ flags.DEFINE_enum_class(
     ModelType,
     'The type of the loaded model.',
 )
-flags.DEFINE_string('output_path', None, 'Output path.', required=True)
+flags.DEFINE_string(
+    'output_prefix', None, 'Path prefix for output files.', required=True
+)
 flags.DEFINE_integer('image_size', 224, 'Expected image width and height.')
 flags.DEFINE_bool('post_images_only', False, 'Model expects only post images')
 flags.DEFINE_integer('batch_size', 4, 'Batch size.')
@@ -99,6 +101,11 @@ flags.DEFINE_list(
     [],
     'List of post-disaster image ids in descending priority order.',
 )
+flags.DEFINE_bool(
+    'wait_for_dataflow',
+    False,
+    'If true, wait for Dataflow job to finish before exiting.',
+)
 
 
 def main(_) -> None:
@@ -124,7 +131,7 @@ def main(_) -> None:
       FLAGS.examples_pattern,
       FLAGS.image_model_dir,
       FLAGS.text_model_dir,
-      FLAGS.output_path,
+      FLAGS.output_prefix,
       FLAGS.image_size,
       FLAGS.post_images_only,
       FLAGS.batch_size,
@@ -137,6 +144,7 @@ def main(_) -> None:
       FLAGS.deduplicate,
       FLAGS.post_image_order,
       FLAGS.generate_embeddings,
+      FLAGS.wait_for_dataflow,
       pipeline_options,
   )
 
