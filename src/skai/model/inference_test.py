@@ -51,32 +51,6 @@ def _create_test_model(model_path: str, image_size: int):
   tf.saved_model.save(model, model_path)
 
 
-def _create_test_text_tower_model(
-    model_path: str, vocab_size: int, output_dim: int
-):
-  class _TestTextTowerModel(tf.Module):
-
-    def __init__(self, vocab_size, dim):
-      self.vec = tf.keras.layers.TextVectorization(
-          max_tokens=vocab_size, output_mode='int', output_sequence_length=dim
-      )
-      self.vec.adapt(tf.convert_to_tensor(['test'], tf.string))
-      self.emb = tf.keras.layers.Embedding(input_dim=dim, output_dim=100)
-
-    @tf.function(
-        input_signature=[tf.TensorSpec(shape=(None,), dtype=tf.string)]
-    )
-    def serving_fn(self, inputs):
-      tokenized_inputs = self.vec(inputs)
-      embeddings = self.emb(tokenized_inputs)
-      return tf.reduce_mean(embeddings, axis=-1)
-
-  model = _TestTextTowerModel(vocab_size=vocab_size, dim=output_dim)
-  tf.saved_model.save(
-      model, model_path
-  )
-
-
 def _create_embedding_test_model(model_path: str, image_size: int):
   small_input = tf.keras.layers.Input(
       shape=(image_size, image_size, 6), name='small_image'
@@ -172,8 +146,7 @@ class TestEmbeddingGeneration(absltest.TestCase):
     model_path = os.path.join(_make_temp_dir(), '_model.keras')
     _create_embedding_test_model(model_path, 288)
     model_ = inference_lib.TF2InferenceModel(
-        model_path, 288, False, [], inference_lib.ModelType.CLASSIFICATION
-    )
+        model_path, 288, False)
     model_.prepare_model()
 
     examples = [_create_test_example(288, False, False) for _ in range(3)]
@@ -242,31 +215,6 @@ class InferenceTest(absltest.TestCase):
         ],
     )
     self.assertLen(df, 7)
-
-  def test_run_text_tower_inference(self):
-    positive_labels = ['positive']*100
-    negative_labels = ['negative']*100
-    model_path = os.path.join(_make_temp_dir(), 'model.keras')
-    positive_embedding_path = os.path.join(_make_temp_dir(), 'positive.npy')
-    negative_embedding_path = os.path.join(_make_temp_dir(), 'negative.npy')
-    _create_test_text_tower_model(model_path, 100, 1024)
-    with test_pipeline.TestPipeline() as pipeline:
-      inference_lib._run_text_tower_inference(
-          pipeline,
-          positive_labels,
-          negative_labels,
-          model_path,
-          positive_embedding_path,
-          negative_embedding_path
-      )
-
-    def _test_embedding_shape(path, expected_shape):
-      with tf.io.gfile.GFile(path, 'rb') as f:
-        label_embedding = np.load(f)
-        self.assertEqual(label_embedding.shape, expected_shape)
-
-    _test_embedding_shape(positive_embedding_path, (1024,))
-    _test_embedding_shape(negative_embedding_path, (1024,))
 
   def test_run_inference(self):
     with test_pipeline.TestPipeline() as pipeline:
@@ -374,7 +322,7 @@ class InferenceTest(absltest.TestCase):
     model_path = os.path.join(_make_temp_dir(), 'model.keras')
     _create_test_model(model_path, 224)
     model = inference_lib.TF2InferenceModel(
-        model_path, 224, False, [], inference_lib.ModelType.CLASSIFICATION
+        model_path, 224, False
     )
     model.prepare_model()
 
@@ -386,7 +334,7 @@ class InferenceTest(absltest.TestCase):
     model_path = os.path.join(_make_temp_dir(), 'model.keras')
     _create_test_model(model_path, 224)
     model = inference_lib.TF2InferenceModel(
-        model_path, 224, False, [], inference_lib.ModelType.CLASSIFICATION
+        model_path, 224, False
     )
     model.prepare_model()
 

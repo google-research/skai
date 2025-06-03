@@ -486,6 +486,10 @@ def get_rgb_indices(raster: rasterio.io.DatasetReader) -> tuple[int, int, int]:
       raster.tags(band + 1).get('BandName', 'undefined').lower()
       for band in range(raster.count)
   ]
+<<<<<<< HEAD
+=======
+  
+>>>>>>> 3a1c9daa33138e159cb5d4f81f65be6c51f2931d
   # Special case for ArcGIS exported images.
   if color_interps == [
       'undefined',
