@@ -514,8 +514,8 @@ def get_rgb_indices(raster: rasterio.io.DatasetReader) -> tuple[int, int, int]:
       raise ValueError(
           f'BandName = {band_name} and ColorInterp = {color_interp} conflict'
       )
-
-    colors[color] = band + 1
+    if color in ('red', 'green', 'blue'):
+      colors[color] = band + 1
 
   # If the image has no ColorInterp metadata, but it has exactly 3 bands, then
   # assume they are RGB, to maintain prior behavior.
@@ -523,8 +523,8 @@ def get_rgb_indices(raster: rasterio.io.DatasetReader) -> tuple[int, int, int]:
     return (1, 2, 3)
   
   # Special case for images exported from ArcGIS using the "Force RGB" rendering 
-  elif raster.count == 4 and color_interps[3] == 'alpha':
-    return (1,2,3)
+  if not colors and raster.count == 4 and color_interps[3] == 'alpha':
+    return (1, 2, 3)
 
   for color in ('red', 'green', 'blue'):
     if color not in colors:
