@@ -520,8 +520,8 @@ def get_rgb_indices(raster: rasterio.io.DatasetReader) -> tuple[int, int, int]:
   # assume they are RGB, to maintain prior behavior.
   if not colors and raster.count == 3:
     return (1, 2, 3)
-  
-  # Special case for images exported from ArcGIS using the "Force RGB" rendering 
+
+  # Special case for images exported from ArcGIS using the "Force RGB" rendering
   if not colors and raster.count == 4 and color_interps[3] == 'alpha':
     return (1, 2, 3)
 
