@@ -99,9 +99,7 @@ def _get_dataflow_container_image(accelerator: str) -> str | None:
         f'Dataflow SDK supports Python versions 3.10+, not {py_version}'
     )
 
-  return (
-      f'gcr.io/disaster-assessment/dataflow_{accelerator}_{py_version}_image:20250530_163200'
-  )
+  return f'gcr.io/disaster-assessment/dataflow_{accelerator}_{py_version}_image:latest'
 
 
 def get_pipeline_options(
