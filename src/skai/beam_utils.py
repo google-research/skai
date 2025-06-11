@@ -164,6 +164,7 @@ def get_pipeline_options(
       'num_workers': min_workers,
       'max_num_workers': max_workers,
       'use_public_ips': False,  # Avoids hitting public ip quota bottleneck.
+      'disk_size_gb': 100,
   }
   if worker_service_account:
     options['service_account_email'] = worker_service_account
