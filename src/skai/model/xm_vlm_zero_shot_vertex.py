@@ -128,7 +128,7 @@ _SIGLIP_DOCKER_IMAGE = flags.DEFINE_string(
 
 _GEOFM_DOCKER_IMAGE = flags.DEFINE_string(
     'geofm_docker_image',
-    'gcr.io/disaster-assessment/skai-ml-geofm-gpu:20250424-172631_760386',
+    'gcr.io/disaster-assessment/skai-ml-geofm-gpu:20250611-180739_681012',
     'Pre-built Docker image to use for geofm.',
 )
 

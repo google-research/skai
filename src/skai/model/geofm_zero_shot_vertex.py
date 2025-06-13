@@ -81,7 +81,6 @@ def main(argv: Sequence[str]) -> None:
       dataset_names,
       _EXAMPLE_PATTERNS.value,
       _IMAGE_FEATURE.value,
-      IMAGE_SIZE,
       _OUTPUT_DIR.value,
   )
 

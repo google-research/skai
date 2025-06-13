@@ -2,7 +2,6 @@
 
 import collections
 import functools
-from typing import Sequence
 
 import ml_collections
 import numpy as np
@@ -35,63 +34,15 @@ class GeoFM():
     ]
 
 
-def _resize(
-    image: tf.Tensor, new_size: int, method: str
-) -> tf.Tensor:
-  """Resizes and centercrops an image.
-
-  Args:
-    image: The image to resize and centercrop.
-    new_size: The size to resize the image to.
-    method: The method to use for resizing.
-
-  Returns:
-    The resized and centercropped image.
-  """
-  return tf.image.resize(image, [new_size, new_size], method=method)
-
-
-def _rgb_norm(
-    image: tf.Tensor,
-    scale: int,
-    mean_rgb: Sequence[float],
-    stddev_rgb: Sequence[float]
-):
-  """Normalizes the RGB channels of an image.
-
-  Args:
-    image: The image to normalize.
-    scale: The scale to apply to the image.
-    mean_rgb: The mean RGB values to subtract.
-    stddev_rgb: The standard deviation RGB values to divide by.
-
-  Returns:
-    The normalized image.
-  """
-  rank = image.shape.ndims
-  shape = [1] * (rank - 1) + [len(mean_rgb)]
-  mean_rgb = [i * scale for i in mean_rgb]
-  stddev_rgb = [i * scale for i in stddev_rgb]
-  image -= tf.constant(mean_rgb, shape=shape, dtype=image.dtype)
-  image /= tf.constant(stddev_rgb, shape=shape, dtype=image.dtype)
-  return image
-
-
 def parse_examples(
     record_bytes: tf.train.Example,
-    image_feature: str,
-    image_size: int,
-    mean_rgb: Sequence[float],
-    stddev_rgb: Sequence[float],
+    image_feature: str
 ) -> dict[str, tf.Tensor]:
   """Specifies how to parse a single example.
 
   Args:
     record_bytes: The record bytes to parse.
     image_feature: String of the feature to use as input image.
-    image_size: The size of the input image, e.g. 224.
-    mean_rgb: The mean RGB values to subtract.
-    stddev_rgb: The standard deviation RGB values to divide by.
 
   Returns:
     The parsed example.
@@ -116,30 +67,19 @@ def parse_examples(
       expand_animations=False,
       dtype=tf.uint8,
   )
-  resize_fn = functools.partial(
-      _resize,
-      new_size=image_size,
-      method='bicubic',
-  )
-  image = resize_fn(image)
-  image = _rgb_norm(image, 255, mean_rgb, stddev_rgb)
   example['image'] = image
   del example[image_feature]
   return example
 
 
 def create_geofm_inference_dataset(
-    image_size: int, path: str, image_feature: str, mean_rgb: Sequence[float],
-    stddev_rgb: Sequence[float],
+    path: str, image_feature: str
 ) -> tf.data.Dataset:
   """Create dataset for GeoFM inference.
 
   Args:
-    image_size: The image size.
     path: Pattern for the dataset filepaths.
     image_feature: Example feature to use as input image.
-    mean_rgb: The mean RGB values to subtract.
-    stddev_rgb: The standard deviation RGB values to divide by.
 
   Returns:
     dataset: The dataset.
@@ -156,9 +96,6 @@ def create_geofm_inference_dataset(
   parse_examples_fn = functools.partial(
       parse_examples,
       image_feature=image_feature,
-      image_size=image_size,
-      mean_rgb=mean_rgb,
-      stddev_rgb=stddev_rgb,
   )
   dataset = (
       dataset.map(parse_examples_fn, num_parallel_calls=tf.data.AUTOTUNE)
@@ -185,7 +122,6 @@ def generate_geofm_zero_shot_assessment(
     dataset_names: list[str],
     dataset_paths: list[str],
     image_feature: str,
-    image_size: int,
     output_dir: str
 ):
   """Generate zero shot assessment.
@@ -196,19 +132,13 @@ def generate_geofm_zero_shot_assessment(
     dataset_names: List of dataset names.
     dataset_paths: List of dataset filepaths.
     image_feature: Example feature to use as input image.
-    image_size: The image size, e.g. 224.
     output_dir: The output directory.
   """
   model = GeoFM(model_config)
-  mean_rgb = model_config.mean_norm
-  stddev_rgb = model_config.stddev_norm
   for dataset_name, dataset_file_path in zip(dataset_names, dataset_paths):
     dataset = create_geofm_inference_dataset(
-        image_size,
         dataset_file_path,
         image_feature,
-        mean_rgb,
-        stddev_rgb,
     )
     result = collections.defaultdict(list)
     for examples in dataset.as_numpy_iterator():
