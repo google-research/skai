@@ -16,15 +16,20 @@
 
 import base64
 import collections
+import glob
 import io
 import math
+import os
 import struct
+import tempfile
 from typing import Iterable, Sequence
+import zipfile
 
 from absl import flags
 import geopandas as gpd
 import PIL.Image
 import tensorflow as tf
+
 
 Example = tf.train.Example
 Image = PIL.Image.Image
@@ -190,3 +195,24 @@ def expand_file_patterns(patterns: Iterable[str]) -> list[str]:
         + ', '.join(f'{p}: {c} times' for p, c in duplicates)
     )
   return paths
+
+
+def create_zipped_shapefile(
+    gdf: gpd.GeoDataFrame, shapefile_name: str, output_path: str
+):
+  """Writes GeoDataFrame to zipped shapefile.
+
+  Args:
+    gdf: The GeoDataFrame.
+    shapefile_name: Name of the shapefile, without the .shp suffix.
+    output_path: Path to write the zipped shapefile to.
+  """
+  with tempfile.TemporaryDirectory() as temp_dir:
+    shapefile_dir = os.path.join(temp_dir, 'shapefile')
+    os.mkdir(shapefile_dir)
+    gdf.to_file(os.path.join(shapefile_dir, f'{shapefile_name}.shp'))
+    zip_path = os.path.join(temp_dir, '{shapefile_name}.zip')
+    with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as f:
+      for file in glob.glob(os.path.join(shapefile_dir, '*')):
+        f.write(file, os.path.basename(file))
+    tf.io.gfile.copy(zip_path, output_path, overwrite=True)

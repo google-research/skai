@@ -13,8 +13,10 @@
 # limitations under the License.
 
 """Tests for utils."""
+import os
 import pathlib
 import tempfile
+import zipfile
 
 from absl.testing import absltest
 from absl.testing import parameterized
@@ -109,6 +111,25 @@ class UtilsTest(parameterized.TestCase):
     matches = utils.expand_file_patterns(patterns_with_dir)
     self.assertSameElements(expected_matches_with_dir, matches)
 
+  def test_create_zipped_shapefile(self):
+    gdf = gpd.GeoDataFrame(
+        geometry=[
+            shapely.geometry.Point(30, 50),
+            shapely.geometry.Point(35, 55),
+            shapely.geometry.Point(25, 45),
+        ],
+        crs=4326,
+    )
+    output_path = os.path.join(self.create_tempdir().full_path, 'test.zip')
+    utils.create_zipped_shapefile(gdf, 'test', output_path)
+    self.assertTrue(os.path.exists(output_path))
+    with zipfile.ZipFile(output_path, 'r') as f:
+      self.assertCountEqual(
+          f.namelist(),
+          ['test.shp', 'test.shx', 'test.dbf', 'test.prj', 'test.cpg'],
+      )
+    read_gdf = gpd.read_file(output_path)
+    self.assertLen(read_gdf, 3)
 
 if __name__ == '__main__':
   absltest.main()
