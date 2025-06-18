@@ -32,6 +32,11 @@ from skai.model import xm_vlm_zero_shot_vertex_lib
 from xmanager import xm_local
 from xmanager.cloud import vertex as xm_vertex
 
+_JOB_NAME = flags.DEFINE_string(
+    'job_name',
+    None,
+    'Job name.',
+)
 
 _OUTPUT_DIR = flags.DEFINE_string(
     'output_dir', None, 'Output directory.', required=True
@@ -174,10 +179,14 @@ def main(_) -> None:
     ]
   else:
     dataset_names = _DATASET_NAMES.value
-  experiment_name = xm_vlm_zero_shot_vertex_lib.get_experiment_name(
-      dataset_names, _MODEL_TYPE.value, _SIGLIP_MODEL_VARIANT.value,
-      _IMAGE_SIZE.value
-  )
+
+  if _JOB_NAME.value:
+    experiment_name = _JOB_NAME.value
+  else:
+    experiment_name = xm_vlm_zero_shot_vertex_lib.get_experiment_name(
+        dataset_names, _MODEL_TYPE.value, _SIGLIP_MODEL_VARIANT.value,
+        _IMAGE_SIZE.value
+    )
   with xm_local.create_experiment(
       experiment_title=experiment_name
   ) as experiment:

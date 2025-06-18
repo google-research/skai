@@ -23,7 +23,7 @@ import shutil
 import subprocess
 import tempfile
 import time
-from typing import Any, Iterable, Sequence
+from typing import Any, Iterable
 
 import affine
 import apache_beam as beam
@@ -379,7 +379,7 @@ def _compute_window(
 
 
 def _group_windows(
-    raster_and_windows: tuple[_RasterBin, Sequence[_Window]],
+    raster_and_windows: tuple[_RasterBin, Iterable[_Window]],
 ) -> Iterable[tuple[str, _WindowGroup]]:
   """Groups overlapping windows to minimize data read from raster.
 

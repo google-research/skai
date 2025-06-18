@@ -1398,17 +1398,18 @@ def _get_image_infos_from_config(
 
 
 def run_example_generation(
-    config: ExamplesGenerationConfig, wait_for_dataflow: bool
+    job_name: str, config: ExamplesGenerationConfig, wait_for_dataflow: bool
 ) -> None:
   """Runs example generation Beam pipeline.
 
   Args:
+    job_name: Name of the Dataflow job.
     config: Pipeline configuration.
     wait_for_dataflow: If using Dataflow, whether to wait for the dataflow
       pipeline to finish before returning.
   """
   timestamp = time.strftime('%Y%m%d-%H%M%S')
-  timestamped_dataset = f'{config.dataset_name}-{timestamp}'
+  timestamped_job_name = f'{job_name}-{timestamp}'
 
   gdal_env = read_raster.parse_gdal_env(config.gdal_env)
 
@@ -1459,7 +1460,7 @@ def run_example_generation(
       buildings_labeled,
       config.use_dataflow,
       gdal_env,
-      timestamped_dataset,
+      timestamped_job_name,
       config.cloud_project,
       config.cloud_region,
       config.worker_service_account,

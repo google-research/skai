@@ -159,6 +159,8 @@ flags.DEFINE_integer(
     None,
     'Number of labeled examples to keep (keeps all if None or 0).',
 )
+
+flags.DEFINE_string('job_name', 'genexamples', 'Dataflow job name.')
 flags.DEFINE_string(
     'configuration_path', None, 'A path to a json configuration file'
 )
@@ -179,7 +181,9 @@ def main(args):
   else:
     config = generate_examples.ExamplesGenerationConfig.init_from_flags(FLAGS)
 
-  generate_examples.run_example_generation(config, FLAGS.wait_for_dataflow)
+  generate_examples.run_example_generation(
+      FLAGS.job_name, config, FLAGS.wait_for_dataflow
+  )
 
 
 if __name__ == '__main__':

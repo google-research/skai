@@ -59,6 +59,9 @@ import tensorflow as tf
 
 FLAGS = flags.FLAGS
 
+flags.DEFINE_string(
+    'job_name', 'detect-buildings', 'Identifier in Dataflow job name.'
+)
 flags.DEFINE_string('cloud_project', None, 'GCP project name.')
 flags.DEFINE_string('cloud_region', None, 'GCP region, e.g. us-central1.')
 flags.DEFINE_bool('use_dataflow', None, 'If true, run pipeline on Dataflow.')
@@ -118,11 +121,10 @@ def main(args):
 
   temp_dir = os.path.join(FLAGS.output_dir, 'temp')
   timestamp = datetime.datetime.now().strftime('%Y%m%d-%H%M%S')
-  dataflow_job_name = f'detect-buildings-{timestamp}'
 
   pipeline_options = beam_utils.get_pipeline_options(
       FLAGS.use_dataflow,
-      dataflow_job_name,
+      f'{FLAGS.job_name}-{timestamp}',
       FLAGS.cloud_project,
       FLAGS.cloud_region,
       temp_dir,

@@ -25,6 +25,7 @@ from skai.model import inference_lib
 ModelType = inference_lib.ModelType
 FLAGS = flags.FLAGS
 
+flags.DEFINE_string('job_name', 'skai-inference', 'Dataflow job name.')
 flags.DEFINE_string(
     'examples_pattern', None, 'File pattern for input TFRecords.', required=True
 )
@@ -91,11 +92,9 @@ flags.DEFINE_bool(
 
 def main(_) -> None:
   timestamp = time.strftime('%Y%m%d-%H%M%S')
-  job_name = f'skai-inference-{timestamp}'
-
   pipeline_options = beam_utils.get_pipeline_options(
       FLAGS.use_dataflow,
-      job_name,
+      f'{FLAGS.job_name}-{timestamp}',
       FLAGS.cloud_project,
       FLAGS.cloud_region,
       FLAGS.dataflow_temp_dir,

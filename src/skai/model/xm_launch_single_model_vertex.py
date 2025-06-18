@@ -166,9 +166,7 @@ def main(_) -> None:
   config_path = config_flags.get_config_filename(FLAGS['config'])
 
   with xm_local.create_experiment(
-      experiment_title=(
-          f'{FLAGS.experiment_name} {config.data.name}_{config.model.name}'
-      )
+      experiment_title=FLAGS.experiment_name
   ) as experiment:
     if FLAGS.accelerator is None:
       accelerator_type = 'cpu'
