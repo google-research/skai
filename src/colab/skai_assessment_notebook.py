@@ -15,10 +15,10 @@
 # %% cellView="form"
 # @title Install Libraries
 """Notebook for running SKAI assessments."""
-
 from google.colab import widgets as colab_widgets
 
 # pylint: disable=g-statement-before-imports
+SKAI_PR_NUMBER = ''  # @param {'type':'string'}
 SKAI_REPO = 'https://github.com/google-research/skai.git'
 SKAI_CODE_DIR = '/content/skai_src'
 
@@ -35,6 +35,9 @@ def install_requirements():
   with tb.output_to('Details', select=False):
     # !rm -rf {SKAI_CODE_DIR}
     # !git clone {SKAI_REPO} {SKAI_CODE_DIR}
+    if SKAI_PR_NUMBER:
+      # !pushd {SKAI_CODE_DIR}; git pull origin pull/{SKAI_PR_NUMBER}/head
+      pass
     # !pip install {SKAI_CODE_DIR}/src/.
 
     requirements = [
@@ -72,8 +75,6 @@ install_requirements()
 # pylint:disable=g-bad-import-order
 # pylint:disable=g-wrong-blank-lines
 # pylint:disable=g-import-not-at-top
-
-# @markdown See _documentation link_ for explanation of each parameter.
 
 # @markdown **You must re-run this cell every time you make a change.**
 import os
@@ -223,6 +224,7 @@ import collections
 import io
 import json
 import math
+import random
 import re
 import shutil
 import subprocess
@@ -462,6 +464,75 @@ def choose_option(options: list[str], prompt: str) -> str:
         print(f'Invalid choice. Must be between {min_choice}-{max_choice}')
 
 
+def choose_multiple_options(options: list[str], prompt: str) -> list[str]:
+  """Make user choose one or more options.
+
+  Args:
+    options: List of options to choose from.
+    prompt: Prompt to show to user.
+
+  Returns:
+    List of chosen options.
+  """
+  if not options:
+    return []
+  elif len(options) == 1:
+    return [options[0]]
+  else:
+    print(f'\n{prompt}:')
+    print('\n'.join(f'[{i+1}] {o}' for i, o in enumerate(options)))
+    min_choice = 1
+    max_choice = len(options)
+    while True:
+      user_input = input(
+          f'Enter one or more choices from {min_choice}-{max_choice}: ')
+      choices = []
+      choices_valid = True
+      for i, choice_str in enumerate(user_input.replace(',', ' ').split()):
+        try:
+          choice = int(choice_str)
+          if choice < min_choice or choice > max_choice:
+            raise ValueError()
+          choices.append(choice - 1)
+        except ValueError:
+          print(
+              f'Entry {i+1} is invalid. Must be a number between'
+              f' {min_choice}-{max_choice}.'
+          )
+          choices_valid = False
+          break
+      if not choices:
+        print('Choose at least one option.')
+      elif len(set(choices)) != len(choices):
+        print('Duplicate options not allowed.')
+      elif choices_valid:
+        print()
+        return [options[c] for c in choices]
+
+
+def get_cleaned_username():
+  """Returns a cleaned version of user's authenticated account.
+
+  Cleaning involves removing everything "@" and after, converting to lowercase,
+  and dropping anything that's not a letter (e.g. dash or underscore).
+  """
+  account = subprocess.check_output(
+      'gcloud config get-value account',
+      stderr=subprocess.STDOUT,
+      shell=True).decode().strip()
+  if account == '(unset)':
+    raise ValueError('Cannot determine user name. Did you authenticate yet?')
+  name = account.partition('@')[0]
+  return re.compile('[^a-z0-9]').sub('', name.lower())
+
+
+def get_cleaned_job_name(prefix: str) -> str:
+  cleaned_assessment_name = re.compile('[^a-z0-9]').sub(
+      '', ASSESSMENT_NAME.lower()
+  )
+  return f'{prefix}-{cleaned_assessment_name}-{get_cleaned_username()}'
+
+
 # %% cellView="form"
 # @title Check assessment status (Optional)
 
@@ -648,8 +719,8 @@ with warnings.catch_warnings():
 
 # %% cellView="form"
 # @title Check Building Footprints
-def check_buildings():
-  """Checks that buildings file is valid and prints number of buildings."""
+def _check_buildings():
+  """Makes sure building file can be read and prints number of buildings."""
   path = _read_text_file(BUILDINGS_FILE_LOG).strip()
   if not _file_exists(path):
     print(f'Buildings file {path} does not exist yet. Wait for the building '
@@ -679,7 +750,7 @@ def check_buildings():
   print(f'Building footprints found with {len(gdf)} buildings.')
 
 
-check_buildings()
+_check_buildings()
 
 # %% cellView="form"
 # @title Run Example Generation Job
@@ -736,10 +807,12 @@ def run_example_generation(config_file_path: str):
   else:
     eeda_bearer_env = ''
 
+  job_name = get_cleaned_job_name('genexamples')
   script = textwrap.dedent(f'''
     cd {SKAI_CODE_DIR}/src
     {eeda_bearer_env}
     python generate_examples_main.py \
+      --job_name={job_name} \
       --configuration_path={config_file_path} \
       --output_metadata_file
   ''')
@@ -786,12 +859,14 @@ visualize_generated_examples(UNLABELED_TFRECORD_PATTERN, 10)
 def run_zero_shot_model():
   """Runs zero-shot model inference."""
   image = 'gcr.io/disaster-assessment/skai-ml-siglip-tpu:20250423-155604_575647'
+  job_name = get_cleaned_job_name('zeroshot')
   script = textwrap.dedent(f'''
     export GOOGLE_CLOUD_PROJECT={GCP_PROJECT}
     export GOOGLE_CLOUD_BUCKET_NAME={GCP_BUCKET}
     cd {SKAI_CODE_DIR}/src
 
     xmanager launch skai/model/xm_vlm_zero_shot_vertex.py -- \
+      --job_name={job_name} \
       --example_patterns={UNLABELED_TFRECORD_PATTERN} \
       --output_dir={ZERO_SHOT_DIR} \
       --cloud_location={GCP_LOCATION} \
@@ -885,6 +960,7 @@ show_high_damage_example_counts(ZERO_SHOT_DEDUPED_SCORES)
 # @title Create Labeling Images
 SAMPLING_METHOD = 'uniform'  # @param ['representative', 'uniform']
 MAX_LABELING_IMAGES = 500  # @param {'type': 'integer'}
+LABEL_DATASET_NAME = 'labels'  # @param {'type': 'string'}
 TEST_PERCENTAGE = 20  # @param {'type': 'integer'}
 
 
@@ -974,7 +1050,10 @@ def create_labeling_images(
       return
 
   timestamp = get_timestamp()
-  images_dir = os.path.join(output_dir, timestamp)
+  images_dir = os.path.join(
+      output_dir,
+      f'{timestamp}_{LABEL_DATASET_NAME}_{SAMPLING_METHOD}_{MAX_LABELING_IMAGES}',
+  )
 
   if sampling_method == 'representative':
     allowed_example_ids_path = run_representative_sampling(
@@ -1169,26 +1248,27 @@ def create_labeled_examples(
   assert test_percent >= 1, 'Test percentage must be at least 1%.'
   train_percent = 100 - test_percent
 
-  timestamp = get_timestamp()
-  output_dir = os.path.join(
-      labeled_examples_dir,
-      f'{timestamp}_{train_percent:02d}_{test_percent:02d}_minor{0 if minor_is_0 else 1}',
-  )
-  labels_path = os.path.join(output_dir, 'labels.csv')
-  if not upload_label_csvs(labels_path):
-    return
-
   labeling_images_dirs = [
       os.path.join(labeling_images_root, d)
       for d in tf.io.gfile.listdir(labeling_images_root)]
   labeling_images_dir = choose_option(
-      labeling_images_dirs, 'Choose labeling images'
+      labeling_images_dirs, 'Choose the dataset these labels are for'
   )
   tfrecord_path = os.path.join(
       labeling_images_dir, 'labeling_examples.tfrecord'
   )
   if not tf.io.gfile.exists(tfrecord_path):
     print(f'File {tfrecord_path} does not exist. Cannot proceed.')
+    return
+
+  timestamp = get_timestamp()
+  dataset_name = labeling_images_dir.split('/')[-2]
+  output_dir = os.path.join(
+      labeled_examples_dir,
+      f'{timestamp}_{dataset_name}_{train_percent:02d}_{test_percent:02d}_minor{0 if minor_is_0 else 1}',
+  )
+  labels_path = os.path.join(output_dir, 'labels.csv')
+  if not upload_label_csvs(labels_path):
     return
 
   samples_path = os.path.join(labeling_images_dir, 'samples.csv')
@@ -1297,18 +1377,67 @@ def run_training(
   # !bash script.sh
 
 
+def _combine_labeled_datasets(dirs: list[str]) -> tuple[str, str]:
+  """Combines multiple labeled datasets into a single one."""
+  train_paths = [os.path.join(d, TRAIN_TFRECORD_NAME) for d in dirs]
+  test_paths = [os.path.join(d, TEST_TFRECORD_NAME) for d in dirs]
+  for path in train_paths + test_paths:
+    if not tf.io.gfile.exists(path):
+      raise ValueError(f'TFRecord file {path} expected but not found.')
+
+  print(f'Combining {len(dirs)} datasets into a single dataset.')
+  while True:
+    name = input('Name of directory for combined dataset: ')
+    output_dir = os.path.join(LABELED_EXAMPLES_ROOT, name)
+    if tf.io.gfile.exists(output_dir):
+      print(f'Directory {output_dir} already exists.')
+      continue
+    break
+  print(f'Writing combined dataset to {output_dir}.')
+
+  # Record the source train and test tfrecords.
+  provenance_file = os.path.join(output_dir, 'provenance.txt')
+  with tf.io.gfile.GFile(provenance_file, 'w') as f:
+    f.write('Train TFRecords:\n')
+    f.write('\n'.join(train_paths))
+    f.write('\nTest TFRecords:\n')
+    f.write('\n'.join(test_paths))
+    f.write('\n')
+
+  output_train_path = os.path.join(output_dir, TRAIN_TFRECORD_NAME)
+  output_test_path = os.path.join(output_dir, TEST_TFRECORD_NAME)
+  for input_paths, output_path in (
+      (train_paths, output_train_path), (test_paths, output_test_path)):
+    records = list(
+        tqdm.notebook.tqdm(
+            tf.data.TFRecordDataset(input_paths).as_numpy_iterator(),
+            desc='Reading',
+        )
+    )
+    random.shuffle(records)
+    with tf.io.TFRecordWriter(output_path) as writer:
+      for r in tqdm.notebook.tqdm(records, desc='Writing'):
+        writer.write(r)
+  return output_dir
+
+
 def choose_dataset_run_training():
   """Allows user to choose a labeled dataset and trains a model using it."""
-  labeled_example_dir = choose_option(
+  labeled_example_dirs = choose_multiple_options(
       find_labeled_examples_dirs(),
-      'Choose a labeled examples dir')
-  if labeled_example_dir is None:
+      'Choose labeled example directories to train on')
+  if labeled_example_dirs is None:
     return
+  elif len(labeled_example_dirs) == 1:
+    labeled_example_dir = labeled_example_dirs[0]
+  else:
+    labeled_example_dir = _combine_labeled_datasets(labeled_example_dirs)
   train_path = os.path.join(labeled_example_dir, TRAIN_TFRECORD_NAME)
   test_path = os.path.join(labeled_example_dir, TEST_TFRECORD_NAME)
   model_dir = os.path.join(labeled_example_dir, 'models')
+  job_name = get_cleaned_job_name('finetune')
   run_training(
-      ASSESSMENT_NAME, train_path, test_path, model_dir, NUM_TRAINING_EPOCHS)
+      job_name, train_path, test_path, model_dir, NUM_TRAINING_EPOCHS)
 
 choose_dataset_run_training()
 
@@ -1549,7 +1678,7 @@ evaluate_model_on_test_examples()
 # @markdown Leave INFERENCE_TFRECORD_PATTERN blank to run on default unlabeled
 # @markdown examples.
 INFERENCE_TFRECORD_PATTERN = ''  # @param {"type":"string"}
-INFERENCE_FILE_PREFIX = 'inference_output_test'  # @param {"type":"string"}
+INFERENCE_FILE_PREFIX = 'inference_output'  # @param {"type":"string"}
 
 
 def _find_dataflow_job_url(output: str, region: str, project: str) -> str:
@@ -1586,11 +1715,13 @@ def run_inference(
       '--accelerator_count=1'])
 
   temp_dir = os.path.join(output_dir, 'inference_temp')
+  job_name = get_cleaned_job_name('inference')
   script = textwrap.dedent(f'''
     cd {SKAI_CODE_DIR}/src
     export GOOGLE_CLOUD_PROJECT={cloud_project}
     export PYTHONPATH={SKAI_CODE_DIR}/src:$PYTHONPATH
     python skai/model/inference.py \
+      --job_name='{job_name}' \
       --examples_pattern='{examples_pattern}' \
       --image_model_dir='{checkpoint_dir}' \
       --output_prefix='{output_prefix}' \
@@ -1613,8 +1744,12 @@ def run_inference(
     print(f'Input examples: {examples_pattern}')
     print(f'Output prefix: {output_prefix}')
     print(f'Damage score threshold: {default_threshold}')
-    output = subprocess.check_output(
-        ['bash', script_path], stderr=subprocess.STDOUT).decode()
+    try:
+      output = subprocess.check_output(
+          ['bash', script_path], stderr=subprocess.STDOUT).decode()
+    except subprocess.CalledProcessError as e:
+      print(e.output)
+      return
     job_url = _find_dataflow_job_url(output, cloud_region, cloud_project)
     if job_url is None:
       # Default to the Dataflow Dashboard
@@ -1665,7 +1800,7 @@ do_inference()
 # %% cellView="form"
 # @title Get assessment stats (Optional)
 
-DAMAGE_SCORE_THRESHOLD = 0.9  # @param {type:"number"}
+DAMAGE_SCORE_THRESHOLD = 0.5  # @param {type:"number"}
 
 
 def get_assessment_stats():
