@@ -129,7 +129,7 @@ class VLM(abc.ABC):
     if self.label_embeddings is None:
       raise ValueError('Label embeddings are not set.')
 
-    if jax.lib.xla_bridge.get_backend().platform != 'tpu':
+    if jax.extend.backend.get_backend().platform != 'tpu':
       raise ValueError('Not connected to TPU.')
 
     batch_size, image_size, _, _ = images.shape
