@@ -2,37 +2,6 @@
 
 Currently this module does not support running the inference on a backend other
 than TPU and it can only be run through xm_vlm_zero_shot_vertex module.
-
-Supported SigLiP models (listing models that had been evaluated on SKAI
-datasets):
-- B/16, 224
-- B/16, 256
-- B/16, 384
-- B/16, 512
-- L/16, 256
-- L/16, 384
-- So400m/14, 224
-- So400m/14, 384
-- B/16-i18n, 256
-
-Supported SigLiP-2 models (image_variant, image_variant_image_size):
-- B/32, 256
-- B/16, 224
-- B/16, 256
-- B/16, 384
-- B/16, 512
-- L/16, 256
-- L/16, 384
-- L/16, 512
-- So400m/16, 256
-- So400m/16, 384
-- So400m/16, 512
-- So400m/14, 224
-- So400m/14, 384
-- g-opt/16, 256
-- g-opt/16, 384
-
-Naflex models are not currently supported.
 """
 
 from collections.abc import Sequence
@@ -93,12 +62,6 @@ _IMAGE_FEATURE = flags.DEFINE_string(
     'Feature to use as the input image.',
 )
 
-_USE_SIGLIP2 = flags.DEFINE_bool(
-    'use_siglip2',
-    False,
-    'If true, use SigLIP2. Otherwise, use old SigLIP.',
-)
-
 _SIGLIP_MODEL_VARIANT = flags.DEFINE_string(
     'siglip_model_variant', 'So400m/14', 'Specifies model variant for SigLIP. '
     'Options are "B/16", "L/16", "So400m/14" and "B/16-i18n". Note that each '
@@ -130,14 +93,13 @@ def main(argv: Sequence[str]) -> None:
 
   _check_example_patterns(_EXAMPLE_PATTERNS.value)
 
-  if _USE_SIGLIP2.value:
-    model_config = public_vlm_config.get_siglip2_model_config(
-        _SIGLIP_MODEL_VARIANT.value, _IMAGE_SIZE.value
-    )
-  else:
-    model_config = public_vlm_config.get_siglip_config(
-        _SIGLIP_MODEL_VARIANT.value, _IMAGE_SIZE.value
-    )
+  # Get configuration for the model.
+  model_config = public_vlm_config.get_model_config(
+      'siglip',
+      _SIGLIP_MODEL_VARIANT.value,
+      _IMAGE_SIZE.value,
+      None
+  )
 
   if not _DATASET_NAMES.value:
     dataset_names = [

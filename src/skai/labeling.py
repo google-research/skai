@@ -592,7 +592,7 @@ def create_buffered_tfrecords(
 
 
 def _process_example_files(
-    example_files: list[str],
+    example_files: str,
     output_dir: str,
     use_multiprocessing: bool,
     multiprocessing_context: Any,

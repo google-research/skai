@@ -10,7 +10,7 @@ from typing import Optional
 import ml_collections as mlc
 
 
-_PUBLIC_SIGLIP_MODELS = {
+_PUBLIC_WEBLI_MODELS = {
     ('B/16', 224): ('webli_en_b16_224_63724782.npz', 'B', 768, 64, 32_000),
     ('B/16', 256): ('webli_en_b16_256_60500360.npz', 'B', 768, 64, 32_000),
     ('B/16', 384): ('webli_en_b16_384_68578854.npz', 'B', 768, 64, 32_000),
@@ -91,7 +91,7 @@ def get_siglip_config(
   """
   try:
     checkpoint, text_variant, embedding_dim, sequence_length, vocab_size = (
-        _PUBLIC_SIGLIP_MODELS[(image_variant, image_size)]
+        _PUBLIC_WEBLI_MODELS[(image_variant, image_size)]
     )
   except KeyError as ex:
     raise ValueError(
@@ -124,67 +124,6 @@ def get_siglip_config(
 
   config.init_types = ('float32', 'int32')
   config.model_init = checkpoint_path
-  return config
-
-
-def get_siglip2_model_config(
-    image_variant: str, image_size: int
-) -> mlc.ConfigDict:
-  """Returns the config for the SigLIP2 model.
-
-  Args:
-    image_variant: The variant of the SigLIP2 model to load.
-    image_size: The size of the image.
-
-  Returns:
-    Configuration dict for the specified SigLIP2 model.
-  """
-  siglip2_seq_len = 64
-  config = mlc.ConfigDict()
-
-  # Model Architecture.
-  text_variant, _ = image_variant.split('/')
-  embed_dim = {'B': 768, 'L': 1024, 'So400m': 1152, 'g-opt': 1536}[text_variant]
-  # Note: The g-opt vision encoder is paired with a So400m text encoder
-  text_variant = 'So400m' if text_variant == 'g-opt' else text_variant
-  vocab = 256_000
-  model_cfg = mlc.ConfigDict(
-      dict(
-          image_model='vit',
-          image=dict(
-              pool_type='map',
-              scan=True,
-              variant=image_variant,
-          ),
-          text_model='proj.image_text.text_transformer',
-          text=dict(
-              scan=True,
-              variant=text_variant,
-              vocab_size=vocab,
-          ),
-          out_dim=[None, embed_dim],
-          bias_init=-10,
-      )
-  )
-  config.model = model_cfg
-
-  # Model Checkpoint.
-  config.model_init = (
-      'gs://big_vision/siglip2/'
-      + f'siglip2_{image_variant.lower().replace("/", "")}_{image_size}.npz'
-  )
-  # Model preprocessing functions.
-  config.evals = mlc.ConfigDict()
-  config.evals.pp_txt = (
-      f"lower(inkey='texts')|tok(length={siglip2_seq_len}, model='gemma',"
-      " bos='no', eos='sticky', inkey='texts', outkey='labels')"
-  )
-  config.evals.pp_img = f'resize({image_size})|value_range(-1, 1)'
-  # Image and text shapes.
-  image_shape = (1, 512, 512, 3)
-  text_shape = (1, siglip2_seq_len)
-  config.init_shapes = (image_shape, text_shape)
-
   return config
 
 

@@ -3,17 +3,17 @@ r"""XManager launch script for zero_shot eval on Vertex AI.
 This script launches an XManager experiment for zero-shot inference. It launches
 the zero-shot inference job on a single TPU.
 
-Example Usage for old SigLIP:
+Usage:
 
 xmanager launch src/skai/model/xm_vlm_zero_shot_vertex.py -- \
+    --model_variant='So400m/14' \
     --batch_size=128 \
+    --image_size=224 \
     --dataset_names='hurricane_ian' \
     --example_patterns='/path/to/hurricane_ian_dataset' \
     --output_dir='/path/to/output_dir'
 
-
 To launch the ensemble:
-
 xmanager launch src/skai/model/xm_vlm_zero_shot_vertex.py -- \
   --xm_gcp_service_account_name=skai-dataflow \
   --example_patterns=$EXAMPLES_PATTERN \
@@ -108,12 +108,6 @@ _GEOFM_SAVEDMODEL_PATH = flags.DEFINE_string(
     'Path to the exported GeoFM SavedModel.',
 )
 
-_USE_SIGLIP2 = flags.DEFINE_bool(
-    'use_siglip2',
-    False,
-    'If true, use SigLIP2. Otherwise, use old SigLIP.',
-)
-
 _SIGLIP_MODEL_VARIANT = flags.DEFINE_string(
     'siglip_model_variant',
     'So400m/14',
@@ -122,21 +116,7 @@ _SIGLIP_MODEL_VARIANT = flags.DEFINE_string(
     'siglip_model_variant supports a specific set of image sizes.',
 )
 
-_SIGLIP_IMAGE_SIZE = flags.DEFINE_integer(
-    'siglip_image_size', 224, 'Specifies image size for SigLIP. '
-)
-
-_SIGLIP2_MODEL_VARIANT = flags.DEFINE_string(
-    'siglip2_model_variant',
-    'g-opt/16',
-    'Specifies model variant for SigLIP2. '
-    'Options are "B/16", "L/16", "So400m/14" and "B/16-i18n". Note that each '
-    'siglip_model_variant supports a specific set of image sizes.',
-)
-
-_SIGLIP2_IMAGE_SIZE = flags.DEFINE_integer(
-    'siglip2_image_size', 256, 'Specifies image size for SigLIP2. '
-)
+_IMAGE_SIZE = flags.DEFINE_integer('image_size', 224, 'Image size.')
 
 _BUILD_DOCKER_IMAGE = flags.DEFINE_bool(
     'build_docker_image',
@@ -147,7 +127,7 @@ _BUILD_DOCKER_IMAGE = flags.DEFINE_bool(
 
 _SIGLIP_DOCKER_IMAGE = flags.DEFINE_string(
     'siglip_docker_image',
-    'gcr.io/disaster-assessment/skai-ml-siglip-tpu:20250905-200713_574610',
+    'gcr.io/disaster-assessment/skai-ml-siglip-tpu:20250424-172729_803496',
     'Pre-built Docker image to use for siglip.',
 )
 
@@ -192,16 +172,7 @@ _GEOFM_ACCELERATOR_TYPE = flags.DEFINE_enum(
 
 def main(_) -> None:
   xm_vertex.set_default_client(xm_vertex.Client(location=_CLOUD_LOCATION.value))
-  siglip_model_variant = (
-      _SIGLIP2_MODEL_VARIANT.value
-      if _USE_SIGLIP2.value
-      else _SIGLIP_MODEL_VARIANT.value
-  )
-  siglip_image_size = (
-      _SIGLIP2_IMAGE_SIZE.value
-      if _USE_SIGLIP2.value
-      else _SIGLIP_IMAGE_SIZE.value
-  )
+
   if not _DATASET_NAMES.value:
     dataset_names = [
         f'dataset_{i}' for i in range(len(_EXAMPLE_PATTERNS.value))
@@ -213,22 +184,12 @@ def main(_) -> None:
     experiment_name = _JOB_NAME.value
   else:
     experiment_name = xm_vlm_zero_shot_vertex_lib.get_experiment_name(
-        dataset_names, _MODEL_TYPE.value, siglip_model_variant,
-        siglip_image_size
+        dataset_names, _MODEL_TYPE.value, _SIGLIP_MODEL_VARIANT.value,
+        _IMAGE_SIZE.value
     )
   with xm_local.create_experiment(
       experiment_title=experiment_name
   ) as experiment:
-    siglip_model_variant = (
-        _SIGLIP2_MODEL_VARIANT.value
-        if _USE_SIGLIP2.value
-        else _SIGLIP_MODEL_VARIANT.value
-    )
-    siglip_image_size = (
-        _SIGLIP2_IMAGE_SIZE.value
-        if _USE_SIGLIP2.value
-        else _SIGLIP_IMAGE_SIZE.value
-    )
     xm_vlm_zero_shot_vertex_lib.build_experiment_jobs(
         experiment,
         _MODEL_TYPE.value,
@@ -243,9 +204,8 @@ def main(_) -> None:
         _NUM_RAM.value,
         _NUM_CPU.value,
         # SigLIP args.
-        _USE_SIGLIP2.value,
-        siglip_model_variant,
-        siglip_image_size,
+        _SIGLIP_MODEL_VARIANT.value,
+        _IMAGE_SIZE.value,
         _NEGATIVE_LABELS_FILEPATH.value,
         _POSITIVE_LABELS_FILEPATH.value,
         _CLOUD_LABELS_FILEPATH.value,

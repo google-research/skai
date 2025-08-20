@@ -21,6 +21,8 @@
 set -e
 set -x
 
+echo "[LUIS]: skai: 2nd CL shadow job test."
+
 if [ -n "$KOKORO_ROOT" ]
 then
   # Setup for invoking from continuous integration test framework.

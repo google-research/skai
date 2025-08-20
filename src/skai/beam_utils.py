@@ -22,8 +22,6 @@ import apache_beam.options.value_provider as value_provider
 
 PipelineOptions = beam.options.pipeline_options.PipelineOptions
 
-_SUPPORTED_PYTHON_VERSIONS = ('3.12',)
-
 
 class _BinarySink(fileio.FileSink):
   """Sink class for writing records of (filename, contents) in WriteToFiles."""
@@ -96,33 +94,14 @@ def _get_dataflow_container_image(accelerator: str) -> str | None:
   if accelerator not in ('cpu', 'gpu'):
     raise ValueError(f'Accelerator must be "cpu" or "gpu", got "{accelerator}"')
   py_version = '.'.join(platform.python_version().split('.')[:2])
-  if py_version not in _SUPPORTED_PYTHON_VERSIONS:
+  if py_version not in ['3.10', '3.11']:
     raise ValueError(
-        f'Dataflow SDK supports Python versions {_SUPPORTED_PYTHON_VERSIONS},'
-        f' not {py_version}'
+        f'Dataflow SDK supports Python versions 3.10+, not {py_version}'
     )
 
-  version_map = {
-      (
-          '3.12',
-          'cpu',
-      ): (
-          'gcr.io/disaster-assessment/dataflow_cpu_3.12_image@sha256:6e570bc0fae04f6d9fbc04ee536828de59ca014ab2b08b29148fa1c8578229ef'
-      ),
-      (
-          '3.12',
-          'gpu',
-      ): (
-          'gcr.io/disaster-assessment/dataflow_gpu_3.12_image@sha256:083484670ea8e0055059d21514dadf98b6174eb5016774689d5346ed6b335a56'
-      ),
-  }
-
-  if (py_version, accelerator) not in version_map:
-    raise ValueError(
-        f'No dataflow contanier available for Python version {py_version} and'
-        f' accelerator {accelerator}'
-    )
-  return version_map[(py_version, accelerator)]
+  return (
+      f'gcr.io/disaster-assessment/dataflow_{accelerator}_{py_version}_image:20250530_163200'
+  )
 
 
 def get_pipeline_options(
