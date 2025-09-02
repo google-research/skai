@@ -578,7 +578,7 @@ class DetectBuildingsTest(tf.test.TestCase, parameterized.TestCase):
       ]
       self.assertAllClose([1.0, 0.7], deduped_confidences)
 
-    util.assert_that(deduped_buildings, _check_results)
+      util.assert_that(deduped_buildings, _check_results)
 
   def test_recursively_copy_directory(self):
     src_dir = self.create_tempdir()

@@ -45,9 +45,6 @@ from skai import extract_tiles_constants
 from skai import utils
 import skai.buildings
 import tensorflow as tf
-import tensorflow_addons.image as tfa_image
-
-_ = tfa_image.connected_components(tf.ones((10, 10), tf.uint8))
 
 Example = tf.train.Example
 Metrics = beam.metrics.Metrics
@@ -106,10 +103,7 @@ def _load_tf_model(model_path: str) -> tf.Module:
   """
   # If path is a directory, we can assume the model is in SavedModel format.
   if tf.io.gfile.isdir(model_path):
-    local_temp_name = tempfile.mkdtemp()
-    _recursively_copy_directory(model_path, local_temp_name, overwrite=True)
-    model = tf.saved_model.load(local_temp_name)
-    tf.io.gfile.rmtree(local_temp_name)
+    model = tf.saved_model.load(model_path)
   else:
     with tempfile.NamedTemporaryFile(suffix='.hdf5', delete=True) as local_temp:
       local_temp_name = local_temp.name

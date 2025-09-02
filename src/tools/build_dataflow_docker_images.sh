@@ -5,8 +5,8 @@
 set -e
 
 PYTHON_VERSIONS=('3.11' '3.10')
-BEAM_VERSION='2.54.0'
-TENSORFLOW_VERSION='2.14.0'
+BEAM_VERSION='2.65.0'
+TENSORFLOW_VERSION='2.19.0'
 
 PYTHON_DEPS=(
   earthengine-api
@@ -25,9 +25,7 @@ PYTHON_DEPS=(
   rtree
   "shapely>=2.0.0"
   "tensorflow==${TENSORFLOW_VERSION}"
-  tensorflow-addons
   tensorflow-datasets
-  tf-models-official
   tqdm
 )
 
@@ -49,6 +47,7 @@ FROM tensorflow/tensorflow:${TENSORFLOW_VERSION}-gpu
 RUN apt-get update && apt-get install -y libcairo2-dev libjpeg-dev libgif-dev
 RUN pip install --upgrade pip
 RUN pip install ${PYTHON_DEPS[@]}
+RUN pip install "tensorflow[and-cuda]"
 RUN pip install apache-beam[gcp]==${BEAM_VERSION}
 COPY --from=apache/beam_python${PYTHON_VERSION}_sdk:${BEAM_VERSION} /opt/apache/beam /opt/apache/beam
 ENTRYPOINT [ "/opt/apache/beam/boot" ]

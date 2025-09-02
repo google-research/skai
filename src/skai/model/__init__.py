@@ -13,3 +13,6 @@
 # limitations under the License.
 
 """Library of Tensorflow 2 Keras model."""
+import os
+
+os.environ['TF_USE_LEGACY_KERAS'] = '1'

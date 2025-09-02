@@ -131,6 +131,7 @@ def main(args):
       FLAGS.min_dataflow_workers,
       FLAGS.max_dataflow_workers,
       FLAGS.worker_service_account,
+      experiments='no_use_multiple_sdk_containers',
       machine_type=FLAGS.worker_machine_type,
       accelerator=None,
       accelerator_count=0,

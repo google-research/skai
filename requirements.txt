@@ -1,5 +1,5 @@
 absl-py>=0.12.0
-apache_beam[gcp]==2.54.0
+apache_beam[gcp]==2.65.0
 earthengine-api
 fiona
 gcsfs
@@ -13,18 +13,17 @@ pandas>=2
 pillow
 pyproj
 pytest
-rasterio==1.3.9  # https://github.com/rasterio/rasterio/issues/3192
+rasterio
 requests
 rio-cogeo
 rtree
 shapely>=2
 scikit-learn
-tensorflow==2.14.0
+tensorflow==2.19.0
 tensorflow-datasets
 tensorflow_probability
 tqdm
 openlocationcode
 xmanager>=0.7.1
-tensorflow_addons
-tensorflow-text
 scipy
+tf_keras
