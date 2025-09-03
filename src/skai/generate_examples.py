@@ -76,8 +76,10 @@ _PLUS_CODE_LENGTH = 14
 _BUILDINGS_FILE_NAME = 'processed_buildings.parquet'
 
 # Default minimum and maximum number of Dataflow workers per job.
-_DEFAULT_MIN_DATAFLOW_WORKERS = 10
-_DEFAULT_MAX_DATAFLOW_WORKERS = 20
+_DEFAULT_MIN_DATAFLOW_WORKERS = 1
+_DEFAULT_MAX_DATAFLOW_WORKERS = 40
+
+_WORKER_MACHINE_TYPE = 'n4-standard-16'
 
 
 @dataclasses.dataclass
@@ -191,7 +193,7 @@ class ExamplesGenerationConfig:
   output_parquet: bool = False
   output_images: bool = False
   worker_service_account: Optional[str] = None
-  min_dataflow_workers: int = 10
+  min_dataflow_workers: int = 1
   max_dataflow_workers: int = 20
   example_patch_size: int = 64
   large_patch_size: int = 256
@@ -1283,7 +1285,7 @@ def _generate_examples_pipeline(
       min_workers,
       max_workers,
       worker_service_account,
-      machine_type=None,
+      machine_type=_WORKER_MACHINE_TYPE,
       accelerator=None,
       accelerator_count=0,
   )
