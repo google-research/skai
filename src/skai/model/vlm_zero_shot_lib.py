@@ -11,6 +11,7 @@ from big_vision.pp import builder as pp_builder
 import big_vision.pp.ops_general
 import big_vision.pp.ops_image
 import big_vision.pp.ops_text
+import big_vision.pp.proj.paligemma.ops
 # pylint:enable=unused-import
 import flax
 import jax
@@ -19,6 +20,7 @@ import numpy as np
 import pandas as pd
 from skai.model import cloud_postprocess_lib
 import tensorflow as tf
+
 
 OUTPUT_FEATURES = [
     'building_id',
@@ -189,9 +191,7 @@ class WebliViT(VLM):
     )
 
   def tokenize(self, texts: list[str]) -> np.ndarray:
-    texts = tf.convert_to_tensor(
-        [tf.convert_to_tensor([text]) for text in texts], dtype=tf.string
-    )
+    texts = tf.convert_to_tensor(texts, dtype=tf.string)
     return tf.map_fn(
         lambda text: self.preprcoess_txt({'texts': text})['labels'],
         texts,
