@@ -35,7 +35,7 @@ BIG_VISION_DOCKER_INSTRUCTIONS = [
         # work with the current version of SKAI.
         'RUN git clone https://github.com/google-research/big_vision.git'
         ' /big_vision && cd /big_vision && git checkout'
-        ' 6d6c28a9634fd2f48f0f505f112d063dfc9bdf96'
+        ' 0127fb6b337ee2a27bf4e54dea79cff176527356'
     ),
     (
         'RUN echo "from setuptools import setup, find_packages" >>'
@@ -49,6 +49,8 @@ BIG_VISION_DOCKER_INSTRUCTIONS = [
     'RUN touch big_vision/big_vision/models/proj/image_text/__init__.py',
     'RUN touch big_vision/big_vision/datasets/__init__.py',
     'RUN touch big_vision/big_vision/datasets/imagenet/__init__.py',
+    'RUN touch big_vision/big_vision/pp/proj/paligemma/__init__.py',
+    'RUN touch big_vision/big_vision/pp/proj/__init__.py',
     'RUN pip uninstall big_vision',
     'RUN pip install /big_vision/.',
     'RUN cd ..',

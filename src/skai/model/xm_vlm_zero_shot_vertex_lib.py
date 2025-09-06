@@ -219,6 +219,7 @@ def build_experiment_jobs(experiment: xm.Experiment,
                           num_ram: int,
                           num_cpu: int,
                           # SigLIP args.
+                          use_siglip2: bool,
                           siglip_model_variant: str,
                           image_size: int,
                           negative_labels_filepath: str,
@@ -248,7 +249,8 @@ def build_experiment_jobs(experiment: xm.Experiment,
     image_feature: The image feature to use for the training job.
     num_ram: The amount of RAM to use for the training job.
     num_cpu: The number of CPUs to use for the training job.
-    siglip_model_variant: The model variant to use for SigLIP.
+    use_siglip2: Whether to use SigLIP2. If false, use old SigLIP.
+    siglip_model_variant: The model name to use for SigLIP.
     image_size: The image size to use for SigLIP.
     negative_labels_filepath: The path to the negative labels file.
     positive_labels_filepath: The path to the positive labels file.
@@ -278,6 +280,7 @@ def build_experiment_jobs(experiment: xm.Experiment,
     siglip_image = _get_docker_image_name('siglip')
     siglip_operand = ['/skai/src/skai/model/vlm_zero_shot_vertex.py']
     siglip_job_args = job_args | {
+        'use_siglip2': use_siglip2,
         'siglip_model_variant': siglip_model_variant,
         'image_size': image_size,
         'negative_labels_filepath': negative_labels_filepath,
