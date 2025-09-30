@@ -113,7 +113,7 @@ def _get_dataflow_container_image(accelerator: str) -> str | None:
           '3.12',
           'gpu',
       ): (
-          'gcr.io/disaster-assessment/dataflow_gpu_3.12_image@sha256:083484670ea8e0055059d21514dadf98b6174eb5016774689d5346ed6b335a56'
+          'gcr.io/disaster-assessment/dataflow_gpu_3.12_image@sha256:7147ff54bd2f757ef6cb666f8cedd6951808394c2f9b21fdadc2c393fdb591a5'
       ),
   }
 

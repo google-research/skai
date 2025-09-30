@@ -43,22 +43,20 @@ EOF
 function gen_gpu_docker_file() {
   PYTHON_VERSION="$1"
   cat <<EOF
-FROM tensorflow/tensorflow:${TENSORFLOW_VERSION}-gpu
+FROM apache/beam_python${PYTHON_VERSION}_sdk:${BEAM_VERSION}
 RUN apt-get update && apt-get install -y libcairo2-dev libjpeg-dev libgif-dev
 RUN pip install --upgrade pip
 RUN pip install ${PYTHON_DEPS[@]}
 RUN pip install "tensorflow[and-cuda]"
-RUN pip install apache-beam[gcp]==${BEAM_VERSION}
-COPY --from=apache/beam_python${PYTHON_VERSION}_sdk:${BEAM_VERSION} /opt/apache/beam /opt/apache/beam
-ENTRYPOINT [ "/opt/apache/beam/boot" ]
 EOF
 }
+
 
 TIMESTAMP=$(date "+%Y%m%d_%H%M%S")
 
 for PYTHON_VERSION in ${PYTHON_VERSIONS[@]}
 do
-  for ACCELERATOR in cpu gpu
+  for ACCELERATOR in gpu
   do
     DOCKER_DIR="$(mktemp -d)"
 
