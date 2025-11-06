@@ -131,8 +131,8 @@ class VLM(abc.ABC):
     if self.label_embeddings is None:
       raise ValueError('Label embeddings are not set.')
 
-    if jax.extend.backend.get_backend().platform != 'tpu':
-      raise ValueError('Not connected to TPU.')
+    if jax.extend.backend.get_backend().platform not in ('tpu', 'gpu'):
+      raise ValueError('Not connected to TPU or GPU.')
 
     batch_size, image_size, _, _ = images.shape
     num_images_to_augment = 0

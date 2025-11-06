@@ -147,7 +147,7 @@ _BUILD_DOCKER_IMAGE = flags.DEFINE_bool(
 
 _SIGLIP_DOCKER_IMAGE = flags.DEFINE_string(
     'siglip_docker_image',
-    'gcr.io/disaster-assessment/skai-ml-siglip-tpu:20250905-200713_574610',
+    'gcr.io/disaster-assessment/skai-ml-siglip-gpu:20251103-082405_103606',
     'Pre-built Docker image to use for siglip.',
 )
 
@@ -254,7 +254,6 @@ def main(_) -> None:
         _SIGLIP_DOCKER_IMAGE.value,
         # GeoFM args.
         _GEOFM_SAVEDMODEL_PATH.value,
-        _GEOFM_ACCELERATOR_TYPE.value,
         _GEOFM_DOCKER_IMAGE.value,
         output_ensemble_csv_file_name=_OUTPUT_ENSEMBLE_CSV_FILE_NAME.value,
     )

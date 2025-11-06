@@ -95,6 +95,8 @@ def get_docker_instructions(image_type: str) -> tuple[str, list[str]]:
   """
   if image_type == 'siglip-tpu':
     return get_siglip_tpu_docker_instructions()
+  elif image_type == 'siglip-gpu':
+    return get_siglip_gpu_docker_instructions()
   elif image_type == 'geofm-cpu':
     return get_geofm_docker_instructions('geofm-cpu')
   elif image_type == 'geofm-gpu':
@@ -122,6 +124,27 @@ def get_docker_instructions(image_type: str) -> tuple[str, list[str]]:
   ]
   docker_instructions.extend(SKAI_DOCKER_INSTRUCTIONS)
   return base_image, docker_instructions
+
+
+def get_siglip_gpu_docker_instructions() -> tuple[str, list[str]]:
+  """Returns the docker instructions and base image for to run SigLIP on TPU."""
+  docker_instructions = [
+      'ENV DEBIAN_FRONTEND=noninteractive',
+      (
+          'RUN apt-get update && apt-get install -y wget git libgl1-mesa-glx'
+          ' libsm6 libxext6 libxrender-dev libglib2.0-0 python-is-python3'
+          ' libcairo2-dev libjpeg-dev libgif-dev'
+      ),
+  ]
+  # For skai packages.
+  docker_instructions.extend([
+      'COPY skai /skai',
+      'RUN pip install /skai/src/.',
+      'RUN pip install -r /skai/siglip_requirements.txt',
+  ])
+  docker_instructions.extend(BIG_VISION_DOCKER_INSTRUCTIONS)
+  docker_instructions.append('RUN pip install jax[cuda12]')
+  return 'tensorflow/tensorflow:2.18.0-gpu', docker_instructions
 
 
 def get_siglip_tpu_docker_instructions() -> tuple[str, list[str]]:

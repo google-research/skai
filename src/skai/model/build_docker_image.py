@@ -28,7 +28,7 @@ _PROJECT = flags.DEFINE_string(
 _IMAGE_TYPE = flags.DEFINE_enum(
     'image_type',
     None,
-    ['cpu', 'gpu', 'geofm-cpu', 'geofm-gpu', 'siglip-tpu'],
+    ['cpu', 'gpu', 'geofm-cpu', 'geofm-gpu', 'siglip-gpu', 'siglip-tpu'],
     'Type of image.',
     required=True,
 )

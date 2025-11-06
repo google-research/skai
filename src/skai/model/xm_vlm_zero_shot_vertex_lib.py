@@ -18,8 +18,12 @@ from xmanager.contrib import parameter_controller
 # A temporary directory created on the fly to store a requirements.txt file that
 # specifies the dependencies of the auxiliary job when running the ensemble.
 _CONTROLLER_TMP_DIR = '/tmp/skai/src'
-_SIGLIP_ACCELERATOR_TYPE = 'TPU_V3'
-_ACCELERATOR_COUNT = 8
+
+_GPU_ACCELERATOR_TYPE = 'A100'
+_GPU_ACCELERATOR_COUNT = 1
+
+_TPU_ACCELERATOR_TYPE = 'TPU_V3'
+_TPU_ACCELERATOR_COUNT = 8
 
 
 def _ensemble_prediction_csvs(file_paths: list[str]) -> pd.DataFrame:
@@ -84,36 +88,29 @@ def _save_ensemble_csv(output_path: str, ensembled_df: pd.DataFrame) -> None:
   ensembled_df.to_csv(tf.io.gfile.GFile(output_path, 'w'))
 
 
-def _get_docker_image_name(
-    model_type: str, geofm_accelerator_type: Optional[str] = None
-) -> str:
+def _get_docker_image_name(model_type: str) -> str:
   """Returns the image name for the training job based on model type.
 
   Args:
     model_type: The model type, e.g. 'siglip' or 'geofm'.
-    geofm_accelerator_type: The type of accelerator to use for GeoFM, e.g.
-      'A100' or 'CPU'.
 
   Returns:
     The name of the Docker image to be used to run the training job.
   """
   # TODO(jlee24): For GeoFM, add TPU support when b/399193238 is resolved.
   if model_type == 'siglip':
-    docker_image_name = 'siglip-tpu'
+    return 'siglip-gpu'
   elif model_type == 'geofm':
-    docker_image_name = (
-        'geofm-gpu' if geofm_accelerator_type == 'A100' else 'geofm-cpu'
-    )
+    return 'geofm-gpu'
   else:
     raise ValueError(f'Unsupported model type: {model_type}')
-  return docker_image_name
 
 
 def _get_train_executable(
-    experiment: xm.Experiment, model_type: str, build_docker_image: bool,
-    docker_image_name: str,
-    siglip_docker_image: Optional[str] = None,
-    geofm_docker_image: Optional[str] = None,
+    experiment: xm.Experiment,
+    model_type: str,
+    build_docker_image: bool,
+    pre_built_docker_image: str,
 ) -> list[xm.Executable]:
   """Returns the executable for a training job based on model type.
 
@@ -121,12 +118,8 @@ def _get_train_executable(
     experiment: The XManager experiment object.
     model_type: The model type, e.g. 'siglip' or 'geofm'.
     build_docker_image: Whether to build a docker image from source.
-    docker_image_name: The name of the Docker image to be built. Only used if
-      building from source, e.g. 'siglip-tpu' or 'geofm-gpu'.
-    siglip_docker_image: The path to the pre-built SigLIP docker image. Only
+    pre_built_docker_image: The path to the pre-built docker image. Only
       used if build_docker_image is False.
-    geofm_docker_image: The path to the GeoFM docker image. Only used if
-      build_docker_image is False.
 
   Returns:
     The executable for the training job.
@@ -135,18 +128,16 @@ def _get_train_executable(
     [train_executable] = experiment.package([
         xm.Packageable(
             executable_spec=docker_instructions.get_xm_executable_spec(
-                docker_image_name
+                _get_docker_image_name(model_type)
             ),
             executor_spec=xm_local.Vertex.Spec(),
         ),
     ])
   else:
-    docker_image = (
-        siglip_docker_image if model_type == 'siglip' else geofm_docker_image
-    )
     [train_executable] = experiment.package([
         xm.container(
-            image_path=docker_image, executor_spec=xm_local.Vertex.Spec()
+            image_path=pre_built_docker_image,
+            executor_spec=xm_local.Vertex.Spec(),
         ),
     ])
   return [train_executable]
@@ -157,7 +148,6 @@ def _get_executor(
     cloud_location: str,
     num_cpu: int,
     num_ram: int,
-    geofm_accelerator_type: Optional[str] = None,
 ) -> xm.Executor:
   """Returns the executor for the training job based on model type.
 
@@ -167,8 +157,6 @@ def _get_executor(
     cloud_location: The cloud location to run the job in.
     num_cpu: The number of CPUs to use for the job.
     num_ram: The number of RAM to use for the job.
-    geofm_accelerator_type: The type of accelerator to use for GeoFM, e.g.
-      'A100' or 'CPU'.
 
   Returns:
     The XM executor for the training job, specifying the required resources.
@@ -179,11 +167,10 @@ def _get_executor(
       'cpu': num_cpu * xm.vCPU,
       'ram': num_ram * xm.GiB,
   }
-  if docker_image_name.startswith('geofm'):
-    if geofm_accelerator_type == 'A100':
-      job_kwargs[geofm_accelerator_type] = 1
-  else:
-    job_kwargs[_SIGLIP_ACCELERATOR_TYPE] = _ACCELERATOR_COUNT
+  if '-gpu' in docker_image_name:
+    job_kwargs[_GPU_ACCELERATOR_TYPE] = _GPU_ACCELERATOR_COUNT
+  elif '-tpu' in docker_image_name:
+    job_kwargs[_TPU_ACCELERATOR_TYPE] = _TPU_ACCELERATOR_COUNT
   return xm_local.Vertex(
       requirements=xm.JobRequirements(**job_kwargs),
   )
@@ -206,34 +193,34 @@ def get_experiment_name(
   return '_'.join(experiment_name)
 
 
-def build_experiment_jobs(experiment: xm.Experiment,
-                          model_type: str,
-                          cloud_location: str,
-                          cloud_bucket_name: str,
-                          cloud_project: str,
-                          output_dir: str,
-                          example_patterns: list[str],
-                          dataset_names: list[str],
-                          build_docker_image: bool,
-                          image_feature: str,
-                          num_ram: int,
-                          num_cpu: int,
-                          # SigLIP args.
-                          use_siglip2: bool,
-                          siglip_model_variant: str,
-                          image_size: int,
-                          negative_labels_filepath: str,
-                          positive_labels_filepath: str,
-                          cloud_labels_filepath: str,
-                          nocloud_labels_filepath: str,
-                          batch_size: int,
-                          siglip_docker_image: str,
-                          # GeoFM args.
-                          geofm_savedmodel_path: str,
-                          geofm_accelerator_type: str,
-                          geofm_docker_image: str,
-                          output_ensemble_csv_file_name: Optional[str] = None,
-                          ) -> None:
+def build_experiment_jobs(
+    experiment: xm.Experiment,
+    model_type: str,
+    cloud_location: str,
+    cloud_bucket_name: str,
+    cloud_project: str,
+    output_dir: str,
+    example_patterns: list[str],
+    dataset_names: list[str],
+    build_docker_image: bool,
+    image_feature: str,
+    num_ram: int,
+    num_cpu: int,
+    # SigLIP args.
+    use_siglip2: bool,
+    siglip_model_variant: str,
+    image_size: int,
+    negative_labels_filepath: str,
+    positive_labels_filepath: str,
+    cloud_labels_filepath: str,
+    nocloud_labels_filepath: str,
+    batch_size: int,
+    siglip_docker_image: str,
+    # GeoFM args.
+    geofm_savedmodel_path: str,
+    geofm_docker_image: str,
+    output_ensemble_csv_file_name: Optional[str] = None,
+) -> None:
   """Launches SigLIP and GeoFM inference jobs in parallel.
 
   Args:
@@ -259,8 +246,6 @@ def build_experiment_jobs(experiment: xm.Experiment,
     batch_size: The batch size to use for the SigLIP training job.
     siglip_docker_image: The path to the SigLIP docker image.
     geofm_savedmodel_path: The path to the GeoFM savedmodel.
-    geofm_accelerator_type: The type of accelerator to use for GeoFM, e.g.
-      'A100' or 'CPU'.
     geofm_docker_image: The path to the GeoFM docker image.
     output_ensemble_csv_file_name: The name of the ensembled predictions CSV
       file that will be saved in the output_dir.
@@ -277,7 +262,6 @@ def build_experiment_jobs(experiment: xm.Experiment,
   if dataset_names:
     job_args['dataset_names'] = ','.join(dataset_names)
   if model_type in ['siglip', 'ensemble']:
-    siglip_image = _get_docker_image_name('siglip')
     siglip_operand = ['/skai/src/skai/model/vlm_zero_shot_vertex.py']
     siglip_job_args = job_args | {
         'use_siglip2': use_siglip2,
@@ -291,16 +275,11 @@ def build_experiment_jobs(experiment: xm.Experiment,
     }
     siglip_job_args = xm.merge_args(siglip_operand, siglip_job_args)
     [siglip_executable] = _get_train_executable(
-        experiment,
-        'siglip',
-        build_docker_image,
-        siglip_image,
-        siglip_docker_image=siglip_docker_image)
+        experiment, 'siglip', build_docker_image, siglip_docker_image
+    )
     siglip_executor = _get_executor(
-        siglip_image,
-        cloud_location,
-        num_cpu,
-        num_ram)
+        siglip_docker_image, cloud_location, num_cpu, num_ram
+    )
     siglip_job = xm.Job(
         executable=siglip_executable,
         executor=siglip_executor,
@@ -309,24 +288,17 @@ def build_experiment_jobs(experiment: xm.Experiment,
     xm_jobs['siglip'] = siglip_job
 
   if model_type in ['geofm', 'ensemble']:
-    geofm_image = _get_docker_image_name('geofm')
     geofm_operand = ['/skai/src/skai/model/geofm_zero_shot_vertex.py']
     geofm_job_args = job_args | {
         'geofm_savedmodel_path': geofm_savedmodel_path,
     }
     geofm_job_args = xm.merge_args(geofm_operand, geofm_job_args)
     [geofm_executable] = _get_train_executable(
-        experiment,
-        'geofm',
-        build_docker_image,
-        geofm_image,
-        geofm_docker_image=geofm_docker_image)
+        experiment, 'geofm', build_docker_image, geofm_docker_image
+    )
     geofm_executor = _get_executor(
-        geofm_image,
-        cloud_location,
-        num_cpu,
-        num_ram,
-        geofm_accelerator_type=geofm_accelerator_type)
+        geofm_docker_image, cloud_location, num_cpu, num_ram
+    )
     geofm_job = xm.Job(
         executable=geofm_executable,
         executor=geofm_executor,
