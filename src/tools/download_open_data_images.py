@@ -38,6 +38,7 @@ import geopandas as gpd
 import leafmap
 import pandas as pd
 import requests
+import tensorflow as tf  # For tf.io.gfile
 import tqdm
 
 FLAGS = flags.FLAGS
@@ -46,6 +47,7 @@ flags.DEFINE_string(
     'output_dir', None, 'Output directory on local workstation.'
 )
 flags.DEFINE_string('cloud_dir', None, 'Output directory in GCS.')
+flags.DEFINE_boolean('clear_cache', False, 'Clear the leafmap cache.')
 
 
 def _download_tile(url: str, output_path: str, max_retries: int = 5) -> bool:
@@ -118,19 +120,6 @@ def gdaladdo(path: str):
   )
 
 
-def gsutil_exists(path: str):
-  try:
-    sub.run(
-        ['gsutil', 'ls', path],
-        check=True,
-        stdout=sub.DEVNULL,
-        stderr=sub.DEVNULL,
-    )
-  except sub.CalledProcessError:
-    return False
-  return True
-
-
 def get_child_info(collection_id: str, child_id: str) -> gpd.GeoDataFrame:
   """Returns a GeoDataFrame with information about a child collection."""
   gdf = leafmap.maxar_items(
@@ -150,13 +139,22 @@ def get_child_info(collection_id: str, child_id: str) -> gpd.GeoDataFrame:
   return gpd.GeoDataFrame(properties, geometry=[gdf.unary_union])
 
 
-def make_geotiff(
+def download_and_make_vrt(
     collection_id: str,
     child_id: str,
     output_dir: str,
-    output_path: str,
-):
+    vrt_path: str,
+) -> bool:
   """Makes a GeoTIFF for a child collection."""
+  if os.path.exists(vrt_path):
+    print(f'VRT for {child_id} already exists.')
+    return True
+
+  if child_id.startswith('102'):
+    # Always a WV01 image.
+    print('WV01 not supported. Skipping')
+    return False
+
   print('Fetching data')
   gdf = leafmap.maxar_items(
       collection_id=collection_id,
@@ -174,6 +172,10 @@ def make_geotiff(
     print(f'{platform} not supported yet.')
     return False
 
+  if len(gdf['proj:code'].unique()) > 1:
+    print(f'{child_id} has multiple projections. This is not supported yet.')
+    return False
+
   print(f'Child collection {child_id} is {platform} and has {len(gdf)} tiles.')
 
   os.makedirs(output_dir, exist_ok=True)
@@ -187,20 +189,55 @@ def make_geotiff(
   print(f'Downloading {len(tile_paths)} tiles')
   download_tiles_parallel(gdf['visual'].tolist(), tile_paths)
 
-  vrt_path = os.path.join(output_dir, f'{child_id}.vrt')
   print('Building VRT')
   if not gdalbuildvrt(tile_paths, vrt_path):
     print(f'Failed to build VRT for {child_id}, skipping.')
     return False
-
-  print('Creating TIF')
-  gdal_translate(vrt_path, output_path)
-
-  print('Adding Overviews')
-  gdaladdo(output_path)
-
-  print('Done')
   return True
+
+
+def make_geotiff_and_upload(
+    vrt_path: str, geotiff_path: str, cloud_path: str
+) -> bool:
+  """Turns VRT into COG GeoTIFF with overviews."""
+  if os.path.exists(geotiff_path):
+    print(f'GeoTIFF for {geotiff_path} already exists.')
+    return True
+
+  try:
+    print('Creating TIF')
+    gdal_translate(vrt_path, geotiff_path)
+
+    print('Adding Overviews')
+    gdaladdo(geotiff_path)
+
+    print('Uploading to GCS')
+    sub.run(['gsutil', 'cp', geotiff_path, cloud_path], check=True)
+  except sub.CalledProcessError:
+    print(f'Failed to create GeoTIFF for {geotiff_path}, skipping.')
+    return False
+
+  return True
+
+
+def make_geotiffs_and_upload_in_parallel(
+    vrt_paths: list[str],
+    geotiff_paths: list[str],
+    cloud_paths: list[str],
+    max_workers: int = 5,
+) -> None:
+  """Manages the parallel creation of all GeoTIFFs."""
+  with concurrent.futures.ProcessPoolExecutor(
+      max_workers=max_workers
+  ) as executor:
+    for result in tqdm.tqdm(
+        executor.map(
+            make_geotiff_and_upload, vrt_paths, geotiff_paths, cloud_paths
+        ),
+        total=len(vrt_paths),
+    ):
+      if not result:
+        raise ValueError('Failed to create a GeoTIFF.')
 
 
 def download_collection(
@@ -209,30 +246,42 @@ def download_collection(
     cloud_dir: str,
 ):
   """Downloads all images in a collection."""
-  children = leafmap.maxar_child_collections(collection_id)
+  children = list(leafmap.maxar_child_collections(collection_id))
+
   child_infos = []
+  vrt_paths = []
+  geotiff_paths = []
+  cloud_paths = []
+
+  cloud_dir_contents = [
+      os.path.join(cloud_dir, f) for f in tf.io.gfile.listdir(cloud_dir)
+  ]
   for child_id in tqdm.tqdm(children, desc='Downloading collection'):
     child_output_dir = os.path.join(output_dir, child_id)
+
+    vrt_path = os.path.join(child_output_dir, f'{child_id}.vrt')
     geotiff_path = os.path.join(child_output_dir, f'{child_id}.tif')
     cloud_path = os.path.join(cloud_dir, f'{child_id}.tif')
 
-    if gsutil_exists(cloud_path):
+    if cloud_path in cloud_dir_contents:
       print(f'{cloud_path} already exists, skipping.')
       child_infos.append(get_child_info(collection_id, child_id))
       continue
 
-    if os.path.exists(geotiff_path):
-      print(f'Using existing {geotiff_path}.')
-    else:
-      if not make_geotiff(
-          collection_id, child_id, child_output_dir, geotiff_path
-      ):
-        print(f'{geotiff_path} not created, skipping.')
-        continue
+    if not download_and_make_vrt(
+        collection_id, child_id, child_output_dir, vrt_path
+    ):
+      print(f'{geotiff_path} not created, skipping.')
+      continue
 
-    print(f'Copying to {cloud_path}')
-    sub.run(['gsutil', 'cp', geotiff_path, cloud_path], check=True)
+    vrt_paths.append(vrt_path)
+    geotiff_paths.append(geotiff_path)
+    cloud_paths.append(cloud_path)
     child_infos.append(get_child_info(collection_id, child_id))
+
+  make_geotiffs_and_upload_in_parallel(
+      vrt_paths, geotiff_paths, cloud_paths
+  )
 
   info_path = os.path.join(output_dir, f'{collection_id}.shp.zip')
   cloud_info_path = os.path.join(cloud_dir, f'{collection_id}.shp.zip')
@@ -258,6 +307,10 @@ def main(argv: Sequence[str]) -> None:
   if not FLAGS.cloud_dir:
     print('Please specify a cloud directory.')
     return
+
+  if FLAGS.clear_cache:
+    print('Clearing cache')
+    leafmap.stac.maxar_refresh()
 
   download_collection(
       FLAGS.collection_id, FLAGS.output_dir, FLAGS.cloud_dir
