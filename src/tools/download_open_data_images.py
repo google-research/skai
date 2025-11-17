@@ -28,7 +28,9 @@ $ python download_open_data_images.py \
 
 from collections.abc import Sequence
 import concurrent.futures
+import datetime
 import os
+import shutil
 import subprocess as sub
 import time
 
@@ -48,6 +50,12 @@ flags.DEFINE_string(
 )
 flags.DEFINE_string('cloud_dir', None, 'Output directory in GCS.')
 flags.DEFINE_boolean('clear_cache', False, 'Clear the leafmap cache.')
+flags.DEFINE_string(
+    'start_date',
+    None,
+    'If specified, only download images after this date. Accepted format is'
+    ' "YYYY-MM-DD".',
+)
 
 
 def _download_tile(url: str, output_path: str, max_retries: int = 5) -> bool:
@@ -89,6 +97,46 @@ def download_tiles_parallel(
         raise ValueError('Failed to download a tile.')
 
 
+def reproject_tile(input_path: str, output_path: str, crs: str) -> bool:
+  """Reprojects a tile into a common CRS."""
+  print(f'Reprojecting {input_path} into {crs} to {output_path}')
+  command = ['gdalwarp', '-t_srs', str(crs)]
+  options = [
+      'COMPRESS=JPEG',
+      'PHOTOMETRIC=YCBCR',
+      'JPEG_QUALITY=90',
+      'NUM_THREADS=ALL_CPUS',
+  ]
+  for option in options:
+    command.extend(['-co', option])
+  command.extend([input_path, output_path])
+  try:
+    sub.run(command, check=True)
+  except sub.CalledProcessError:
+    print(f'Failed to reproject {input_path} into {crs}, skipping.')
+    return False
+  return True
+
+
+def reproject_tiles(gdf: gpd.GeoDataFrame, tile_dir: str) -> None:
+  """Reprojects all tiles into a common CRS."""
+  crs_counts = gdf['proj:code'].value_counts()
+  if len(crs_counts) == 1:
+    return True
+  target_crs = crs_counts.index[0]
+  for _, row in gdf.iterrows():
+    if row['proj:code'] != target_crs:
+      tile_path = os.path.join(tile_dir, f'{row["quadkey"]}.tif')
+      orig_path = tile_path.replace('.tif', '_orig.tif')
+      shutil.move(tile_path, orig_path)
+      reproject_tile(
+          orig_path,
+          tile_path,
+          target_crs,
+      )
+  gdf['proj:code'] = target_crs
+
+
 def gdalbuildvrt(tile_paths: list[str], vrt_path: str) -> bool:
   """Calls gdalbuildvrt to combine tiles into a VRT."""
   try:
@@ -100,7 +148,7 @@ def gdalbuildvrt(tile_paths: list[str], vrt_path: str) -> bool:
 
 def gdal_translate(input_path: str, output_path: str):
   """Calls gdal_translate to convert image formats."""
-  gdal_translate_options = [
+  options = [
       'COMPRESS=JPEG',
       'PHOTOMETRIC=YCBCR',
       'JPEG_QUALITY=90',
@@ -109,7 +157,7 @@ def gdal_translate(input_path: str, output_path: str):
       'NUM_THREADS=ALL_CPUS',
   ]
   command = ['gdal_translate', input_path, output_path]
-  for option in gdal_translate_options:
+  for option in options:
     command.extend(['-co', option])
   sub.run(command, check=True)
 
@@ -144,6 +192,7 @@ def download_and_make_vrt(
     child_id: str,
     output_dir: str,
     vrt_path: str,
+    start_date: str | None,
 ) -> bool:
   """Makes a GeoTIFF for a child collection."""
   if os.path.exists(vrt_path):
@@ -172,9 +221,14 @@ def download_and_make_vrt(
     print(f'{platform} not supported yet.')
     return False
 
-  if len(gdf['proj:code'].unique()) > 1:
-    print(f'{child_id} has multiple projections. This is not supported yet.')
-    return False
+  if start_date is not None:
+    image_date = datetime.datetime.strptime(
+        gdf['datetime'].iloc[0], '%Y-%m-%dT%H:%M:%SZ'
+    )
+    start_date_object = datetime.datetime.strptime(start_date, '%Y-%m-%d')
+    if image_date < start_date_object:
+      print(f'Image {child_id} is before start date {start_date}, skipping.')
+      return False
 
   print(f'Child collection {child_id} is {platform} and has {len(gdf)} tiles.')
 
@@ -188,6 +242,7 @@ def download_and_make_vrt(
   os.makedirs(tiles_dir, exist_ok=True)
   print(f'Downloading {len(tile_paths)} tiles')
   download_tiles_parallel(gdf['visual'].tolist(), tile_paths)
+  reproject_tiles(gdf, tiles_dir)
 
   print('Building VRT')
   if not gdalbuildvrt(tile_paths, vrt_path):
@@ -244,6 +299,7 @@ def download_collection(
     collection_id: str,
     output_dir: str,
     cloud_dir: str,
+    start_date: str | None = None,
 ):
   """Downloads all images in a collection."""
   children = list(leafmap.maxar_child_collections(collection_id))
@@ -269,7 +325,7 @@ def download_collection(
       continue
 
     if not download_and_make_vrt(
-        collection_id, child_id, child_output_dir, vrt_path
+        collection_id, child_id, child_output_dir, vrt_path, start_date
     ):
       print(f'{geotiff_path} not created, skipping.')
       continue
@@ -313,7 +369,7 @@ def main(argv: Sequence[str]) -> None:
     leafmap.stac.maxar_refresh()
 
   download_collection(
-      FLAGS.collection_id, FLAGS.output_dir, FLAGS.cloud_dir
+      FLAGS.collection_id, FLAGS.output_dir, FLAGS.cloud_dir, FLAGS.start_date
   )
 
 if __name__ == '__main__':
