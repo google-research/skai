@@ -227,7 +227,10 @@ def download_and_make_vrt(
     )
     start_date_object = datetime.datetime.strptime(start_date, '%Y-%m-%d')
     if image_date < start_date_object:
-      print(f'Image {child_id} is before start date {start_date}, skipping.')
+      print(
+          f'Image {child_id} is from {image_date.strftime("%Y-%m-%d")}, which'
+          f' is before start date {start_date}, skipping.'
+      )
       return False
 
   print(f'Child collection {child_id} is {platform} and has {len(gdf)} tiles.')
@@ -309,9 +312,13 @@ def download_collection(
   geotiff_paths = []
   cloud_paths = []
 
-  cloud_dir_contents = [
-      os.path.join(cloud_dir, f) for f in tf.io.gfile.listdir(cloud_dir)
-  ]
+  if tf.io.gfile.exists(cloud_dir):
+    cloud_dir_contents = [
+        os.path.join(cloud_dir, f) for f in tf.io.gfile.listdir(cloud_dir)
+    ]
+  else:
+    cloud_dir_contents = []
+
   for child_id in tqdm.tqdm(children, desc='Downloading collection'):
     child_output_dir = os.path.join(output_dir, child_id)
 
