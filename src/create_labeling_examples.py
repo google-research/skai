@@ -114,6 +114,11 @@ flags.DEFINE_string(
     ' filter. The column must contain binary values, either true/false or 0/1.'
     ' Rows with positive values in this column are then filtered out.',
 )
+flags.DEFINE_bool(
+    'output_images_with_footprints',
+    False,
+    'If true, write a set of labeling images with footprints.',
+)
 
 
 def validate_score_bins(score_bins_to_sample_fraction):
@@ -196,6 +201,7 @@ def main(unused_argv):
       score_bins_to_sample_fraction,
       FLAGS.scores_path,
       FLAGS.filter_by_column,
+      FLAGS.output_images_with_footprints,
   )
 
   if num_images == 0:
