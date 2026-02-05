@@ -30,7 +30,7 @@ msgpack==1.0.8
 packaging==24.1
 pandas==2.2.2
 proto-plus==1.24.0
-protobuf==4.25.3
+protobuf==5.29.6
 pyasn1==0.6.0
 pyasn1_modules==0.4.0
 pycparser==2.22
