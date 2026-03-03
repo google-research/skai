@@ -49,8 +49,8 @@ Your satellite images should be uploaded to your Cloud storage bucket so that th
 
 
 ```
-$ gsutil cp /path/to/images/before.tif gs://$BUCKET/images/before.tif
-$ gsutil cp /path/to/images/after.tif gs://$BUCKET/images/after.tif
+$ gcloud storage cp /path/to/images/before.tif gs://$BUCKET/images/before.tif
+$ gcloud storage cp /path/to/images/after.tif gs://$BUCKET/images/after.tif
 ```
 
 You can provide SKAI with multiple before and after images. It will
