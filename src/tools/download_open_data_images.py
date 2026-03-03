@@ -270,7 +270,7 @@ def make_geotiff_and_upload(
     gdaladdo(geotiff_path)
 
     print('Uploading to GCS')
-    sub.run(['gsutil', 'cp', geotiff_path, cloud_path], check=True)
+    sub.run(['gcloud', 'storage', 'cp', geotiff_path, cloud_path], check=True)
   except sub.CalledProcessError:
     print(f'Failed to create GeoTIFF for {geotiff_path}, skipping.')
     return False
@@ -350,7 +350,7 @@ def download_collection(
   cloud_info_path = os.path.join(cloud_dir, f'{collection_id}.shp.zip')
   gdf = gpd.GeoDataFrame(pd.concat(child_infos, ignore_index=True))
   gdf.to_file(info_path)
-  sub.run(['gsutil', 'cp', info_path, cloud_info_path], check=True)
+  sub.run(['gcloud', 'storage', 'cp', info_path, cloud_info_path], check=True)
 
 
 def main(argv: Sequence[str]) -> None:
