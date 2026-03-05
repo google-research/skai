@@ -30,10 +30,18 @@ import pandas as pd
 import PIL.Image
 import PIL.ImageDraw
 import PIL.ImageFont
+import pyproj
+import rasterio
+import rasterio.features
+import rasterio.transform
 import scipy
+import shapely.geometry
+import shapely.ops
+import shapely.wkb
 from skai import utils
 import tensorflow as tf
 import tqdm
+
 
 # Gap to add between before and after images.
 BEFORE_AFTER_GAP = 10
@@ -62,6 +70,7 @@ class LabelingExample:
   serialized_example: bytes
   longitude: float
   latitude: float
+  footprint_wkb: str
 
 
 def _annotate_image(image: Image, caption: str) -> Image:
@@ -98,6 +107,11 @@ def _read_example_ids_from_import_file(path: str) -> Iterable[str]:
   with tf.io.gfile.GFile(path, 'r') as import_file:
     df = pd.read_csv(import_file)
     return df['example_id']
+
+
+def _get_footprint_image_path(image_path: str) -> str:
+  """Returns the footprint image path from the image path."""
+  return image_path.replace('.png', '_fp.png')
 
 
 def create_labeling_image(
@@ -338,6 +352,7 @@ def create_labeling_images(
     multiprocessing_context: Any,
     max_processes: int,
     buffered_sampling_radius: float,
+    output_images_with_footprints: bool,
     score_bins_to_sample_fraction: dict[tuple[float, float], float],
     scores_path: str | None,
     filter_by_column: str | None,
@@ -397,6 +412,8 @@ def create_labeling_images(
     max_processes: Maximum number of processes.
     buffered_sampling_radius: The minimum distance between two examples for the
       two examples to be in the labeling task.
+    output_images_with_footprints: If true, write a set of labeling images with
+      footprints.
     score_bins_to_sample_fraction: Dictionary of bins for selecting labeling
       examples.
     scores_path: File containing scores obtained from pre-trained models.
@@ -468,7 +485,11 @@ def create_labeling_images(
 
   if images_dir:
     labeling_examples = _create_labeling_assets_from_metadata(
-        metadata_pattern, images_dir, output_dir, allowed_example_ids
+        metadata_pattern,
+        images_dir,
+        output_dir,
+        allowed_example_ids,
+        output_images_with_footprints,
     )
   else:
     if examples_pattern is None:
@@ -490,6 +511,7 @@ def create_labeling_images(
           multiprocessing_context,
           max_processes,
           allowed_example_ids,
+          output_images_with_footprints,
           _create_labeling_assets_from_example_file,
       )
   labeling_examples = _deduplicate_labeling_examples(labeling_examples)
@@ -598,6 +620,7 @@ def _process_example_files(
     multiprocessing_context: Any,
     max_processes: int,
     allowed_example_ids: set[str],
+    output_images_with_footprints: bool,
     processing_function: Callable[[str, str, set[str]], list[Any]],
 ) -> list[Any]:
   """Run a processing function on a list of files.
@@ -615,6 +638,8 @@ def _process_example_files(
     max_processes: Maximum number of processes.
     allowed_example_ids: Set of example_id from which a subset will be used in
       for filtering or creating a labeling file.
+    output_images_with_footprints: If true, write a set of labeling images with
+      footprints.
     processing_function: Function to be executed.
 
   Returns:
@@ -635,7 +660,12 @@ def _process_example_files(
     for example_file in example_files:
       pool.apply_async(
           processing_function,
-          args=(example_file, output_dir, allowed_example_ids),
+          args=(
+              example_file,
+              output_dir,
+              allowed_example_ids,
+              output_images_with_footprints,
+          ),
           callback=accumulate,
           error_callback=print,
       )
@@ -643,9 +673,14 @@ def _process_example_files(
     pool.join()
   else:
     for example_file in example_files:
-      all_results.extend(processing_function(
-          example_file, output_dir, allowed_example_ids
-      ))
+      all_results.extend(
+          processing_function(
+              example_file,
+              output_dir,
+              allowed_example_ids,
+              output_images_with_footprints,
+          )
+      )
 
   return all_results
 
@@ -664,9 +699,7 @@ def _tfrecord_iterator(path: str) -> Example:
   ds = tf.data.TFRecordDataset([path]).prefetch(tf.data.AUTOTUNE)
   if tf.executing_eagerly():
     for record in ds:
-      example = Example()
-      example.ParseFromString(record.numpy())
-      yield example
+      yield tf.train.Example.FromString(record.numpy())
   else:
     iterator = tf.compat.v1.data.make_one_shot_iterator(ds)
     next_element = iterator.get_next()
@@ -676,15 +709,122 @@ def _tfrecord_iterator(path: str) -> Example:
           value = sess.run(next_element)
         except tf.errors.OutOfRangeError:
           return
-        example = Example()
-        example.ParseFromString(value)
-        yield example
+        yield tf.train.Example.FromString(value)
+
+
+def _draw_footprint_bounding_box(
+    footprint: shapely.geometry.Polygon,
+    input_image: np.ndarray,
+    resolution: float,
+) -> np.ndarray:
+  """Draws a footprint bounding box on an image.
+
+  Args:
+    footprint: Building footprint to draw bounding box for.
+    input_image: Image to draw the bounding box on.
+    resolution: Resolution of the image, in meters / pixel.
+
+  Returns:
+    Image with bounding box.
+  """
+
+  image_size = input_image.shape[0]
+  utm_crs = utils.get_utm_crs(footprint.centroid.x, footprint.centroid.y)
+  transformer = pyproj.Transformer.from_crs(
+      'EPSG:4326', utm_crs, always_xy=True
+  )
+  utm_geom = shapely.ops.transform(transformer.transform, footprint)
+  x = utm_geom.centroid.x - (image_size / 2) * resolution
+  y = utm_geom.centroid.y + (image_size / 2) * resolution
+  footprint_mask = rasterio.features.rasterize(
+      [utm_geom.boundary],
+      out_shape=(image_size, image_size),
+      transform=rasterio.transform.from_origin(x, y, resolution, resolution),
+      dtype='uint8')
+  rows, cols = np.where(footprint_mask)
+  r1 = max(0, np.min(rows) - 1)
+  r2 = min(image_size - 1, np.max(rows) + 1)
+  c1 = max(0, np.min(cols) - 1)
+  c2 = min(image_size - 1, np.max(cols) + 1)
+
+  result_image = input_image.copy()
+  color = (255, 0, 0)
+  result_image[r1, c1:c2+1, :] = color
+  result_image[r2, c1:c2+1, :] = color
+  result_image[r1:r2+1, c1, :] = color
+  result_image[r1:r2+1, c2, :] = color
+  return result_image
+
+
+def _create_labeling_images_from_example(
+    example: tf.train.Example,
+    example_id: str,
+    output_dir: str,
+    output_images_with_footprints: bool,
+) -> tuple[str, str]:
+  """Creates labeling images from a TF example.
+
+  Args:
+    example: The example to use.
+    example_id: Id of the example, used to form image paths.
+    output_dir: Output directory path.
+    output_images_with_footprints: If true, write out labeling images with
+        footprints.
+
+  Returns:
+    Tuple of (pre_image_path, post_image_path).
+  """
+  before_image = tf.image.decode_image(
+      utils.get_bytes_feature(example, 'pre_image_png_large')[0]
+  ).numpy()
+  after_image = tf.image.decode_image(
+      utils.get_bytes_feature(example, 'post_image_png_large')[0]
+  ).numpy()
+
+  pre_image_path = os.path.join(output_dir, f'{example_id}_pre.png')
+  with tf.io.gfile.GFile(pre_image_path, 'wb') as f:
+    f.write(
+        tf.image.encode_png(before_image).numpy()
+    )
+  post_image_path = os.path.join(output_dir, f'{example_id}_post.png')
+  with tf.io.gfile.GFile(post_image_path, 'wb') as f:
+    f.write(
+        tf.image.encode_png(after_image).numpy()
+    )
+
+  if output_images_with_footprints:
+    footprint = shapely.wkb.loads(
+        utils.get_bytes_feature(example, 'footprint_wkb')[0]
+    )
+    pre_image_with_footprint = _draw_footprint_bounding_box(
+        footprint, before_image, 0.5
+    )
+    post_image_with_footprint = _draw_footprint_bounding_box(
+        footprint, after_image, 0.5
+    )
+
+    with tf.io.gfile.GFile(
+        _get_footprint_image_path(pre_image_path), 'wb'
+    ) as f:
+      f.write(
+          tf.image.encode_png(pre_image_with_footprint).numpy()
+      )
+
+    with tf.io.gfile.GFile(
+        _get_footprint_image_path(post_image_path), 'wb'
+    ) as f:
+      f.write(
+          tf.image.encode_png(post_image_with_footprint).numpy()
+      )
+
+  return (pre_image_path, post_image_path)
 
 
 def _create_labeling_assets_from_example_file(
     example_file: str,
     output_dir: str,
     allowed_example_ids: set[str],
+    output_images_with_footprints: bool,
 ) -> list[LabelingExample]:
   """Creates assets needed for a labeling task from TFRecords.
 
@@ -695,6 +835,8 @@ def _create_labeling_assets_from_example_file(
     output_dir: Directory to write assets to.
     allowed_example_ids: Set of example_id from which a subset will be used in
       creating labeling task.
+    output_images_with_footprints: If true, write out labeling images with
+      footprints.
 
   Returns:
     List of LabelingExamples containing information about the created assets.
@@ -725,42 +867,13 @@ def _create_labeling_assets_from_example_file(
     except IndexError as error:
       raise ValueError('Examples do not have int64_id feature') from error
 
-    if 'plus_code' in example.features.feature:
-      plus_code = (
-          example.features.feature['plus_code'].bytes_list.value[0].decode()
-      )
-    else:
-      plus_code = 'unknown'
-
     longitude, latitude = example.features.feature[
         'coordinates'
     ].float_list.value
 
-    before_image = utils.deserialize_image(
-        example.features.feature['pre_image_png_large'].bytes_list.value[0],
-        'png',
+    pre_image_path, post_image_path = _create_labeling_images_from_example(
+        example, example_id, output_dir, output_images_with_footprints
     )
-    after_image = utils.deserialize_image(
-        example.features.feature['post_image_png_large'].bytes_list.value[0],
-        'png',
-    )
-    combined_image = create_labeling_image(
-        before_image, after_image, example_id, plus_code
-    )
-
-    pre_image_path = os.path.join(output_dir, f'{example_id}_pre.png')
-    with tf.io.gfile.GFile(pre_image_path, 'wb') as f:
-      f.write(
-          example.features.feature['pre_image_png_large'].bytes_list.value[0]
-      )
-    post_image_path = os.path.join(output_dir, f'{example_id}_post.png')
-    with tf.io.gfile.GFile(post_image_path, 'wb') as f:
-      f.write(
-          example.features.feature['post_image_png_large'].bytes_list.value[0]
-      )
-    combined_image_path = os.path.join(output_dir, f'{example_id}.png')
-    with tf.io.gfile.GFile(combined_image_path, 'wb') as f:
-      f.write(utils.serialize_image(combined_image, 'png'))
 
     labeling_examples.append(
         LabelingExample(
@@ -768,25 +881,26 @@ def _create_labeling_assets_from_example_file(
             example_id=str(example_id),
             pre_image_path=pre_image_path,
             post_image_path=post_image_path,
-            combined_image_path=combined_image_path,
+            combined_image_path='',
             tfrecord_path=example_file,
             serialized_example=example.SerializeToString(),
             longitude=longitude,
             latitude=latitude,
+            footprint_wkb=utils.get_bytes_feature(example, 'footprint_wkb')[0],
         )
     )
 
   return labeling_examples
 
 
-def _dataframe_row_to_example(row: pd.Series) -> bytes:
+def _dataframe_row_to_example(row: pd.Series) -> tf.train.Example:
   """Converts a dataframe row into a serialized TF example.
 
   Args:
     row: The input row.
 
   Returns:
-    Serialized TF Example with features populated from the row's column values.
+    TF Example with features populated from the row's column values.
   """
   example = tf.train.Example()
   utils.add_bytes_feature('example_id', row['example_id'].encode(), example)
@@ -809,48 +923,15 @@ def _dataframe_row_to_example(row: pd.Series) -> bytes:
   utils.add_int64_feature('int64_id', row['int64_id'], example)
   longitude, latitude = utils.decode_coordinates(row['encoded_coordinates'])
   utils.add_float_list_feature('coordinates', [longitude, latitude], example)
-  return example.SerializeToString()
-
-
-def _write_labeling_images_from_dataframe_row(
-    row: pd.Series, output_dir: str
-) -> tuple[str, str, str]:
-  """Writes labeling images from a dataframe row.
-
-  Args:
-    row: Dataframe row containing images.
-    output_dir: Output directory.
-
-  Returns:
-    Tuple of pre image path, post image path, combined image path.
-  """
-  example_id = row['example_id']
-  pre_image_path = os.path.join(output_dir, f'{example_id}_pre.png')
-  with tf.io.gfile.GFile(pre_image_path, 'wb') as f:
-    f.write(row['pre_image_png_large'])
-  post_image_path = os.path.join(output_dir, f'{example_id}_post.png')
-  with tf.io.gfile.GFile(post_image_path, 'wb') as f:
-    f.write(row['post_image_png_large'])
-
-  before_image = utils.deserialize_image(
-      row['pre_image_png_large'],
-      'png',
-  )
-  after_image = utils.deserialize_image(
-      row['post_image_png_large'],
-      'png',
-  )
-  combined_image = create_labeling_image(
-      before_image, after_image, example_id, row['plus_code']
-  )
-  combined_image_path = os.path.join(output_dir, f'{example_id}.png')
-  with tf.io.gfile.GFile(combined_image_path, 'wb') as f:
-    f.write(utils.serialize_image(combined_image, 'png'))
-  return pre_image_path, post_image_path, combined_image_path
+  utils.add_bytes_feature('footprint_wkb', row['footprint_wkb'], example)
+  return example
 
 
 def _read_parquet(
-    path: str, output_dir: str, allowed_example_ids: set[str]
+    path: str,
+    output_dir: str,
+    allowed_example_ids: set[str],
+    output_images_with_footprints: bool,
 ) -> list[LabelingExample]:
   """Extracts labeling images from Parquet files.
 
@@ -858,6 +939,8 @@ def _read_parquet(
     path: Path to Parquet file.
     output_dir: Output directory.
     allowed_example_ids: Set of example ids that should be included.
+    output_images_with_footprints: If true, write a set of labeling images with
+      footprints.
 
   Returns:
     List of LabelingExample obtions.
@@ -869,8 +952,9 @@ def _read_parquet(
       engine='pyarrow',
   )
   for _, row in df.iterrows():
-    pre_image_path, post_image_path, combined_image_path = (
-        _write_labeling_images_from_dataframe_row(row, output_dir)
+    example = _dataframe_row_to_example(row)
+    pre_image_path, post_image_path = _create_labeling_images_from_example(
+        example, row['example_id'], output_dir, output_images_with_footprints
     )
     longitude, latitude = utils.decode_coordinates(row['encoded_coordinates'])
     labeling_examples.append(
@@ -879,11 +963,12 @@ def _read_parquet(
             example_id=str(row['example_id']),
             pre_image_path=pre_image_path,
             post_image_path=post_image_path,
-            combined_image_path=combined_image_path,
+            combined_image_path='',
             tfrecord_path=path,
-            serialized_example=_dataframe_row_to_example(row),
+            serialized_example=example.SerializeToString(),
             longitude=longitude,
             latitude=latitude,
+            footprint_wkb=row['footprint_wkb']
         )
     )
   return labeling_examples
@@ -963,6 +1048,7 @@ def _create_labeling_assets_from_metadata(
     images_dir: str,
     output_dir: str,
     allowed_example_ids: set[str],
+    output_images_with_footprints: bool,
 ) -> list[LabelingExample]:
   """Creates assets needed for a labeling task from metadata files and images.
 
@@ -972,6 +1058,8 @@ def _create_labeling_assets_from_metadata(
     output_dir: Directory to write assets to.
     allowed_example_ids: Set of example_id from which a subset will be used in
       creating labeling task.
+    output_images_with_footprints: If true, write a set of labeling images with
+      footprints.
 
   Returns:
     List of LabelingExamples containing information about the created assets.
@@ -979,7 +1067,6 @@ def _create_labeling_assets_from_metadata(
   metadata_df = _read_sharded_metadata(metadata_pattern)
   images = _read_files_concurrently(images_dir, allowed_example_ids)
   labeling_examples = []
-  images_to_write = []
   for example_id in allowed_example_ids:
     matched_rows = metadata_df[metadata_df['example_id'] == example_id]
     if matched_rows.empty:
@@ -994,25 +1081,10 @@ def _create_labeling_assets_from_metadata(
     row['pre_image_png_large'] = images[(example_id, 'large_pre')]
     row['post_image_png_large'] = images[(example_id, 'large_post')]
 
-    pre_image_path = os.path.join(output_dir, f'{example_id}_pre.png')
-    post_image_path = os.path.join(output_dir, f'{example_id}_post.png')
-    combined_image_path = os.path.join(output_dir, f'{example_id}.png')
-    before_image = utils.deserialize_image(
-        row['pre_image_png_large'],
-        'png',
+    example = _dataframe_row_to_example(row)
+    pre_image_path, post_image_path = _create_labeling_images_from_example(
+        example, example_id, output_dir, output_images_with_footprints
     )
-    after_image = utils.deserialize_image(
-        row['post_image_png_large'],
-        'png',
-    )
-    combined_image = utils.serialize_image(create_labeling_image(
-        before_image, after_image, example_id, row['plus_code']
-    ), 'png')
-    images_to_write.extend([
-        (pre_image_path, row['pre_image_png_large']),
-        (post_image_path, row['post_image_png_large']),
-        (combined_image_path, combined_image),
-    ])
     longitude, latitude = utils.decode_coordinates(row['encoded_coordinates'])
     labeling_examples.append(
         LabelingExample(
@@ -1020,16 +1092,14 @@ def _create_labeling_assets_from_metadata(
             example_id=str(example_id),
             pre_image_path=pre_image_path,
             post_image_path=post_image_path,
-            combined_image_path=combined_image_path,
+            combined_image_path='',
             tfrecord_path='',
-            serialized_example=_dataframe_row_to_example(row),
+            serialized_example=example.SerializeToString(),
             longitude=longitude,
             latitude=latitude,
+            footprint_wkb=row['footprint_wkb'],
         )
     )
-
-  with concurrent.futures.ThreadPoolExecutor() as executor:
-    executor.map(_write_file, images_to_write)
 
   return labeling_examples
 

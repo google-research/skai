@@ -269,6 +269,7 @@ class LabelingTest(parameterized.TestCase):
           score_bins_to_sample_fraction=None,
           scores_path=None,
           filter_by_column=None,
+          output_images_with_footprints=False,
       )
 
       self.assertCountEqual(
@@ -373,6 +374,7 @@ class LabelingTest(parameterized.TestCase):
           score_bins_to_sample_fraction=None,
           scores_path=None,
           filter_by_column=None,
+          output_images_with_footprints=False,
       )
 
       self.assertCountEqual(
