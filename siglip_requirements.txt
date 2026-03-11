@@ -3,7 +3,7 @@ numpy
 pandas==2.2.3
 tensorflow==2.18.1
 ml-collections==1.0.0
-geopandas==1.0.1
+geopandas==1.1.2
 tensorflow-text==2.18.1
 protobuf==4.25.3
 absl-py==2.2.2
