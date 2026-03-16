@@ -69,16 +69,6 @@ a:hover {
   height: 500px;
 }
 
-.red-rectangle {
-  position: absolute;
-  /* (500-125)/2 */
-  top: 187px;
-  left: 187px;
-  width: 125px;
-  height: 125px;
-  border: 1px solid red;
-}
-
 .form-element-wrapper {
   margin-bottom: 15px;
 }
