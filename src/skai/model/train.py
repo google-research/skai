@@ -147,8 +147,8 @@ def main(_) -> None:
     # Training a single model on a combination of data splits.
     included_splits_idx = [int(i) for i in config.data.included_splits_idx]
     new_train_ds = data.gather_data_splits(included_splits_idx,
-                                           dataloader.train_splits)
-    val_ds = data.gather_data_splits(included_splits_idx, dataloader.val_splits)
+                                           dataloader.train_splits)  # pyrefly: ignore[bad-argument-type]
+    val_ds = data.gather_data_splits(included_splits_idx, dataloader.val_splits)  # pyrefly: ignore[bad-argument-type]
   elif config.data.use_filtering:
     # Use filter tables to generate subsets.
     # This allows a better control over the number of trained models that.

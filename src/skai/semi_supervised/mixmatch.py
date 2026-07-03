@@ -135,8 +135,8 @@ class MixMatch(train.ClassifySemi):
 
   def train_step(self, train_session: tf.train.MonitoredTrainingSession) -> int:
     """Gets internal iterators and runs next batches through training operations."""
-    labeled_batch = next(self._labeled_iterator)
-    unlabeled_batch = next(self._unlabeled_iterator)
+    labeled_batch = next(self._labeled_iterator)  # pyrefly: ignore[bad-argument-type]
+    unlabeled_batch = next(self._unlabeled_iterator)  # pyrefly: ignore[bad-argument-type]
     return train_session.run(
         [self.ops.train_op, self.ops.update_step],
         feed_dict={
@@ -145,7 +145,7 @@ class MixMatch(train.ClassifySemi):
             self.ops.label: labeled_batch[prepare_ssl_data.LABEL_KEY]
         })[1]
 
-  def build_model(self, params: MixMatchTrainingParams) -> train.ModelOps:
+  def build_model(self, params: MixMatchTrainingParams) -> train.ModelOps:  # pyrefly: ignore[bad-override]
     hwc = [self._dataset.height, self._dataset.width, self._dataset.channels]
     x_in = tf.placeholder(tf.float32, [None] + hwc, 'x')
     y_in = tf.placeholder(tf.float32, [None, params.num_augmentations] + hwc,

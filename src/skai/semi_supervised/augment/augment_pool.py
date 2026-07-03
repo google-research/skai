@@ -76,11 +76,11 @@ def _numpy_apply_policies_cta(data: np.ndarray, cta: ctaugment.CTAugment,
     return _AugmentedData(
         augmented_image=data,
         policy=policy,
-        probed_image=ctaugment.apply(data, policy, cutout=False))
+        probed_image=ctaugment.apply(data, policy, cutout=False))  # pyrefly: ignore[bad-argument-type]
   # unlabeled data (2, h, w, c)
   weak = data[0]
   strong = data[1:]  # Should only be one
-  strong_augments = [ctaugment.apply(y, policy, cutout=True) for y in strong]
+  strong_augments = [ctaugment.apply(y, policy, cutout=True) for y in strong]  # pyrefly: ignore[bad-argument-type]
   return _AugmentedData(
       augmented_image=np.stack([weak] + strong_augments).astype('f'))
 
@@ -183,13 +183,13 @@ class AugmentPoolCTA(AugmentPool):
     except IndexError as index_error:
       raise StopIteration from index_error
     samples = list(entry.augmented_data)
-    augmented_image_batch = np.stack(x.augmented_image for x in samples)
-    label_batch = np.stack(label for label in list(entry.label))
+    augmented_image_batch = np.stack(x.augmented_image for x in samples)  # pyrefly: ignore[no-matching-overload]
+    label_batch = np.stack(label for label in list(entry.label))  # pyrefly: ignore[no-matching-overload]
     augmented_data_batch = _AugmentedDataBatch(
         augmented_image_batch=augmented_image_batch, label_batch=label_batch)
     if samples[0].probed_image is not None:
-      augmented_data_batch.policy_batch = np.stack(x.policy for x in samples)
-      augmented_data_batch.probed_image_batch = np.stack(
+      augmented_data_batch.policy_batch = np.stack(x.policy for x in samples)  # pyrefly: ignore[no-matching-overload]
+      augmented_data_batch.probed_image_batch = np.stack(  # pyrefly: ignore[no-matching-overload]
           x.probed_image for x in samples)
     self._queue_images()
     return augmented_data_batch
@@ -243,7 +243,7 @@ class AugmentPoolRAMC(AugmentPool):
         args.append(args_weak + args_strong)
     self._queue.append(
         _PoolEntry(
-            augmented_data=self._pool.imap(_numpy_apply_policies_ra, args),
+            augmented_data=self._pool.imap(_numpy_apply_policies_ra, args),  # pyrefly: ignore[bad-argument-type]
             label=batch[prepare_ssl_data.LABEL_KEY]))
 
   def __next__(self) -> _AugmentedDataBatch:
@@ -253,6 +253,6 @@ class AugmentPoolRAMC(AugmentPool):
     except IndexError as index_error:
       raise StopIteration from index_error
     samples = list(entry.augmented_data)
-    augmented_image_batch = np.stack(x.augmented_image for x in samples)
+    augmented_image_batch = np.stack(x.augmented_image for x in samples)  # pyrefly: ignore[no-matching-overload]
     self._queue_images()
     return _AugmentedDataBatch(augmented_image_batch=augmented_image_batch)

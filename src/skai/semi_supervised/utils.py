@@ -70,7 +70,7 @@ def find_latest_checkpoint(folder):
   """
   r_step = re.compile(r'.*model\.ckpt-(?P<step>\d+)\.meta')
   matches = tf.gfile.Glob(os.path.join(folder, 'model.ckpt-*.meta'))
-  matches = [(int(r_step.match(x).group('step')), x) for x in matches]
+  matches = [(int(r_step.match(x).group('step')), x) for x in matches]  # pyrefly: ignore[missing-attribute]
   ckpt_file = max(matches)[1][:-5]
   return ckpt_file
 

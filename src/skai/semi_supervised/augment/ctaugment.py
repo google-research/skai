@@ -80,11 +80,11 @@ def apply(x: np.ndarray,
         np.round(127.5 * (1 + x[:, :, :3])).clip(0, 255).astype('uint8'))
   for op, args in ops:
     if use_pre_disaster_image:
-      y_pre = OPS[op].f(y_pre, *args)
+      y_pre = OPS[op].f(y_pre, *args)  # pyrefly: ignore[unbound-name]
     y_post = OPS[op].f(y_post, *args)
 
   if use_pre_disaster_image:
-    y_channels = [_image_to_array(y_pre), _image_to_array(y_post)]
+    y_channels = [_image_to_array(y_pre), _image_to_array(y_post)]  # pyrefly: ignore[unbound-name]
     # TODO(jlee24): Support augmenting mask channels in single image case
     if _has_building_mask_channels(x):
       y_channels.append(x[:, :, 6:8])

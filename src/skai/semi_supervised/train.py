@@ -228,7 +228,7 @@ class Model(abc.ABC):
     self.inference_mode = params.inference_mode
     self._batch = params.batch
     self._logger = _TrainLogger()
-    self._evaluated_step = None
+    self._evaluated_step = None  # pyrefly: ignore[bad-assignment]
     self._step = tf.train.get_or_create_global_step()
     self._print_model_config(params)
 
@@ -414,9 +414,9 @@ class ClassifySemi(Model):
     self.load_checkpoint(session=session, ckpt=ckpt)
     self.cache_eval(session)
     raw_acc, raw_auc, raw_preds = self.eval_stats(
-        classify_op=self.ops.classify_raw, session=session)
+        classify_op=self.ops.classify_raw, session=session)  # pyrefly: ignore[missing-attribute]
     ema_acc, ema_auc, ema_preds = self.eval_stats(
-        classify_op=self.ops.classify_op, session=session)
+        classify_op=self.ops.classify_op, session=session)  # pyrefly: ignore[missing-attribute]
     if self.inference_mode:
       # Print only the test set metrics
       print('Model is in inference mode. If the test data does not have ground '
@@ -482,8 +482,8 @@ class ClassifySemi(Model):
           self._dataset.unlabeled_validation_examples)
       self._logger.cache = Cache(
           test=collect_samples(self._dataset.test),
-          train_unlabeled=train_unlabeled,
-          train_labeled=train_labeled)
+          train_unlabeled=train_unlabeled,  # pyrefly: ignore[bad-argument-type]
+          train_labeled=train_labeled)  # pyrefly: ignore[bad-argument-type]
 
   def _get_preds_labels_coords(
       self, cached_dataset: CacheType, session: tf.Session, batch: int,
@@ -498,7 +498,7 @@ class ClassifySemi(Model):
     for batch_start in eval_loop:
       p = session.run(
           classify_op,
-          feed_dict={self.ops.x: images[batch_start:batch_start + batch]})
+          feed_dict={self.ops.x: images[batch_start:batch_start + batch]})  # pyrefly: ignore[missing-attribute]
       preds.append(p)
       eval_loop.set_description(
           f'Batch {1 + int(batch_start / batch)}/{total_num_batches}')
@@ -553,7 +553,7 @@ class ClassifySemi(Model):
       Accuracy on train, validation, and test sets.
     """
     batch = batch or self._batch
-    classify_op = self.ops.classify_op if classify_op is None else classify_op
+    classify_op = self.ops.classify_op if classify_op is None else classify_op  # pyrefly: ignore[missing-attribute]
     preds_per_dataset = PredictionsWithCoordinatesPerDataset()
     accuracies = PerformanceMetrics()
     aucs = PerformanceMetrics()
@@ -565,11 +565,11 @@ class ClassifySemi(Model):
                                       'data does not have ground truth labels, '
                                       'then these metrics will not be valid.')
     preds_with_coords, labels = self._get_preds_labels_coords(
-        self._logger.cache.test,
+        self._logger.cache.test,  # pyrefly: ignore[missing-attribute]
         session=session,
         batch=batch,
         classify_op=classify_op)
-    acc, auc = self._get_acc_auc(preds_with_coords.preds, labels)
+    acc, auc = self._get_acc_auc(preds_with_coords.preds, labels)  # pyrefly: ignore[bad-argument-type]
     preds_per_dataset.test_preds_coords = preds_with_coords
     accuracies.test_metric = acc
     aucs.test_metric = auc
@@ -583,12 +583,12 @@ class ClassifySemi(Model):
       self._logger.add_to_print_queue(
           'Evaluating batches of train_labeled set...')
       preds_with_coords, labels = self._get_preds_labels_coords(
-          self._logger.cache.train_labeled,
+          self._logger.cache.train_labeled,  # pyrefly: ignore[missing-attribute]
           session=session,
           batch=batch,
           classify_op=classify_op)
       preds_per_dataset.train_label_preds_coords = preds_with_coords
-      acc, auc = self._get_acc_auc(preds_with_coords.preds, labels)
+      acc, auc = self._get_acc_auc(preds_with_coords.preds, labels)  # pyrefly: ignore[bad-argument-type]
       accuracies.train_labeled_metric = acc
       aucs.train_labeled_metric = auc
       self._logger.add_to_print_queue(
@@ -600,12 +600,12 @@ class ClassifySemi(Model):
       self._logger.add_to_print_queue(
           'Evaluating batches of train_unlabeled set...')
       preds_with_coords, labels = self._get_preds_labels_coords(
-          self._logger.cache.train_unlabeled,
+          self._logger.cache.train_unlabeled,  # pyrefly: ignore[missing-attribute]
           session=session,
           batch=batch,
           classify_op=classify_op)
       preds_per_dataset.train_unlabel_preds_coords = preds_with_coords
-      acc, auc = self._get_acc_auc(preds_with_coords.preds, labels)
+      acc, auc = self._get_acc_auc(preds_with_coords.preds, labels)  # pyrefly: ignore[bad-argument-type]
       accuracies.train_unlabeled_metric = acc
       aucs.train_unlabeled_metric = auc
       self._logger.add_to_print_queue(
@@ -613,9 +613,9 @@ class ClassifySemi(Model):
       self._logger.add_to_print_queue(
           f'kimg {self._evaluated_step >> 10} train_unlabeled AUC {auc}')
 
-    if not preds_per_dataset.test_preds_coords.preds.shape[
-        0] == preds_per_dataset.test_preds_coords.lons.shape[
-            0] == preds_per_dataset.test_preds_coords.lats.shape[0]:
+    if not preds_per_dataset.test_preds_coords.preds.shape[  # pyrefly: ignore[missing-attribute]
+        0] == preds_per_dataset.test_preds_coords.lons.shape[  # pyrefly: ignore[missing-attribute]
+            0] == preds_per_dataset.test_preds_coords.lats.shape[0]:  # pyrefly: ignore[missing-attribute]
       raise ValueError('Prediction, latitude, and longitude arrays should have',
                        'same number of elements.')
     return accuracies, aucs, preds_per_dataset

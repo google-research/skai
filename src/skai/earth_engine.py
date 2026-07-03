@@ -103,10 +103,10 @@ def _download_feature_collection(
       df = pd.DataFrame(columns=['longitude', 'latitude'])
   if '.geo' in df.columns:
     geometry = df['.geo'].apply(json.loads).apply(shapely.geometry.shape)
-    properties = df.drop(columns=['.geo'])
+    properties = df.drop(columns=['.geo'])  # pyrefly: ignore[bad-assignment]
   elif 'longitude' in df.columns and 'latitude' in df.columns:
     geometry = gpd.points_from_xy(df['longitude'], df['latitude'])
-    properties = df
+    properties = df  # pyrefly: ignore[bad-assignment]
   else:
     raise ValueError('No geometries found in feature collection.')
 

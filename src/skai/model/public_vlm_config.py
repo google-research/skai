@@ -78,7 +78,7 @@ def get_model_config(
   if model_type == 'siglip':
     config = get_siglip_config(image_variant, image_size)
   else:
-    config = get_geofm_config(geofm_savedmodel_path)
+    config = get_geofm_config(geofm_savedmodel_path)  # pyrefly: ignore[bad-argument-type]
   config.model_type = model_type
   return config
 

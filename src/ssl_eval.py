@@ -165,9 +165,9 @@ def _ProcessCheckpoint(
         model.tensorboard_dir)
   file_writer = file_writers[model.checkpoint_dir]
   file_writer.add_event(
-      _MakeEvent('metrics/auc/test_auc', auc.test_metric, wall_time, epoch))
+      _MakeEvent('metrics/auc/test_auc', auc.test_metric, wall_time, epoch))  # pyrefly: ignore[bad-argument-type]
   file_writer.add_event(
-      _MakeEvent('metrics/acc/test_acc', acc.test_metric, wall_time, epoch))
+      _MakeEvent('metrics/acc/test_acc', acc.test_metric, wall_time, epoch))  # pyrefly: ignore[bad-argument-type]
 
   if not model.inference_mode:
     logging.info(
@@ -178,16 +178,16 @@ def _ProcessCheckpoint(
         epoch, wall_time, auc.train_unlabeled_metric,
         acc.train_unlabeled_metric)
     file_writer.add_event(
-        _MakeEvent('metrics/auc/train_label_auc', auc.train_labeled_metric,
+        _MakeEvent('metrics/auc/train_label_auc', auc.train_labeled_metric,  # pyrefly: ignore[bad-argument-type]
                    wall_time, epoch))
     file_writer.add_event(
-        _MakeEvent('metrics/acc/train_label_acc', acc.train_labeled_metric,
+        _MakeEvent('metrics/acc/train_label_acc', acc.train_labeled_metric,  # pyrefly: ignore[bad-argument-type]
                    wall_time, epoch))
     file_writer.add_event(
-        _MakeEvent('metrics/auc/train_unlabel_auc', auc.train_unlabeled_metric,
+        _MakeEvent('metrics/auc/train_unlabel_auc', auc.train_unlabeled_metric,  # pyrefly: ignore[bad-argument-type]
                    wall_time, epoch))
     file_writer.add_event(
-        _MakeEvent('metrics/acc/train_unlabel_acc', acc.train_unlabeled_metric,
+        _MakeEvent('metrics/acc/train_unlabel_acc', acc.train_unlabeled_metric,  # pyrefly: ignore[bad-argument-type]
                    wall_time, epoch))
 
   file_writer.flush()
@@ -213,8 +213,8 @@ def _WritePreds(preds_with_coords: train.PredictionsWithCoordinates,
         'longitude': preds_with_coords.lons,
         'latitude': preds_with_coords.lats
     }
-    for i in range(preds_with_coords.preds.shape[1]):
-      preds_dict[f'class_{i}'] = preds_with_coords.preds[:, i]
+    for i in range(preds_with_coords.preds.shape[1]):  # pyrefly: ignore[missing-attribute]
+      preds_dict[f'class_{i}'] = preds_with_coords.preds[:, i]  # pyrefly: ignore[unsupported-operation]
     preds_df = pd.DataFrame.from_dict(preds_dict)
     geo_preds_df = gpd.GeoDataFrame(
         preds_df,
@@ -235,11 +235,11 @@ def _SavePredictionsToFile(
     epoch: Model's training epoch or any other integer for file name.
     inference_mode: Boolean for inference mode. When True, only test data saved.
   """
-  _WritePreds(preds_per_dataset.test_preds_coords, 'test', epoch)
+  _WritePreds(preds_per_dataset.test_preds_coords, 'test', epoch)  # pyrefly: ignore[bad-argument-type]
   if not inference_mode:
-    _WritePreds(preds_per_dataset.train_label_preds_coords, 'train_labeled',
+    _WritePreds(preds_per_dataset.train_label_preds_coords, 'train_labeled',  # pyrefly: ignore[bad-argument-type]
                 epoch)
-    _WritePreds(preds_per_dataset.train_unlabel_preds_coords, 'train_unlabeled',
+    _WritePreds(preds_per_dataset.train_unlabel_preds_coords, 'train_unlabeled',  # pyrefly: ignore[bad-argument-type]
                 epoch)
 
 

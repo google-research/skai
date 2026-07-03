@@ -101,7 +101,7 @@ class FixMatch(train.ClassifySemi):
     self.ops = self.build_model(params)
     self.ops.update_step = tf.assign_add(self._step, self._batch)
 
-  def build_model(self, params: FixMatchTrainingParams) -> train.ModelOps:
+  def build_model(self, params: FixMatchTrainingParams) -> train.ModelOps:  # pyrefly: ignore[bad-override]
     """Creates model for FixMatch.
 
     Args:
@@ -261,8 +261,8 @@ class FixMatchCTA(FixMatch):
     Returns:
       Newly updated training step.
     """
-    labeled_batch = next(self._labeled_iterator)
-    unlabeled_batch = next(self._unlabeled_iterator)
+    labeled_batch = next(self._labeled_iterator)  # pyrefly: ignore[bad-argument-type]
+    unlabeled_batch = next(self._unlabeled_iterator)  # pyrefly: ignore[bad-argument-type]
     eval_results, _, step = train_session.run(
         [self.ops.classify_op, self.ops.train_op, self.ops.update_step],
         feed_dict={
@@ -273,9 +273,9 @@ class FixMatchCTA(FixMatch):
         })
     # `eval_results` has shape (batch_size, num_class), contains class probs
     for i, class_probs in enumerate(eval_results):
-      correct_class = labeled_batch.label_batch[i]
+      correct_class = labeled_batch.label_batch[i]  # pyrefly: ignore[unsupported-operation]
       error = 1 - class_probs[correct_class]
-      self._cta_object.update_rates(labeled_batch.policy_batch[i], error)
+      self._cta_object.update_rates(labeled_batch.policy_batch[i], error)  # pyrefly: ignore[unsupported-operation]
     return step
 
   def eval_stats(
@@ -327,8 +327,8 @@ class FixMatchRA(FixMatch):
     Returns:
       Newly updated training step.
     """
-    labeled_batch = next(self._labeled_iterator)
-    unlabeled_batch = next(self._unlabeled_iterator)
+    labeled_batch = next(self._labeled_iterator)  # pyrefly: ignore[bad-argument-type]
+    unlabeled_batch = next(self._unlabeled_iterator)  # pyrefly: ignore[bad-argument-type]
     return train_session.run(
         [self.ops.train_op, self.ops.update_step],
         feed_dict={

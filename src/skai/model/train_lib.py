@@ -90,10 +90,10 @@ class TwoHeadedOutputModel(tf.keras.Model):
   def call(self, inputs, training=True):  # pytype: disable=signature-mismatch  # overriding-parameter-count-checks
 
     def _call_without_softmax(inputs):
-      return self.model(inputs)
+      return self.model(inputs)  # pyrefly: ignore[not-callable]
 
     def _call_with_softmax(inputs):
-      outputs = self.model(inputs)
+      outputs = self.model(inputs)  # pyrefly: ignore[not-callable]
       out_main = tf.nn.softmax(outputs['main'], axis=-1)
       out_bias = tf.nn.softmax(outputs['bias'], axis=-1)
       return {'main': out_main, 'bias': out_bias}
@@ -151,7 +151,7 @@ class TwoHeadedOutputModel(tf.keras.Model):
     y_true_main = tf.one_hot(labels, depth=self.num_classes)
 
     with tf.GradientTape() as tape:
-      y_pred = self(features, training=True)
+      y_pred = self(features, training=True)  # pyrefly: ignore[not-callable]
 
       y_true = {'main': y_true_main}
       y_true_bias = None
@@ -171,7 +171,7 @@ class TwoHeadedOutputModel(tf.keras.Model):
         elif self.reweighting_signal == 'error':  # Use prediction error.
           error = tf.math.subtract(
               tf.ones_like(y_pred), tf.gather_nd(y_pred, y_true_main))
-          threshold = np.percentile(error, self.error_percentile_threshold)
+          threshold = np.percentile(error, self.error_percentile_threshold)  # pyrefly: ignore[no-matching-overload]
           reweighting_labels = tf.math.greater(error, threshold)
         else:  # Give weight to worst group only.
           reweighting_labels = tf.math.equal(subgroup_labels,
@@ -181,7 +181,7 @@ class TwoHeadedOutputModel(tf.keras.Model):
             self.reweighting_lambda,
             tf.ones_like(reweighting_labels, dtype=tf.float32))
         below_threshold_example_multiplex = tf.math.multiply(
-            1. - self.reweighting_lambda,
+            1. - self.reweighting_lambda,  # pyrefly: ignore[unsupported-operation]
             tf.ones_like(reweighting_labels, dtype=tf.float32))
         sample_weight = tf.where(
             reweighting_labels,
@@ -225,7 +225,7 @@ class TwoHeadedOutputModel(tf.keras.Model):
     example_ids = inputs['example_id']
     subgroup_labels = inputs['subgroup_label']
     y_true_main = tf.one_hot(labels, depth=2)
-    y_pred = self(features, training=False)
+    y_pred = self(features, training=False)  # pyrefly: ignore[not-callable]
     y_true = {'main': y_true_main}
     if self.train_bias:
       if self.id_to_bias_table is None:
@@ -492,7 +492,7 @@ def create_callbacks(
     callbacks.append(early_stopping_callback)
 
   dataset_size = (
-      num_train_examples if num_train_examples != 0 else batch_size * 100
+      num_train_examples if num_train_examples != 0 else batch_size * 100  # pyrefly: ignore[unsupported-operation]
   )
 
   trial_name = vizier_trial_name if is_vertex else None
@@ -502,9 +502,9 @@ def create_callbacks(
               trial_name, output_dir
           )
       ],
-      logging_frequency=int(dataset_size / batch_size) * batch_size,
-      batch_size=batch_size,
-      num_train_examples_per_epoch=dataset_size,
+      logging_frequency=int(dataset_size / batch_size) * batch_size,  # pyrefly: ignore[unsupported-operation]
+      batch_size=batch_size,  # pyrefly: ignore[bad-argument-type]
+      num_train_examples_per_epoch=dataset_size,  # pyrefly: ignore[bad-argument-type]
   )
   callbacks.append(hyperparameter_tuner_callback)
   return callbacks
@@ -605,8 +605,8 @@ def train_ensemble(
   ensemble = []
   for combo in train_idx_combos:
     combo_name = '_'.join(map(str, combo))
-    combo_train = data.gather_data_splits(combo, dataloader.train_splits)
-    combo_val = data.gather_data_splits(combo, dataloader.val_splits)
+    combo_train = data.gather_data_splits(combo, dataloader.train_splits)  # pyrefly: ignore[bad-argument-type]
+    combo_val = data.gather_data_splits(combo, dataloader.val_splits)  # pyrefly: ignore[bad-argument-type]
     combo_ckpt_dir = os.path.join(output_dir, combo_name, 'checkpoints')
     combo_callbacks = create_callbacks(
         combo_ckpt_dir,
@@ -726,7 +726,7 @@ def load_trained_models(combos_dir: str,
       tf.get_logger().info(
           f'Loading model for checkpoint {ckpt_epoch} from `{checkpoint_path}`')
 
-    combo_model = load_one_checkpoint(checkpoint_path=checkpoint_path,
+    combo_model = load_one_checkpoint(checkpoint_path=checkpoint_path,  # pyrefly: ignore[bad-argument-type]
                                       model_params=model_params,
                                       experiment_name=combo_name)
     trained_models.append(combo_model)
@@ -805,7 +805,7 @@ def generate_checkpoint_list(
       checkpoint_list = [
           sorted_ckpts_names[i]
           for i in range(0, len(sorted_ckpts_names),
-                         int(len(sorted_ckpts_names) / checkpoint_number))
+                         int(len(sorted_ckpts_names) / checkpoint_number))  # pyrefly: ignore[unsupported-operation]
       ]
     elif checkpoint_selection == 'all':
       checkpoint_list = sorted_ckpts_names
@@ -846,7 +846,7 @@ def load_model_checkpoints(checkpoint_dir: str,
                                              checkpoint_selection,
                                              checkpoint_number, checkpoint_name)
   checkpoints = []
-  for checkpoint in checkpoint_list:
+  for checkpoint in checkpoint_list:  # pyrefly: ignore[not-iterable]
     ckpt_path = os.path.join(checkpoint_dir, checkpoint)
     ckpt = load_one_checkpoint(checkpoint_path=ckpt_path,
                                model_params=model_params,

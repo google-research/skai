@@ -185,7 +185,7 @@ def main(_) -> None:
         save_best_model=config.training.save_best_model,
         early_stopping=config.training.early_stopping,
         ensemble_dir=FLAGS.ensemble_dir,
-        example_id_to_bias_table=example_id_to_bias_table,
+        example_id_to_bias_table=example_id_to_bias_table,  # pyrefly: ignore[unbound-name]
         vizier_trial_name=FLAGS.trial_name,
         is_vertex=FLAGS.is_vertex,
         strategy=strategy,

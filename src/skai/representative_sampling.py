@@ -183,7 +183,7 @@ def _drop_points_within_sample(
   """
   buffers = gpd.GeoDataFrame(geometry=sample.buffer(buffer_meters))
   joined = bucket_gdf.sjoin(buffers, how='inner')
-  return bucket_gdf.drop(index=joined.index)
+  return bucket_gdf.drop(index=joined.index)  # pyrefly: ignore[bad-return]
 
 
 def _sample_from_bucket(
@@ -217,7 +217,7 @@ def _sample_top_examples(
     sample.append(sorted_gdf.index[0])
     sorted_gdf = _drop_points_within_sample(
         sorted_gdf.geometry[:1],
-        sorted_gdf,
+        sorted_gdf,  # pyrefly: ignore[bad-argument-type]
         buffer_meters,
     )
   return sample
@@ -419,7 +419,7 @@ def run_representative_sampling(
   close_to_train_set = scores_gdf.sjoin(train_set_buffer, how='inner')
   remaining = scores_gdf.drop(index=close_to_train_set.index)
   test_index = sample_examples(
-      remaining,
+      remaining,  # pyrefly: ignore[bad-argument-type]
       num_test_examples,
       0,
       grid_cell_idx,

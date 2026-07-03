@@ -75,15 +75,15 @@ class SkaiDataset(tfds.core.GeneratorBasedBuilder):
 
   def _split_generators(self, dl_manager: tfds.download.DownloadManager):
     splits = {}
-    if self.builder_config.labeled_train_pattern:
+    if self.builder_config.labeled_train_pattern:  # pyrefly: ignore[missing-attribute]
       splits['labeled_train'] = self._generate_examples(
-          self.builder_config.labeled_train_pattern)
-    if self.builder_config.labeled_test_pattern:
+          self.builder_config.labeled_train_pattern)  # pyrefly: ignore[bad-argument-type]
+    if self.builder_config.labeled_test_pattern:  # pyrefly: ignore[missing-attribute]
       splits['labeled_test'] = self._generate_examples(
-          self.builder_config.labeled_test_pattern)
-    if self.builder_config.unlabeled_pattern:
+          self.builder_config.labeled_test_pattern)  # pyrefly: ignore[bad-argument-type]
+    if self.builder_config.unlabeled_pattern:  # pyrefly: ignore[missing-attribute]
       splits['unlabeled'] = self._generate_examples(
-          self.builder_config.unlabeled_pattern)
+          self.builder_config.unlabeled_pattern)  # pyrefly: ignore[bad-argument-type]
     return splits
 
   def _decode_record(self, record_bytes):
@@ -105,5 +105,5 @@ class SkaiDataset(tfds.core.GeneratorBasedBuilder):
     if not pattern:
       return
     paths = tf.io.gfile.glob(pattern)
-    ds = tf.data.TFRecordDataset(paths).map(self._decode_record)
+    ds = tf.data.TFRecordDataset(paths).map(self._decode_record)  # pyrefly: ignore[bad-instantiation]
     return ds.as_numpy_iterator()

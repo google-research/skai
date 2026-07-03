@@ -68,7 +68,7 @@ class ClassifyFullySupervised(train.ClassifySemi):
 
   def train_step(self, train_session: tf.train.MonitoredTrainingSession) -> int:
     """Gets internal iterator and runs next batch through training operations."""
-    labeled_batch = next(self._labeled_iterator)
+    labeled_batch = next(self._labeled_iterator)  # pyrefly: ignore[bad-argument-type]
     return train_session.run(
         [self.ops.train_op, self.ops.update_step],
         feed_dict={

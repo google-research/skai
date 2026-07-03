@@ -735,7 +735,7 @@ def _get_embedding_mean(
     batch: tuple[str, Iterable[np.ndarray]]
 ) -> tuple[str, np.ndarray]:
   key, embeddings = batch
-  return key, np.mean(np.concatenate(embeddings, axis=0), axis=0)
+  return key, np.mean(np.concatenate(embeddings, axis=0), axis=0)  # pyrefly: ignore[no-matching-overload]
 
 
 def _write_embedding_mean(
@@ -745,7 +745,7 @@ def _write_embedding_mean(
 ):
   """Writes embedding mean to file."""
   key, embeddings = batch
-  mean = np.mean(np.concatenate(embeddings, axis=0), axis=0)
+  mean = np.mean(np.concatenate(embeddings, axis=0), axis=0)  # pyrefly: ignore[no-matching-overload]
   if key == 'pos':
     with tf.io.gfile.GFile(positive_output_path, 'wb') as f:
       np.save(f, mean)

@@ -35,7 +35,7 @@ class FullySupervisedBaseline(fully_supervised.ClassifyFullySupervised):
     """Rather than hard labels of 0 or 1, spread probability across classes."""
     return training_data, labels - smoothing * (labels - 1. / nclass)
 
-  def build_model(self, params: fully_supervised.FullySupervisedTrainingParams):
+  def build_model(self, params: fully_supervised.FullySupervisedTrainingParams):  # pyrefly: ignore[bad-override]
     """Creates a classifier model with the given arguments.
 
     Args:

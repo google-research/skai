@@ -199,12 +199,12 @@ class WebliViT(VLM):
     ).numpy()
 
   def encode_tokens(self, tokens: np.ndarray) -> np.ndarray:
-    _, ztxt, _ = self._core_model.apply({'params': self._params}, None, tokens)
+    _, ztxt, _ = self._core_model.apply({'params': self._params}, None, tokens)  # pyrefly: ignore[bad-unpacking]
     return np.array(ztxt)
 
   def get_temperature(self) -> float:
     if self.temperature is None:
-      _, _, out = self._core_model.apply({'params': self._params}, None, None)
+      _, _, out = self._core_model.apply({'params': self._params}, None, None)  # pyrefly: ignore[bad-unpacking]
       self.temperature = float(out['t'][0])
     return self.temperature
 

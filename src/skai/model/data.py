@@ -157,7 +157,7 @@ def upsample_subgroup(
       for subgroup_label in subgroup_sizes
   ]
   upsampled_dataset = tf.data.Dataset.sample_from_datasets(
-      examples_by_subgroup.values(),
+      examples_by_subgroup.values(),  # pyrefly: ignore[bad-argument-type]
       weights=weights,
       stop_on_empty_dataset=False,
   )
@@ -468,11 +468,11 @@ class WaterbirdsDataset(tfds.core.GeneratorBasedBuilder):
                          is_training: bool = False
                         ) -> Iterator[tuple[str, dict[str, Any]]]:
     """Generator of examples for each split."""
-    dataset = tf.data.Dataset.list_files(file_pattern, shuffle=is_training)
+    dataset = tf.data.Dataset.list_files(file_pattern, shuffle=is_training)  # pyrefly: ignore[bad-argument-type]
 
     def _fetch_dataset(filename):
       buffer_size = 8 * 1024 * 1024  # 8 MiB per file
-      dataset = tf.data.TFRecordDataset(filename, buffer_size=buffer_size)
+      dataset = tf.data.TFRecordDataset(filename, buffer_size=buffer_size)  # pyrefly: ignore[bad-instantiation]
       return dataset
 
     # Reads the data from disk in parallel.
@@ -669,7 +669,7 @@ def _decode_skai_record_bytes(
     large_image_concat = tf.concat([before_image, large_image_concat], axis=-1)
     if load_small_images:
       small_image_concat = tf.concat(
-          [before_image_small, small_image_concat], axis=-1
+          [before_image_small, small_image_concat], axis=-1  # pyrefly: ignore[unbound-name]
       )
   features['input_feature']['large_image'] = large_image_concat
   if load_small_images:
@@ -714,7 +714,7 @@ def read_skai_dataset_from_tfrecord(
         f'File pattern "{pattern}" does not match any files.'
     )
   dataset = (
-      tf.data.TFRecordDataset(paths)
+      tf.data.TFRecordDataset(paths)  # pyrefly: ignore[bad-instantiation]
       .map(decode_records, num_parallel_calls=tf.data.AUTOTUNE)
       .prefetch(tf.data.AUTOTUNE)
   )
@@ -755,7 +755,7 @@ class SkaiDataset(tfds.core.GeneratorBasedBuilder):
       if subgroup_proportions:
         self.subgroup_proportions = subgroup_proportions
       else:
-        self.subgroup_proportions = [1.] * len(subgroup_ids)
+        self.subgroup_proportions = [1.] * len(subgroup_ids)  # pyrefly: ignore[bad-argument-type]
     else:
       self.subgroup_proportions = None
     self.include_train_sample = include_train_sample
@@ -925,7 +925,7 @@ def get_waterbirds_dataset(num_splits: int,
       train_ds,
       num_train_examples=_WATERBIRDS_TRAIN_SIZE,
       worst_group_label=2,  # 1_0, waterbirds on land.
-      train_sample_ds=train_sample,
+      train_sample_ds=train_sample,  # pyrefly: ignore[bad-argument-type]
       eval_ds=eval_datasets)
 
 
@@ -1105,7 +1105,7 @@ def get_skai_dataset(num_splits: int,
     # No named config variant specified, so provide the config explicitly.
     # pylint: disable=unexpected-keyword-arg
     builder_kwargs['config'] = SkaiDatasetConfig(
-        name=adhoc_config_name,
+        name=adhoc_config_name,  # pyrefly: ignore[unexpected-keyword]
         labeled_train_pattern=labeled_train_pattern,
         labeled_test_pattern=validation_pattern,
         unlabeled_pattern=unlabeled_train_pattern,

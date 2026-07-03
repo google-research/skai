@@ -183,7 +183,7 @@ def merge_dropping_neighbors(
   buffer_df = gpd.GeoDataFrame(geometry=points.buffer(buffer_meters))
   joined = new_points.sjoin(buffer_df, how='inner')
   indexes_to_drop = list(set(joined.index))
-  return pd.concat([points, new_points.drop(indexes_to_drop)])
+  return pd.concat([points, new_points.drop(indexes_to_drop)])  # pyrefly: ignore[bad-return]
 
 
 def sample_with_buffer(
@@ -238,7 +238,7 @@ def _read_sharded_metadata(pattern: str) -> pd.DataFrame:
     else:
       raise ValueError(f'Unsupported metadata file type: {path}')
     dfs.append(df)
-  return pd.concat(dfs, ignore_index=True)
+  return pd.concat(dfs, ignore_index=True)  # pyrefly: ignore[bad-return]
 
 
 def _read_sharded_csvs(pattern: str) -> pd.DataFrame:
@@ -258,7 +258,7 @@ def _read_sharded_csvs(pattern: str) -> pd.DataFrame:
         if actual_columns != expected_columns:
           raise ValueError(f'Inconsistent columns in file {path}')
       dfs.append(df)
-  return pd.concat(dfs, ignore_index=True)
+  return pd.concat(dfs, ignore_index=True)  # pyrefly: ignore[bad-return]
 
 
 def get_buffered_example_ids(
@@ -468,7 +468,7 @@ def create_labeling_images(
 
   if images_dir:
     labeling_examples = _create_labeling_assets_from_metadata(
-        metadata_pattern, images_dir, output_dir, allowed_example_ids
+        metadata_pattern, images_dir, output_dir, allowed_example_ids  # pyrefly: ignore[bad-argument-type]
     )
   else:
     if examples_pattern is None:
@@ -480,7 +480,7 @@ def create_labeling_images(
       )
     if all(f.endswith('.parquet') for f in example_files):
       labeling_examples = _create_labeling_assets_from_parquet_files(
-          example_files, output_dir, allowed_example_ids
+          example_files, output_dir, allowed_example_ids  # pyrefly: ignore[bad-argument-type]
       )
     else:
       labeling_examples = _process_example_files(
@@ -489,7 +489,7 @@ def create_labeling_images(
           use_multiprocessing,
           multiprocessing_context,
           max_processes,
-          allowed_example_ids,
+          allowed_example_ids,  # pyrefly: ignore[bad-argument-type]
           _create_labeling_assets_from_example_file,
       )
   labeling_examples = _deduplicate_labeling_examples(labeling_examples)
@@ -661,7 +661,7 @@ def _tfrecord_iterator(path: str) -> Example:
   Yields:
     Examples from the TFRecord file.
   """
-  ds = tf.data.TFRecordDataset([path]).prefetch(tf.data.AUTOTUNE)
+  ds = tf.data.TFRecordDataset([path]).prefetch(tf.data.AUTOTUNE)  # pyrefly: ignore[bad-instantiation]
   if tf.executing_eagerly():
     for record in ds:
       example = Example()
@@ -1057,7 +1057,7 @@ def filter_examples_from_allowed_ids(
     Empty list
   """
   filtered_examples = []
-  for record in tf.data.TFRecordDataset([example_file]):
+  for record in tf.data.TFRecordDataset([example_file]):  # pyrefly: ignore[bad-instantiation]
     example = Example()
     example.ParseFromString(record.numpy())
     if 'example_id' in example.features.feature:
