@@ -110,7 +110,7 @@ def bucket_exists(project, bucket_name):
 def create_bucket(project, location, bucket_name):
   """Create bucket in given project."""
   os.system(
-      f"""gsutil mb -p {project} -l {location} -b on gs://{bucket_name}""")
+      f"""gcloud storage buckets create gs://{bucket_name} --project={project} --location={location} --uniform-bucket-level-access""")
 
 
 def get_project_id(project):
@@ -962,7 +962,7 @@ def get_epoch_number(path_experiment, id_eval_job, checkpoint_selection,
   if checkpoint_selection == 'most_recent':
     most_recent_epoch_file = os.path.join(f'gs://{path_experiment}',
                                           'checkpoints', 'last_processed_epoch')
-    os.system(f'gsutil cp {most_recent_epoch_file} /tmp/last_processed_epoch')
+    os.system(f'gcloud storage cp {most_recent_epoch_file} /tmp/last_processed_epoch')
     with open('/tmp/last_processed_epoch', 'r') as epoch_f:
       epoch_num = epoch_f.read()
 
@@ -1106,7 +1106,7 @@ def run_inference_and_prediction_job(run_infer_args,
       progress_bar.update({'value': 100, 'max': 100})
       preds_file = os.path.join(f'{run_infer_args["train_dir"]}', 'predictions',
                                 f'test_ckpt_{int(epoch)}.geojson')
-      os.system(f'gsutil cp {preds_file} /tmp/predictions.geojson')
+      os.system(f'gcloud storage cp {preds_file} /tmp/predictions.geojson')
       print(f'Predictions saved in :\n{preds_file}')
     else:
       child.close()
