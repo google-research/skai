@@ -5,7 +5,7 @@ tensorflow==2.18.1
 ml-collections==1.0.0
 geopandas==1.0.1
 tensorflow-text==2.18.1
-protobuf==4.25.3
+protobuf==5.29.6
 absl-py==2.2.2
 flax==0.10.5
 sentencepiece==0.2.0
