@@ -238,7 +238,7 @@ def _read_sharded_metadata(pattern: str) -> pd.DataFrame:
     else:
       raise ValueError(f'Unsupported metadata file type: {path}')
     dfs.append(df)
-  return pd.concat(dfs, ignore_index=True)  # pyrefly: ignore[bad-return]
+  return pd.concat(dfs, ignore_index=True)
 
 
 def _read_sharded_csvs(pattern: str) -> pd.DataFrame:
@@ -258,7 +258,7 @@ def _read_sharded_csvs(pattern: str) -> pd.DataFrame:
         if actual_columns != expected_columns:
           raise ValueError(f'Inconsistent columns in file {path}')
       dfs.append(df)
-  return pd.concat(dfs, ignore_index=True)  # pyrefly: ignore[bad-return]
+  return pd.concat(dfs, ignore_index=True)
 
 
 def get_buffered_example_ids(
@@ -661,7 +661,7 @@ def _tfrecord_iterator(path: str) -> Example:
   Yields:
     Examples from the TFRecord file.
   """
-  ds = tf.data.TFRecordDataset([path]).prefetch(tf.data.AUTOTUNE)  # pyrefly: ignore[bad-instantiation]
+  ds = tf.data.TFRecordDataset([path]).prefetch(tf.data.AUTOTUNE)
   if tf.executing_eagerly():
     for record in ds:
       example = Example()
@@ -1057,7 +1057,7 @@ def filter_examples_from_allowed_ids(
     Empty list
   """
   filtered_examples = []
-  for record in tf.data.TFRecordDataset([example_file]):  # pyrefly: ignore[bad-instantiation]
+  for record in tf.data.TFRecordDataset([example_file]):
     example = Example()
     example.ParseFromString(record.numpy())
     if 'example_id' in example.features.feature:
