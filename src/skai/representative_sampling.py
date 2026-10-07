@@ -164,7 +164,7 @@ def _get_bucket_gdf(
 
 
 def _drop_points_within_sample(
-    sample: gpd.array.GeometryArray,
+    sample: gpd.GeoSeries,
     bucket_gdf: gpd.GeoDataFrame,
     buffer_meters: float,
 ) -> gpd.GeoDataFrame:
@@ -174,7 +174,7 @@ def _drop_points_within_sample(
     important for the input to already be randomly shuffled.
 
   Args:
-    sample: A geometry array of the sampled points.
+    sample: A GeoSeries of the sampled points.
     bucket_gdf: A GeoDataFrame of all points in the bucket.
     buffer_meters: The buffer distance in meters.
 

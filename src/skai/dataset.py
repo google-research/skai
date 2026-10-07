@@ -105,5 +105,5 @@ class SkaiDataset(tfds.core.GeneratorBasedBuilder):
     if not pattern:
       return
     paths = tf.io.gfile.glob(pattern)
-    ds = tf.data.TFRecordDataset(paths).map(self._decode_record)  # pyrefly: ignore[bad-instantiation]
+    ds = tf.data.TFRecordDataset(paths).map(self._decode_record)
     return ds.as_numpy_iterator()

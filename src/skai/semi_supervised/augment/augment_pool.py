@@ -129,7 +129,7 @@ class AugmentPool(abc.ABC, train.BatchIterator):
     return self
 
   @abc.abstractmethod
-  def __next__(self) -> _AugmentedDataBatch:  # pytype: disable=signature-mismatch  # overriding-return-type-checks
+  def __next__(self) -> _AugmentedDataBatch:  # pyrefly: ignore[bad-override]
     raise NotImplementedError()
 
   @abc.abstractmethod
