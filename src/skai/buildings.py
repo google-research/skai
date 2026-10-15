@@ -126,7 +126,7 @@ def write_buildings_file(gdf: gpd.GeoDataFrame, output_path: str) -> None:
     output_path: Output path.
   """
   if 'longitude' not in gdf.columns and 'latitude' not in gdf.columns:
-    centroids = gdf.geometry.centroid
+    centroids = gdf.geometry.centroid.to_crs(4326)
     output_gdf = gdf.copy().to_crs(4326)
     output_gdf['longitude'] = [c.x for c in centroids]
     output_gdf['latitude'] = [c.y for c in centroids]
