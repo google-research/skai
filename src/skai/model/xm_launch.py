@@ -135,7 +135,7 @@ def main(_) -> None:
           # Launch training on multiple datasets in parallel.
           # TODO(jlee24): Decompose to its own function.
           train_operations = []
-          for combo in train_combos:
+          for combo in train_combos:  # pyrefly: ignore[unbound-name]
             combo_name = '_'.join(map(str, combo))
             combo_dir = os.path.join(round_dir, COMBOS_SUBDIR, combo_name)
             logging.info('Training combo %s', combo_name)
@@ -190,7 +190,7 @@ def main(_) -> None:
           two_head_ensemble_dir = os.path.join(two_head_output_dir,
                                                COMBOS_SUBDIR)
           train_ensemble_operations = []
-          for combo in train_combos:
+          for combo in train_combos:  # pyrefly: ignore[unbound-name]
             combo_name = '_'.join(map(str, combo))
             combo_dir = os.path.join(two_head_ensemble_dir, combo_name)
             logging.info('Training two-headed model on combo %s', combo_name)
