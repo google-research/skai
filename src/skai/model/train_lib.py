@@ -87,13 +87,13 @@ class TwoHeadedOutputModel(tf.keras.Model):
     })
     return config
 
-  def call(self, inputs, training=True):  # pyrefly: ignore[bad-override]
+  def call(self, inputs, training=True):  # pytype: disable=signature-mismatch  # overriding-parameter-count-checks
 
     def _call_without_softmax(inputs):
-      return self.model(inputs)
+      return self.model(inputs)  # pyrefly: ignore[not-callable]
 
     def _call_with_softmax(inputs):
-      outputs = self.model(inputs)
+      outputs = self.model(inputs)  # pyrefly: ignore[not-callable]
       out_main = tf.nn.softmax(outputs['main'], axis=-1)
       out_bias = tf.nn.softmax(outputs['bias'], axis=-1)
       return {'main': out_main, 'bias': out_bias}
@@ -151,7 +151,7 @@ class TwoHeadedOutputModel(tf.keras.Model):
     y_true_main = tf.one_hot(labels, depth=self.num_classes)
 
     with tf.GradientTape() as tape:
-      y_pred = self(features, training=True)
+      y_pred = self(features, training=True)  # pyrefly: ignore[not-callable]
 
       y_true = {'main': y_true_main}
       y_true_bias = None
@@ -225,7 +225,7 @@ class TwoHeadedOutputModel(tf.keras.Model):
     example_ids = inputs['example_id']
     subgroup_labels = inputs['subgroup_label']
     y_true_main = tf.one_hot(labels, depth=2)
-    y_pred = self(features, training=False)
+    y_pred = self(features, training=False)  # pyrefly: ignore[not-callable]
     y_true = {'main': y_true_main}
     if self.train_bias:
       if self.id_to_bias_table is None:
